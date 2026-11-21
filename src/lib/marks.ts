@@ -53,7 +53,6 @@ function parseMark(input: unknown): Mark {
   const lon = row.lon == null || row.lon === "" ? null : Number(row.lon);
   if (lat != null && (!Number.isFinite(lat) || lat < -90 || lat > 90)) throw new Error("Bad coordinates");
   if (lon != null && (!Number.isFinite(lon) || lon < -180 || lon > 180)) throw new Error("Bad coordinates");
-  const points = Math.max(0, Math.min(500, Math.round(Number(row.points) || 0)));
   const sys = String(row.sys ?? "");
   if (!SYSTEMS.has(sys)) throw new Error("That place can't be saved");
   return {
@@ -63,7 +62,8 @@ function parseMark(input: unknown): Mark {
     state,
     lat,
     lon,
-    points,
+    // Set by the server from the atlas in saveMark; whatever the browser sends is ignored.
+    points: 0,
     sys,
     paths: cleanPaths(row.paths),
     visitedOn: null,
@@ -107,31 +107,41 @@ export const listMarks = createServerFn({ method: "GET" })
       where user_id = ${context.userId}
       order by created_at desc
     `;
-    return rows.map((row) => {
+    const { canonicalPlace } = await import("@/lib/catalog.server");
+    return Promise.all(rows.map(async (row) => {
       const visits = readVisits(row.visits, { visitedOn: row.visited_on || null, note: row.note || "", photo: row.photo || "" });
       const latest = visits[visits.length - 1];
+      // Name, category, state, system and points come from the atlas, not the
+      // stored row, so rows saved with tampered values are corrected on read.
+      // A place no longer in the atlas keeps its row but is worth nothing.
+      const real = await canonicalPlace(row.poi_id, row.state);
       return {
         id: row.poi_id,
-        name: row.name,
-        category: row.category,
-        state: row.state,
+        name: real?.name ?? row.name,
+        category: real?.category ?? row.category,
+        state: real?.state ?? row.state,
         lat: row.lat,
         lon: row.lon,
-        points: Number(row.points) || 0,
-        sys: row.sys || "",
+        points: real?.points ?? 0,
+        sys: real?.sys ?? (row.sys || ""),
         paths: pathsFrom(row.geom),
         visitedOn: latest?.visitedOn ?? null,
         note: latest?.note ?? "",
         photo: latest?.photo ?? "",
         visits,
       };
-    });
+    }));
   });
 
 export const saveMark = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: unknown) => parseMark(input))
-  .handler(async ({ context, data }) => {
+  .handler(async ({ context, data: input }) => {
+    const { canonicalPlace } = await import("@/lib/catalog.server");
+    const real = await canonicalPlace(input.id, input.state);
+    if (!real) throw new Error("That place can't be saved");
+    // Everything that feeds points and badges is taken from the atlas.
+    const data: Mark = { ...input, ...real };
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
     const geom = data.paths.length ? JSON.stringify(data.paths) : null;
