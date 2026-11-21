@@ -1,0 +1,199 @@
+@import "tailwindcss" source("../src");
+
+@theme {
+  --color-bg: #121410;
+  --color-surface: #1c1f18;
+  --color-elevated: #262a22;
+  --color-ink: #f3f0e6;
+  --color-muted: #a39e90;
+  --color-faint: #6f6b60;
+  --color-line: #34382f;
+  --color-accent: #e23d2b;
+  --color-accent-ink: #1a0d0a;
+  --color-interstate: #3d7ab5;
+  --color-usroute: #f3f0e6;
+  --color-state: #8aa56a;
+  --color-place: #e2b15a;
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Newsreader", ui-serif, Georgia, serif;
+  --radius-card: 1rem;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+.maplibregl-map {
+  background: var(--color-bg);
+  font-family: var(--font-sans);
+}
+
+.maplibregl-ctrl-group {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-line) !important;
+  border-radius: 0.75rem !important;
+  overflow: hidden;
+  box-shadow: none !important;
+}
+
+.maplibregl-ctrl-group button {
+  width: 2.75rem !important;
+  height: 2.75rem !important;
+  filter: invert(0.92) hue-rotate(10deg);
+}
+
+.maplibregl-ctrl-attrib {
+  background: color-mix(in oklab, var(--color-bg) 78%, transparent) !important;
+  color: var(--color-faint) !important;
+}
+
+.maplibregl-ctrl-attrib a {
+  color: var(--color-muted) !important;
+}
+
+.h-app,
+.app-shell {
+  height: 100%;
+  height: 100dvh;
+}
+
+.app-shell {
+  display: grid;
+  --sheet-peek: calc(2.75rem + env(safe-area-inset-bottom));
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) var(--sheet, 46dvh);
+  transition: grid-template-rows 180ms ease;
+}
+
+.app-shell.sheet-drag {
+  transition: none;
+}
+
+.app-map {
+  position: relative;
+  z-index: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.place-scroll {
+  max-height: 38vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+
+.place-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.place-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 999px;
+}
+
+.app-sheet {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  border-top: 1px solid var(--color-line);
+  overscroll-behavior: contain;
+}
+
+.sheet-handle,
+.app-sheet > header {
+  touch-action: none;
+}
+
+.sheet-handle {
+  display: flex;
+  width: 100%;
+  height: 2.75rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+}
+
+@media (max-width: 899px) {
+  .app-shell.sheet-card {
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .app-sheet .safe-top {
+    padding-top: 0.25rem;
+  }
+
+  .app-sheet.sheet-full {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+@media (min-width: 900px) {
+  .app-shell {
+    grid-template-columns: 340px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .app-map {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .app-sheet {
+    grid-column: 1;
+    grid-row: 1;
+    border-top: 0;
+    border-right: 1px solid var(--color-line);
+  }
+
+  .sheet-handle {
+    display: none;
+  }
+}
+
+.top-safe {
+  top: max(0.75rem, env(safe-area-inset-top));
+}
+
+.safe-top {
+  padding-top: max(1rem, env(safe-area-inset-top));
+}
+
+.safe-bottom {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+.safe-x {
+  padding-left: max(0.75rem, env(safe-area-inset-left));
+  padding-right: max(0.75rem, env(safe-area-inset-right));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

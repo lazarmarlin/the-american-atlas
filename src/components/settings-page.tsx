@@ -1,0 +1,345 @@
+import { useEffect, useState } from "react";
+import { ChevronLeft } from "lucide-react";
+import { BORDER_COLORS, useSettings } from "@/lib/atlas-settings";
+import { authEnabled, signOut } from "@/lib/auth/client";
+import { hasGateSessionMarker } from "@/lib/auth/gate-session-marker";
+import { useOfflinePack } from "@/lib/offline-pack";
+import { type Profile } from "@/lib/profile";
+import { vaultSaveProfile } from "@/lib/vault";
+
+export function SettingsPage({
+  profile,
+  email,
+  onBack,
+  onSaved,
+  onSync,
+  onTour,
+}: {
+  profile: Profile;
+  email: string | null;
+  onBack: () => void;
+  onSaved: (profile: Profile) => void;
+  onSync: () => Promise<void>;
+  onTour: () => void;
+}) {
+  const icons = useSettings((s) => s.icons);
+  const stateBorder = useSettings((s) => s.stateBorder);
+  const countyColor = useSettings((s) => s.countyColor);
+  const trackTravel = useSettings((s) => s.trackTravel);
+  const setIcons = useSettings((s) => s.setIcons);
+  const setStateBorder = useSettings((s) => s.setStateBorder);
+  const setCountyColor = useSettings((s) => s.setCountyColor);
+  const setTrackTravel = useSettings((s) => s.setTrackTravel);
+  const fastAdd = useSettings((s) => s.fastAdd);
+  const setFastAdd = useSettings((s) => s.setFastAdd);
+  const pack = useOfflinePack();
+  const packPct = pack.total ? Math.min(100, Math.round((pack.done / pack.total) * 100)) : 0;
+  const [name, setName] = useState(profile.name);
+  const [photo, setPhoto] = useState(profile.photo);
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    setName(profile.name);
+    setPhoto(profile.photo);
+  }, [profile.name, profile.photo]);
+
+  async function save() {
+    setBusy(true);
+    setNote(null);
+    try {
+      const next = { name: name.trim(), photo };
+      if (!next.name) throw new Error("Add a name");
+      await vaultSaveProfile(next);
+      onSaved(next);
+      setNote(typeof navigator !== "undefined" && navigator.onLine ? "Saved" : "Saved on this device. It will sync when you're back online.");
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Couldn't save that.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="safe-top safe-bottom mx-auto flex min-h-dvh w-full max-w-lg flex-col bg-bg px-4 text-ink">
+      <button type="button" onClick={onBack} className="mt-3 flex h-11 items-center gap-1 text-sm text-muted">
+        <ChevronLeft className="size-4" aria-hidden="true" />
+        Map
+      </button>
+      <p className="mt-2 text-xs tracking-widest text-faint uppercase">Field atlas</p>
+      <h1 className="font-serif text-4xl leading-none">Settings</h1>
+
+      <section className="mt-8">
+        <h2 className="font-serif text-2xl">Sync</h2>
+        <p className="mt-1 text-sm text-muted">
+          Send your places, trips, and notes to your account, then download the atlas again so any new places are on this device.
+        </p>
+        <button
+          type="button"
+          disabled={syncing || pack.running}
+          onClick={() => {
+            setSyncing(true);
+            setSyncNote(null);
+            void (async () => {
+              try {
+                await onSync();
+              } catch (err) {
+                setSyncNote(err instanceof Error ? err.message : "Couldn't sync the account.");
+                return;
+              } finally {
+                setSyncing(false);
+              }
+              const problem = await pack.refresh();
+              setSyncNote(problem ? `Account synced. ${problem}` : "Synced. Your account and the atlas are up to date.");
+            })();
+          }}
+          className="mt-3 flex h-12 w-full items-center justify-center rounded-lg border border-ink bg-elevated text-sm disabled:text-faint"
+        >
+          {syncing ? "Syncing your account…" : pack.running ? `Updating the atlas… ${packPct}%` : "Sync everything"}
+        </button>
+        {pack.running ? (
+          <div className="mt-3">
+            <div className="h-2 overflow-hidden rounded-full bg-elevated">
+              <div className="h-full bg-accent" style={{ width: `${packPct}%` }} />
+            </div>
+            <p className="mt-1 text-xs text-faint">
+              {pack.done.toLocaleString()} of {pack.total.toLocaleString()} lists
+            </p>
+          </div>
+        ) : null}
+        {syncNote ? <p className="mt-2 text-sm text-muted">{syncNote}</p> : null}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="font-serif text-2xl">Profile</h2>
+        <p className="mt-1 text-sm text-muted">This name and photo show on your atlas. They're saved on this device and sync to your account when you're online.</p>
+        <div className="mt-4 flex items-center gap-3">
+          {photo ? (
+            <img src={photo} alt="" className="size-16 rounded-full object-cover" />
+          ) : (
+            <span className="grid size-16 place-items-center rounded-full bg-elevated font-serif text-2xl">
+              {(name || "?").charAt(0).toUpperCase()}
+            </span>
+          )}
+          <div className="min-w-0">
+            <label className="flex h-11 cursor-pointer items-center rounded-lg border border-line px-3 text-sm">
+              Choose photo
+              <input
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (!file) return;
+                  shrinkPhoto(file).then(setPhoto).catch((err: unknown) => {
+                    setNote(err instanceof Error ? err.message : "Couldn't use that photo");
+                  });
+                }}
+              />
+            </label>
+            {photo ? (
+              <button type="button" onClick={() => setPhoto("")} className="mt-1 text-xs text-faint">
+                Remove photo
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <label className="mt-4 block text-xs text-muted">
+          Name
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value.slice(0, 40))}
+            className="mt-1 h-11 w-full rounded-lg border border-line bg-bg px-3 text-base text-ink outline-none"
+          />
+        </label>
+        {email ? <p className="mt-2 text-xs text-faint">{email}</p> : null}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void save()}
+          className="mt-3 flex h-11 w-full items-center justify-center rounded-lg border border-line text-sm disabled:text-faint"
+        >
+          {busy ? "Saving…" : "Save profile"}
+        </button>
+        {note ? <p className="mt-2 text-sm text-muted">{note}</p> : null}
+        {authEnabled && !hasGateSessionMarker() ? (
+          <button
+            type="button"
+            disabled={signingOut}
+            onClick={() => {
+              setSigningOut(true);
+              void signOut().catch(() => setSigningOut(false));
+            }}
+            className="mt-3 text-sm text-faint underline-offset-4 hover:underline disabled:no-underline"
+          >
+            {signingOut ? "Signing out…" : "Sign out"}
+          </button>
+        ) : null}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="font-serif text-2xl">Travel tracking</h2>
+        <p className="mt-1 text-sm text-muted">
+          When this is on, the county you are in, a road you are driving, or a site within a quarter mile is added for you. The open app can do
+          that now. Background tracking, with the screen off, needs the installed phone app.
+        </p>
+        <button
+          type="button"
+          aria-pressed={trackTravel}
+          onClick={() => setTrackTravel(!trackTravel)}
+          className={"mt-3 h-12 w-full rounded-lg border text-sm " + (trackTravel ? "border-ink bg-elevated" : "border-line")}
+        >
+          {trackTravel ? "Tracking on" : "Tracking off"}
+        </button>
+      </section>
+
+      <section className="mt-8">
+        <h2 className="font-serif text-2xl">Fast add</h2>
+        <p className="mt-1 text-sm text-muted">
+          Tap a place, road, or county and it is added right away. A note at the top opens the card. Tap the same spot again to open it too.
+        </p>
+        <button
+          type="button"
+          aria-pressed={fastAdd}
+          onClick={() => setFastAdd(!fastAdd)}
+          className={"mt-3 h-12 w-full rounded-lg border text-sm " + (fastAdd ? "border-ink bg-elevated" : "border-line")}
+        >
+          {fastAdd ? "Fast add on" : "Fast add off"}
+        </button>
+      </section>
+
+      <section className="mt-8">
+        <h2 className="font-serif text-2xl">Offline atlas</h2>
+        <p className="mt-1 text-sm text-muted">
+          Save every place, town, and road on this device so the lists still open with no signal. A download runs once, then stays here.
+        </p>
+        <button
+          type="button"
+          aria-pressed={pack.ready || pack.running}
+          onClick={() => void (pack.ready || pack.running ? pack.clear() : pack.start())}
+          className={"mt-3 h-12 w-full rounded-lg border text-sm " + (pack.ready || pack.running ? "border-ink bg-elevated" : "border-line")}
+        >
+          {pack.running ? `Saving the atlas… ${packPct}%` : pack.ready ? "Offline atlas on" : "Offline atlas off"}
+        </button>
+        {pack.running || (pack.done > 0 && !pack.ready) ? (
+          <div className="mt-3">
+            <div className="h-2 overflow-hidden rounded-full bg-elevated">
+              <div className="h-full bg-accent" style={{ width: `${packPct}%` }} />
+            </div>
+            <p className="mt-1 text-xs text-faint">
+              {pack.done.toLocaleString()} of {pack.total.toLocaleString()} lists
+            </p>
+          </div>
+        ) : null}
+        {pack.error ? <p className="mt-2 text-sm text-accent">{pack.error}</p> : null}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="font-serif text-2xl">Tour</h2>
+        <p className="mt-1 text-sm text-muted">The first-time walkthrough. Play it again whenever the map starts to feel crowded.</p>
+        <button type="button" onClick={onTour} className="mt-3 h-12 w-full rounded-lg border border-line text-sm">
+          Replay the tour
+        </button>
+      </section>
+
+      <section className="mt-8">
+        <h2 className="font-serif text-2xl">Map markers</h2>
+        <p className="mt-1 text-sm text-muted">Icons use the same colors as the place types. Dots are the plain circles.</p>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            aria-pressed={icons}
+            onClick={() => setIcons(true)}
+            className={"h-12 rounded-lg border text-sm " + (icons ? "border-ink bg-elevated" : "border-line")}
+          >
+            Icons
+          </button>
+          <button
+            type="button"
+            aria-pressed={!icons}
+            onClick={() => setIcons(false)}
+            className={"h-12 rounded-lg border text-sm " + (!icons ? "border-ink bg-elevated" : "border-line")}
+          >
+            Dots
+          </button>
+        </div>
+      </section>
+
+      <section className="mt-8">
+        <h2 className="font-serif text-2xl">States you've been to</h2>
+        <p className="mt-1 text-sm text-muted">The outline of a state changes after you add it, or anything in it.</p>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {BORDER_COLORS.map((color) => (
+            <button
+              key={color.id}
+              type="button"
+              aria-pressed={stateBorder.toLowerCase() === color.id}
+              onClick={() => setStateBorder(color.id)}
+              className={
+                "flex h-12 items-center justify-center gap-2 rounded-lg border text-sm " +
+                (stateBorder.toLowerCase() === color.id ? "border-ink bg-elevated" : "border-line")
+              }
+            >
+              <span className="size-3 rounded-full" style={{ background: color.id }} />
+              {color.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-8">
+        <h2 className="font-serif text-2xl">Counties you've been to</h2>
+        <p className="mt-1 text-sm text-muted">The fill on a county after you add it. Outlines of the ones you haven't added stay light.</p>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {BORDER_COLORS.map((color) => (
+            <button
+              key={color.id}
+              type="button"
+              aria-pressed={countyColor.toLowerCase() === color.id}
+              onClick={() => setCountyColor(color.id)}
+              className={
+                "flex h-12 items-center justify-center gap-2 rounded-lg border text-sm " +
+                (countyColor.toLowerCase() === color.id ? "border-ink bg-elevated" : "border-line")
+              }
+            >
+              <span className="size-3 rounded-full" style={{ background: color.id }} />
+              {color.label}
+            </button>
+          ))}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function shrinkPhoto(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Couldn't read that photo"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, 480 / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const g = canvas.getContext("2d");
+        if (!g) {
+          reject(new Error("Couldn't read that photo"));
+          return;
+        }
+        g.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const url = canvas.toDataURL("image/jpeg", 0.72);
+        if (url.length > 140000) reject(new Error("Use a smaller photo"));
+        else resolve(url);
+      };
+      img.onerror = () => reject(new Error("Couldn't read that photo"));
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
