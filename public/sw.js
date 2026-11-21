@@ -1,5 +1,6 @@
 const SHELL = "atlas-shell-v1";
-const FILES = "atlas-files";
+// Keep in sync with ATLAS_CACHE in src/lib/atlas-files.ts; bump when atlas data changes.
+const FILES = "atlas-files-v3";
 const TILES = "atlas-tiles-v1";
 const TILE_LIMIT = 400;
 
@@ -8,7 +9,14 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      // Drop atlas data cached by older versions so fixed files are fetched again.
+      const names = await caches.keys();
+      await Promise.all(names.filter((name) => name.startsWith("atlas-files") && name !== FILES).map((name) => caches.delete(name)));
+      await self.clients.claim();
+    })(),
+  );
 });
 
 self.addEventListener("fetch", (event) => {

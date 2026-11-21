@@ -1,4 +1,4 @@
-import { OFFLINE_PACK_VERSION, OFFLINE_READY_KEY, readAtlasFile } from "@/lib/atlas-files";
+import { ATLAS_CACHE, OFFLINE_PACK_VERSION, OFFLINE_READY_KEY, readAtlasFile } from "@/lib/atlas-files";
 
 export type System = "I" | "US" | "SR" | "PK";
 
@@ -83,7 +83,7 @@ function localFirst() {
 async function readStored(url: string) {
   const text = await readAtlasFile(url);
   if (text) return new Response(text, { headers: { "content-type": "application/json" } });
-  const cache = typeof caches === "undefined" ? null : await caches.open("atlas-files");
+  const cache = typeof caches === "undefined" ? null : await caches.open(ATLAS_CACHE);
   if (!cache) return null;
   return (await cache.match(url)) ?? null;
 }
@@ -93,7 +93,7 @@ async function cachedFetch(url: string) {
     const stored = await readStored(url);
     if (stored) return stored;
   }
-  const cache = typeof caches === "undefined" ? null : await caches.open("atlas-files");
+  const cache = typeof caches === "undefined" ? null : await caches.open(ATLAS_CACHE);
   try {
     const res = await fetch(url);
     if (res.ok && cache) await cache.put(url, res.clone());

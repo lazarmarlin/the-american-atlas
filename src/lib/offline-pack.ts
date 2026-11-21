@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { clearAtlasFiles, OFFLINE_PACK_VERSION, OFFLINE_READY_KEY, readAtlasFile, writeAtlasFile } from "@/lib/atlas-files";
+import { ATLAS_CACHE, clearAtlasFiles, OFFLINE_PACK_VERSION, OFFLINE_READY_KEY, readAtlasFile, writeAtlasFile } from "@/lib/atlas-files";
 import { forgetAtlasLists } from "@/lib/atlas-model";
 
 const READY_KEY = OFFLINE_READY_KEY;
@@ -48,7 +48,7 @@ async function saveFile(cache: Cache, path: string, signal: AbortSignal, force: 
 }
 
 async function saveAll(files: string[], signal: AbortSignal, force: boolean, onDone: (done: number) => void) {
-  const cache = await caches.open("atlas-files");
+  const cache = await caches.open(ATLAS_CACHE);
   let cursor = 0;
   let done = 0;
   const failed: string[] = [];
@@ -132,7 +132,7 @@ export const useOfflinePack = create<OfflinePack>((set, get) => ({
   clear: async () => {
     control?.abort();
     control = null;
-    if (typeof caches !== "undefined") await caches.delete("atlas-files");
+    if (typeof caches !== "undefined") await caches.delete(ATLAS_CACHE);
     await clearAtlasFiles();
     forgetAtlasLists();
     if (typeof window !== "undefined") window.dispatchEvent(new Event("atlas-pack"));

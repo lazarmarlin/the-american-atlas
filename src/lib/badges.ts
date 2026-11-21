@@ -114,17 +114,25 @@ export const listBadgeProgress = createServerFn({ method: "GET" })
       from marks
       where user_id = ${context.userId}
     `;
-    const views = badgeViewsFromMarks(
-      marks.map((row) => ({
-        id: row.poi_id,
-        name: row.name,
-        category: row.category,
-        state: row.state,
-        points: Number(row.points) || 0,
-        sys: row.sys || "",
-        visits: readVisits(row.visits),
-      })),
+    const { canonicalPlace } = await import("@/lib/catalog.server");
+    const rows = await Promise.all(
+      marks.map(async (row) => {
+        // Badge progress uses the atlas's own record of each place, never the stored
+        // copy; rows for places that aren't in the atlas don't count.
+        const real = await canonicalPlace(row.poi_id, row.state);
+        if (!real) return null;
+        return {
+          id: row.poi_id,
+          name: real.name,
+          category: real.category,
+          state: real.state,
+          points: real.points,
+          sys: real.sys,
+          visits: readVisits(row.visits),
+        };
+      }),
     );
+    const views = badgeViewsFromMarks(rows.filter((row) => row !== null));
     const earnedIds = views.filter((badge) => badge.earned).map((badge) => badge.id);
     const existing = await sql<{ badge_id: string }>`
       select badge_id from earned_badges where user_id = ${context.userId}
