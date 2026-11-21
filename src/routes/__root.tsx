@@ -55,8 +55,9 @@ export const Route = createRootRoute({
 
 function OfflineHost() {
   useEffect(() => {
-    // The native app already ships the atlas files; no service worker there.
-    if (nativeApp || !("serviceWorker" in navigator)) return;
+    // The website caches tiles as you look at them. The native app uses the same
+    // worker so a saved map picture still draws with no signal.
+    if (!("serviceWorker" in navigator)) return;
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   }, []);
   return null;

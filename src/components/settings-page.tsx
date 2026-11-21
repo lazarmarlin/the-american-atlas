@@ -4,6 +4,8 @@ import { BORDER_COLORS, useSettings } from "@/lib/atlas-settings";
 import { authEnabled, signOut } from "@/lib/auth/client";
 import { hasGateSessionMarker } from "@/lib/auth/gate-session-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
+import { nativeApp } from "@/lib/native";
+import { requestTrackingPermission } from "@/lib/background-location";
 import { type Profile } from "@/lib/profile";
 import { vaultSaveProfile } from "@/lib/vault";
 
@@ -41,6 +43,7 @@ export function SettingsPage({
   const [signingOut, setSigningOut] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncNote, setSyncNote] = useState<string | null>(null);
+  const [trackNote, setTrackNote] = useState<string | null>(null);
 
   useEffect(() => {
     setName(profile.name);
@@ -184,17 +187,41 @@ export function SettingsPage({
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Travel tracking</h2>
         <p className="mt-1 text-sm text-muted">
-          When this is on, the county you are in, a road you are driving, or a site within a quarter mile is added for you. The open app can do
-          that now. Background tracking, with the screen off, needs the installed phone app.
+          {nativeApp
+            ? "When this is on, the county you are in, a road you are driving, or a site within a quarter mile is added for you. It keeps going with the screen off. Turning it on asks Android to allow location all the time."
+            : "When this is on, the county you are in, a road you are driving, or a site within a quarter mile is added for you. The open app can do that now. Background tracking, with the screen off, needs the installed phone app."}
         </p>
         <button
           type="button"
           aria-pressed={trackTravel}
-          onClick={() => setTrackTravel(!trackTravel)}
+          onClick={() => {
+            if (trackTravel) {
+              setTrackNote(null);
+              setTrackTravel(false);
+              return;
+            }
+            if (!nativeApp) {
+              setTrackTravel(true);
+              return;
+            }
+            void requestTrackingPermission().then((result) => {
+              if (result === "denied") {
+                setTrackNote("Android didn't allow location. Allow it for The American Atlas, including all the time, then turn tracking on again.");
+                return;
+              }
+              setTrackNote(
+                result === "always"
+                  ? null
+                  : "Tracking works while the app is open. To keep going with the screen off, choose Allow all the time.",
+              );
+              setTrackTravel(true);
+            });
+          }}
           className={"mt-3 h-12 w-full rounded-lg border text-sm " + (trackTravel ? "border-ink bg-elevated" : "border-line")}
         >
           {trackTravel ? "Tracking on" : "Tracking off"}
         </button>
+        {trackNote ? <p className="mt-2 text-sm text-muted">{trackNote}</p> : null}
       </section>
 
       <section className="mt-8">
@@ -212,6 +239,7 @@ export function SettingsPage({
         </button>
       </section>
 
+      {nativeApp ? null : (
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Offline atlas</h2>
         <p className="mt-1 text-sm text-muted">
@@ -237,6 +265,7 @@ export function SettingsPage({
         ) : null}
         {pack.error ? <p className="mt-2 text-sm text-accent">{pack.error}</p> : null}
       </section>
+      )}
 
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Tour</h2>

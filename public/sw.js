@@ -2,7 +2,8 @@ const SHELL = "atlas-shell-v1";
 // Keep in sync with ATLAS_CACHE in src/lib/atlas-files.ts; bump when atlas data changes.
 const FILES = "atlas-files-v3";
 const TILES = "atlas-tiles-v1";
-const TILE_LIMIT = 400;
+const TILES_BASE = "atlas-tiles-base";
+const TILE_LIMIT = 2500;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
@@ -29,7 +30,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (url.hostname.endsWith("openfreemap.org") || url.hostname.endsWith("openstreetmap.org")) {
-    event.respondWith(cacheFirst(TILES, req, TILE_LIMIT));
+    event.respondWith(cacheFirstTiles(req));
     return;
   }
   if (url.hostname === "fonts.googleapis.com" || url.hostname === "fonts.gstatic.com") {
@@ -40,6 +41,13 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(networkFirst(SHELL, req));
   }
 });
+
+async function cacheFirstTiles(req) {
+  const base = await caches.open(TILES_BASE);
+  const saved = await base.match(req);
+  if (saved) return saved;
+  return cacheFirst(TILES, req, TILE_LIMIT);
+}
 
 async function cacheFirst(name, req, limit) {
   const cache = await caches.open(name);

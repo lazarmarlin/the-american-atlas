@@ -27,6 +27,7 @@ import { Tour } from "@/components/tour";
 import { BadgeIcon } from "@/components/badge-icon";
 import { useSettings } from "@/lib/atlas-settings";
 import { useOfflinePack } from "@/lib/offline-pack";
+import { nativeApp } from "@/lib/native";
 import { countyToMark } from "@/lib/counties";
 import { glyphUrl } from "@/lib/map-glyphs";
 import { type Profile } from "@/lib/profile";
@@ -424,7 +425,7 @@ function AtlasShell() {
 
   useEffect(() => {
     if (!trackTravel) return;
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
+    if (!nativeApp && (typeof navigator === "undefined" || !navigator.geolocation)) {
       setTrackTravel(false);
       setError("This device can't share a location.");
       return;
@@ -468,15 +469,43 @@ function AtlasShell() {
       void pump();
     }
 
-    const watch = navigator.geolocation.watchPosition(
-      (pos) => push([{ lat: pos.coords.latitude, lon: pos.coords.longitude }]),
-      (err) => {
-        if (dead || err.code !== 1) return;
-        setTrackTravel(false);
-        setError("Location is blocked. Allow it for The American Atlas, then turn tracking back on.");
-      },
-      { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 },
-    );
+    const watch = nativeApp
+      ? 0
+      : navigator.geolocation.watchPosition(
+          (pos) => push([{ lat: pos.coords.latitude, lon: pos.coords.longitude }]),
+          (err) => {
+            if (dead || err.code !== 1) return;
+            setTrackTravel(false);
+            setError("Location is blocked. Allow it for The American Atlas, then turn tracking back on.");
+          },
+          { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 },
+        );
+    if (nativeApp) {
+      void import("@capgo/background-geolocation").then(({ BackgroundGeolocation }) => {
+        if (dead) return;
+        void BackgroundGeolocation.start(
+          {
+            backgroundTitle: "The American Atlas",
+            backgroundMessage: "Adding counties, roads, and places as you go.",
+            requestPermissions: true,
+            stale: false,
+            distanceFilter: 80,
+          },
+          (location, error) => {
+            if (dead) return;
+            if (error) {
+              if (error.code === "NOT_AUTHORIZED" || error.code === "PERMISSION_DENIED") {
+                setTrackTravel(false);
+                setError("Location is blocked. Allow it all the time for The American Atlas, then turn tracking back on.");
+              }
+              return;
+            }
+            if (!location) return;
+            push([{ lat: location.latitude, lon: location.longitude }]);
+          },
+        );
+      });
+    }
     const host = window as Window & { atlasPushFixes?: (fixes: Fix[]) => void };
     host.atlasPushFixes = push;
     push(takeNativeFixes());
@@ -485,7 +514,8 @@ function AtlasShell() {
     document.addEventListener("visibilitychange", onShow);
     return () => {
       dead = true;
-      navigator.geolocation.clearWatch(watch);
+      if (nativeApp) void import("@capgo/background-geolocation").then(({ BackgroundGeolocation }) => BackgroundGeolocation.stop());
+      else navigator.geolocation.clearWatch(watch);
       delete host.atlasPushFixes;
       window.removeEventListener("focus", onShow);
       document.removeEventListener("visibilitychange", onShow);
