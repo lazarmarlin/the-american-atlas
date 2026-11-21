@@ -11,6 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as AuthNativeRouteImport } from './routes/auth/native'
+import { Route as AuthNativeExchangeRouteImport } from './routes/auth/native-exchange'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -23,6 +25,16 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthNativeRoute = AuthNativeRouteImport.update({
+  id: '/auth/native',
+  path: '/auth/native',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthNativeExchangeRoute = AuthNativeExchangeRouteImport.update({
+  id: '/auth/native-exchange',
+  path: '/auth/native-exchange',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -32,30 +44,45 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/auth/native': typeof AuthNativeRoute
+  '/auth/native-exchange': typeof AuthNativeExchangeRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/auth/native': typeof AuthNativeRoute
+  '/auth/native-exchange': typeof AuthNativeExchangeRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/auth/native': typeof AuthNativeRoute
+  '/auth/native-exchange': typeof AuthNativeExchangeRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/api/auth/$'
+  fullPaths:
+    '/' | '/login' | '/auth/native' | '/auth/native-exchange' | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/api/auth/$'
-  id: '__root__' | '/' | '/login' | '/api/auth/$'
+  to: '/' | '/login' | '/auth/native' | '/auth/native-exchange' | '/api/auth/$'
+  id:
+    | '__root__'
+    | '/'
+    | '/login'
+    | '/auth/native'
+    | '/auth/native-exchange'
+    | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
+  AuthNativeRoute: typeof AuthNativeRoute
+  AuthNativeExchangeRoute: typeof AuthNativeExchangeRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -75,6 +102,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth/native': {
+      id: '/auth/native'
+      path: '/auth/native'
+      fullPath: '/auth/native'
+      preLoaderRoute: typeof AuthNativeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/native-exchange': {
+      id: '/auth/native-exchange'
+      path: '/auth/native-exchange'
+      fullPath: '/auth/native-exchange'
+      preLoaderRoute: typeof AuthNativeExchangeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -88,6 +129,8 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
+  AuthNativeRoute: AuthNativeRoute,
+  AuthNativeExchangeRoute: AuthNativeExchangeRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
@@ -95,10 +138,11 @@ export const routeTree = rootRouteImport
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
+import type { startInstance } from './start.ts'
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
     router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }

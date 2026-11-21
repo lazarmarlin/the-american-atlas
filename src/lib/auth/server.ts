@@ -39,6 +39,7 @@ import { ensureDbReady, getPglite } from "../db";
 import { emailAndPasswordEnabled } from "./email-password";
 import { GATE_PROVIDER_ID, gateIdentitySessions } from "./gate-session.server";
 import { GROK_PROVIDERS } from "./providers";
+import { APP_ORIGINS } from "../app-origins";
 import { pgliteDialect } from "./pglite-dialect";
 import {
   GROK_ISSUER_DEFAULT,
@@ -116,8 +117,9 @@ const baseURL = explicitBaseURL ?? {
 // Origins Better Auth accepts on credentialed POSTs (sign-up/sign-in, etc.).
 // Missing entries here surface as FORBIDDEN "Invalid origin".
 const trustedOrigins: string[] = explicitBaseURL
-  ? [explicitBaseURL, ...LOCAL_DEV_ORIGINS]
+  ? [explicitBaseURL, ...LOCAL_DEV_ORIGINS, ...APP_ORIGINS]
   : [
+      ...APP_ORIGINS,
       // Host wildcards (matched against Origin's host)
       ...previewAllowedHosts,
       // Full-origin wildcards (matched against Origin)
