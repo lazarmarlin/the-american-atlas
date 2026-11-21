@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
+import { nativeApp } from "@/lib/native";
 import appCss from "../styles.css?url";
 
 const APP_NAME = "The American Atlas";
@@ -42,6 +43,7 @@ export const Route = createRootRoute({
       <body>
         <PreviewHostBridge />
         <OfflineHost />
+        {nativeApp ? <NativeHost /> : null}
         <AuthProvider>
           <Outlet />
         </AuthProvider>
@@ -53,8 +55,26 @@ export const Route = createRootRoute({
 
 function OfflineHost() {
   useEffect(() => {
-    if (!("serviceWorker" in navigator)) return;
+    // The native app already ships the atlas files; no service worker there.
+    if (nativeApp || !("serviceWorker" in navigator)) return;
     navigator.serviceWorker.register("/sw.js").catch(() => {});
+  }, []);
+  return null;
+}
+
+/** Android back button: go back in the app, or leave it from the first screen. */
+function NativeHost() {
+  useEffect(() => {
+    let remove: (() => void) | undefined;
+    void import("@capacitor/app").then(({ App }) =>
+      App.addListener("backButton", ({ canGoBack }) => {
+        if (canGoBack) window.history.back();
+        else void App.minimizeApp();
+      }).then((handle) => {
+        remove = () => void handle.remove();
+      }),
+    );
+    return () => remove?.();
   }, []);
   return null;
 }

@@ -2,6 +2,8 @@ import { genericOAuthClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { runPreSignInSignOut, runSignOut } from "../../../scripts/sign-out-plan.mjs";
 import { GROK_PROVIDERS } from "./providers";
+import { getBearerToken, setBearerToken } from "./token";
+import { apiOrigin, nativeApp } from "@/lib/native";
 
 /**
  * Better Auth client for this React SPA (browser-side).
@@ -18,12 +20,23 @@ import { GROK_PROVIDERS } from "./providers";
  * the visitor stays signed in.
  */
 export const authClient = createAuthClient({
+  // The native app is served from https://localhost, so it must name the web app.
+  ...(nativeApp ? { baseURL: apiOrigin } : {}),
   plugins: [genericOAuthClient()],
   fetchOptions: {
+    // Native app: bearer token only — never send or store cookies cross-origin.
+    ...(nativeApp ? { credentials: "omit" as const } : {}),
     onRequest(ctx) {
       const token = getBearerToken();
       if (token) ctx.headers.set("Authorization", `Bearer ${token}`);
       return ctx;
+    },
+    // Native app: there are no cookies across origins, so keep the bearer token
+    // Better Auth returns on email sign-in / sign-up.
+    onSuccess(ctx) {
+      if (!nativeApp) return;
+      const token = ctx.response.headers.get("set-auth-token");
+      if (token) setBearerToken(token);
     },
   },
 });
@@ -40,32 +53,12 @@ export const authEnabled = import.meta.env.VITE_AUTH_ENABLED !== "false";
 /** The upstream providers to render sign-in buttons for. */
 export { GROK_PROVIDERS };
 
-// ── Live-preview bearer token ────────────────────────────────────────────────
-// The embedded preview iframe has partitioned cookies, so we keep the session's
-// bearer token in sessionStorage and attach it to every Better Auth request (and
-// to server functions, via `@/lib/auth/middleware`). Empty everywhere except the
-// preview after a popup sign-in, so the cookie path is untouched elsewhere.
-const BEARER_KEY = "grok-auth.bearer-token";
-
-/** The stored preview bearer token, or null. */
-export function getBearerToken(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.sessionStorage.getItem(BEARER_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function setBearerToken(token: string | null): void {
-  if (typeof window === "undefined") return;
-  try {
-    if (token) window.sessionStorage.setItem(BEARER_KEY, token);
-    else window.sessionStorage.removeItem(BEARER_KEY);
-  } catch {
-    /* storage unavailable — ignore */
-  }
-}
+// ── Bearer token ─────────────────────────────────────────────────────────────
+// Live preview (partitioned cookies) and the native app keep the session's
+// bearer token and attach it to every Better Auth request (and to server
+// functions, via `@/lib/auth/middleware`). Empty on the deployed web, where the
+// cookie path is used. Storage lives in `./token`.
+export { getBearerToken };
 
 /**
  * The sandbox live preview runs this app inside an iframe on a `*.grok-sandbox.com`
@@ -102,6 +95,21 @@ export async function signIn(
 ): Promise<void> {
   const callbackURL = opts.callbackURL ?? "/";
   const errorCallbackURL = opts.errorCallbackURL ?? "/";
+
+  // Native app: Google won't sign in inside a web view, so run OAuth in the
+  // system browser and come back through a deep link (see ./native-signin).
+  if (nativeApp) {
+    const { nativeSignIn } = await import("./native-signin");
+    const token = await nativeSignIn(providerId);
+    setBearerToken(token);
+    try {
+      await authClient.getSession();
+    } catch {
+      /* session store will recover on next useSession fetch */
+    }
+    window.location.href = callbackURL;
+    return;
+  }
 
   // Open the popup SYNCHRONOUSLY on the user gesture — before any await
   // (including signOut). Awaiting first drops user-gesture privilege in some

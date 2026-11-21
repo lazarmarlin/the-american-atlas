@@ -1,4 +1,5 @@
 import { getRequest } from "@tanstack/react-start/server";
+import { hasBearer, isAppOrigin } from "../app-origins";
 
 /**
  * Fetch-Metadata sibling isolation — **server-only** (`.server.ts` suffix).
@@ -39,6 +40,9 @@ export function assertSameSiteRequest(): void {
   // Non-browser client (no header), the app's own origin, or a direct
   // (address-bar/bookmark) load are all fine.
   if (!site || site === "same-origin" || site === "none") return;
+  // The Capacitor app's web view (see @/lib/app-origins) authenticates with a
+  // bearer token only, which a cross-site page can't attach for someone else.
+  if (isAppOrigin(h.get("origin")) && hasBearer(h)) return;
   // A top-level GET navigation (e.g. the broker's OAuth callback redirect) is
   // fine even when it's cross-site; scripted requests never set navigate mode.
   const dest = h.get("sec-fetch-dest");

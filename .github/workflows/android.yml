@@ -1,0 +1,43 @@
+# Builds a debug APK of the Capacitor app. Download it from the run's
+# "Artifacts" section and install it on an Android phone.
+#
+# Needs a repository variable API_ORIGIN (Settings → Secrets and variables →
+# Actions → Variables) set to the deployed web app, e.g. https://your-app.vercel.app
+name: Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Build app assets
+        env:
+          VITE_API_ORIGIN: ${{ vars.API_ORIGIN }}
+        run: npm run build:app
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: american-atlas-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk

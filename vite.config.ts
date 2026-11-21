@@ -142,6 +142,13 @@ function authPopupPlugin(): Plugin {
   };
 }
 
+/**
+ * `npm run build:app` sets VITE_NATIVE_APP=true: a static single-page build of
+ * the client for the Capacitor app (no server bundle, no web-only platform
+ * chrome). Its server calls go to VITE_API_ORIGIN — see src/lib/native.ts.
+ */
+const nativeAppBuild = process.env.VITE_NATIVE_APP === "true";
+
 // `0.0.0.0:8080` is the live-preview contract — don't change host/port.
 // The dev server starts once `src/router.tsx` and `src/routes/` exist — see
 // AGENTS.md § "First scaffold".
@@ -163,11 +170,15 @@ export default defineConfig(({ command, isPreview }) => ({
     authPopupPlugin(),
     // Dev-only /__app-env, read by scripts/check-auth-invariant.mjs.
     appEnvPlugin(),
-    // PWA head + ?install=1 tutorial page; runs before Start/Nitro.
-    grokPwaPlugin(),
+    // PWA head + ?install=1 tutorial page; runs before Start/Nitro. Web only.
+    ...(nativeAppBuild ? [] : [grokPwaPlugin()]),
     tailwindcss(),
-    tanstackStart(),
-    ...(command === "build" || isPreview
+    tanstackStart(
+      nativeAppBuild
+        ? { spa: { enabled: true, prerender: { outputPath: "/index.html", crawlLinks: false } } }
+        : undefined,
+    ),
+    ...(!nativeAppBuild && (command === "build" || isPreview)
       ? [
           nitro({
             preset: "vercel",
