@@ -2,8 +2,11 @@ const SHELL = "atlas-shell-v1";
 // Keep in sync with ATLAS_CACHE in src/lib/atlas-files.ts; bump when atlas data changes.
 const FILES = "atlas-files-v3";
 const TILES = "atlas-tiles-v1";
-const TILES_BASE = "atlas-tiles-base";
 const TILE_LIMIT = 2500;
+// The Android app (Capacitor) serves the page from https://localhost with the
+// atlas files built in, so they are never cached here: a cached copy would
+// outlive an app update that ships new data.
+const IN_APP = self.location.origin === "https://localhost" || self.location.origin === "capacitor://localhost";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
@@ -14,7 +17,12 @@ self.addEventListener("activate", (event) => {
     (async () => {
       // Drop atlas data cached by older versions so fixed files are fetched again.
       const names = await caches.keys();
-      await Promise.all(names.filter((name) => name.startsWith("atlas-files") && name !== FILES).map((name) => caches.delete(name)));
+      // In the app, drop any atlas copy saved before it stopped caching them.
+      await Promise.all(
+        names
+          .filter((name) => name.startsWith("atlas-files") && (IN_APP || name !== FILES))
+          .map((name) => caches.delete(name)),
+      );
       await self.clients.claim();
     })(),
   );
@@ -26,11 +34,12 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (url.pathname.startsWith("/@") || url.pathname.startsWith("/src/") || url.pathname.startsWith("/__vite") || url.pathname.includes("node_modules")) return;
   if (url.origin === self.location.origin && url.pathname.startsWith("/atlas/")) {
+    if (IN_APP) return;
     event.respondWith(cacheFirst(FILES, req));
     return;
   }
   if (url.hostname.endsWith("openfreemap.org") || url.hostname.endsWith("openstreetmap.org")) {
-    event.respondWith(cacheFirstTiles(req));
+    event.respondWith(cacheFirst(TILES, req, TILE_LIMIT));
     return;
   }
   if (url.hostname === "fonts.googleapis.com" || url.hostname === "fonts.gstatic.com") {
@@ -41,13 +50,6 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(networkFirst(SHELL, req));
   }
 });
-
-async function cacheFirstTiles(req) {
-  const base = await caches.open(TILES_BASE);
-  const saved = await base.match(req);
-  if (saved) return saved;
-  return cacheFirst(TILES, req, TILE_LIMIT);
-}
 
 async function cacheFirst(name, req, limit) {
   const cache = await caches.open(name);

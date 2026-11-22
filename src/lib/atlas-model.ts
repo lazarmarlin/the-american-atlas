@@ -1,4 +1,5 @@
 import { ATLAS_CACHE, OFFLINE_PACK_VERSION, OFFLINE_READY_KEY, readAtlasFile } from "@/lib/atlas-files";
+import { nativeApp } from "@/lib/native";
 
 export type System = "I" | "US" | "SR" | "PK";
 
@@ -89,6 +90,10 @@ async function readStored(url: string) {
 }
 
 async function cachedFetch(url: string) {
+  // The Android app has every atlas file built in and served locally, so it
+  // reads them straight from the app, online or not, and never keeps a copy
+  // that could go stale after an app update.
+  if (nativeApp) return fetch(url);
   if (localFirst()) {
     const stored = await readStored(url);
     if (stored) return stored;
