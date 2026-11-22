@@ -531,3 +531,122 @@ export async function clearGhostLocal(): Promise<void> {
   useGhost.setState({ live: [], saved: [], hidden: [], focusId: null, dirty: false, ready: true, userId: null, pending: noPending(), synced: false });
   if (userId) await writeKey(keyFor(userId), undefined);
 }
+
+// ---------------------------------------------------------------- drawing
+
+type XY = [number, number];
+
+/** Meters between two [lon, lat] points (flat approximation, fine at trail scale). */
+function metersXY(a: XY, b: XY) {
+  const k = Math.cos((((a[1] + b[1]) / 2) * Math.PI) / 180);
+  const dx = (b[0] - a[0]) * 111_320 * k;
+  const dy = (b[1] - a[1]) * 110_540;
+  return Math.hypot(dx, dy);
+}
+
+/** How sharply the path turns at b, in degrees (0 = straight on, 180 = straight back). */
+function turnAt(a: XY, b: XY, c: XY) {
+  const k = Math.cos((b[1] * Math.PI) / 180);
+  const ux = (b[0] - a[0]) * k;
+  const uy = b[1] - a[1];
+  const vx = (c[0] - b[0]) * k;
+  const vy = c[1] - b[1];
+  const lu = Math.hypot(ux, uy);
+  const lv = Math.hypot(vx, vy);
+  if (!lu || !lv) return 0;
+  const cos = Math.max(-1, Math.min(1, (ux * vx + uy * vy) / (lu * lv)));
+  return (Math.acos(cos) * 180) / Math.PI;
+}
+
+/**
+ * GPS wanders a few meters at low speed (lights, parking lots), which shows up
+ * as needle-thin spikes. Drop points that double back sharply over a short
+ * hop; real turns at intersections are kept.
+ */
+function dropSpikes(line: XY[]): XY[] {
+  let pts = line;
+  for (let pass = 0; pass < 4 && pts.length > 2; pass++) {
+    const out: XY[] = [pts[0]!];
+    let changed = false;
+    for (let i = 1; i < pts.length - 1; i++) {
+      const a = out[out.length - 1]!;
+      const b = pts[i]!;
+      const c = pts[i + 1]!;
+      const turn = turnAt(a, b, c);
+      const short = Math.min(metersXY(a, b), metersXY(b, c));
+      if ((turn > 100 && short < 150) || (turn > 55 && short < 35)) {
+        changed = true;
+        continue;
+      }
+      out.push(b);
+    }
+    out.push(pts[pts.length - 1]!);
+    pts = out;
+    if (!changed) break;
+  }
+  return pts;
+}
+
+/** Douglas–Peucker in meters: removes wobble smaller than `tol`. */
+function simplify(line: XY[], tol: number): XY[] {
+  if (line.length < 3) return line;
+  const keep = new Uint8Array(line.length);
+  keep[0] = keep[line.length - 1] = 1;
+  const stack: [number, number][] = [[0, line.length - 1]];
+  while (stack.length) {
+    const [s, e] = stack.pop()!;
+    const a = line[s]!;
+    const b = line[e]!;
+    const ab = metersXY(a, b);
+    let worst = -1;
+    let at = -1;
+    for (let i = s + 1; i < e; i++) {
+      const p = line[i]!;
+      // Distance from p to segment ab via the triangle's area.
+      const d =
+        ab === 0
+          ? metersXY(a, p)
+          : (() => {
+              const pa = metersXY(p, a);
+              const pb = metersXY(p, b);
+              const sp = (pa + pb + ab) / 2;
+              const area = Math.sqrt(Math.max(0, sp * (sp - pa) * (sp - pb) * (sp - ab)));
+              return (2 * area) / ab;
+            })();
+      if (d > worst) [worst, at] = [d, i];
+    }
+    if (worst > tol && at > 0) {
+      keep[at] = 1;
+      stack.push([s, at], [at, e]);
+    }
+  }
+  return line.filter((_, i) => keep[i]);
+}
+
+/** Chaikin corner cutting: rounds the corners so the trail reads as a soft path. */
+function rounded(line: XY[], passes: number): XY[] {
+  let pts = line;
+  for (let n = 0; n < passes && pts.length > 2; n++) {
+    const out: XY[] = [pts[0]!];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [x0, y0] = pts[i]!;
+      const [x1, y1] = pts[i + 1]!;
+      out.push(
+        [x0 * 0.75 + x1 * 0.25, y0 * 0.75 + y1 * 0.25],
+        [x0 * 0.25 + x1 * 0.75, y0 * 0.25 + y1 * 0.75],
+      );
+    }
+    out.push(pts[pts.length - 1]!);
+    pts = out;
+  }
+  return pts;
+}
+
+/**
+ * The shape the map draws for one trail line: GPS spikes removed, small
+ * wobble flattened, corners softened. Stored points are never changed.
+ */
+export function displayLine(line: XY[]): XY[] {
+  if (line.length < 3) return line;
+  return rounded(simplify(dropSpikes(line), 6), 2);
+}
