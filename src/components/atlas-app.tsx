@@ -23,10 +23,12 @@ import { placeToMark, placesNear, readDeviceLocation, roadToMark, stateToMark, s
 import { collectPassed, takeNativeFixes } from "@/lib/travel";
 import { AtlasSplash, LoginScreen } from "@/components/login-screen";
 import { SettingsPage } from "@/components/settings-page";
+import { GhostPanel } from "@/components/ghost-panel";
 import { useSettingsRoute } from "@/lib/settings-route";
 import { Tour } from "@/components/tour";
 import { BadgeIcon } from "@/components/badge-icon";
 import { useSettings } from "@/lib/atlas-settings";
+import { freshPoints, loadGhost, trailLines, useGhost } from "@/lib/ghost-trail";
 import { isMarkerColor, isMarkerIcon } from "@/lib/you-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
 import { nativeApp } from "@/lib/native";
@@ -151,6 +153,14 @@ function AtlasShell() {
   const markerColor = useSettings((s) => s.markerColor);
   const setMarkerIcon = useSettings((s) => s.setMarkerIcon);
   const setMarkerColor = useSettings((s) => s.setMarkerColor);
+  const ghostHours = useSettings((s) => s.ghostHours);
+  const setGhostHours = useSettings((s) => s.setGhostHours);
+  const ghostLive = useGhost((s) => s.live);
+  const ghostSaved = useGhost((s) => s.saved);
+  const ghostHidden = useGhost((s) => s.hidden);
+  const ghostFocus = useGhost((s) => s.focusId);
+  const ghostLook = useGhost((s) => s.look);
+  const [ghostOpen, setGhostOpen] = useState(false);
   const pack = useOfflinePack();
   const packPct = pack.total ? Math.min(100, Math.round((pack.done / pack.total) * 100)) : 0;
 
@@ -491,6 +501,7 @@ function AtlasShell() {
     function push(fixes: Fix[], forceDot = false) {
       const latest = fixes[fixes.length - 1];
       if (latest) paintTracker(latest, forceDot);
+      useGhost.getState().record(fixes);
       pending.push(...fixes);
       void pump();
     }
@@ -540,7 +551,9 @@ function AtlasShell() {
       if (queued.length) push(queued, true);
       void readDeviceLocation()
         .then((fix) => {
-          if (!dead) paintTracker(fix, true);
+          if (dead) return;
+          paintTracker(fix, true);
+          useGhost.getState().record([fix]);
         })
         .catch(() => {});
     };
@@ -778,6 +791,27 @@ function AtlasShell() {
   const cardOnly = mapCard && focus != null;
 
   useEffect(() => {
+    loadGhost(useSettings.getState().ghostHours);
+    const id = window.setInterval(() => {
+      useGhost.getState().prune(useSettings.getState().ghostHours);
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const ghostLiveLines = useMemo(() => trailLines(freshPoints(ghostLive, ghostHours)), [ghostHours, ghostLive]);
+  const ghostSavedLines = useMemo(
+    () =>
+      ghostSaved
+        .filter((trail) => !ghostHidden.includes(trail.id))
+        .map((trail) => ({
+          id: trail.id,
+          focus: ghostFocus === trail.id,
+          lines: trailLines(trail.points),
+        })),
+    [ghostFocus, ghostHidden, ghostSaved],
+  );
+
+  useEffect(() => {
     if (isMarkerIcon(profile.markerIcon)) setMarkerIcon(profile.markerIcon);
     if (isMarkerColor(profile.markerColor)) setMarkerColor(profile.markerColor);
   }, [profile.markerColor, profile.markerIcon, setMarkerColor, setMarkerIcon]);
@@ -866,6 +900,10 @@ function AtlasShell() {
               markerColor={markerColor}
               offers={offers}
               tripLine={tripLine}
+              ghostLive={ghostLiveLines}
+              ghostSaved={ghostSavedLines}
+              ghostFocus={ghostFocus}
+              ghostLook={ghostLook}
               you={you}
               dot={trackTravel ? (tracker ?? you) : you}
               onPress={() => {
@@ -921,6 +959,25 @@ function AtlasShell() {
         ) : (
           <div className="grid h-full place-items-center px-6 text-center text-muted">{error ?? "Unfolding the atlas…"}</div>
         )}
+        <button
+          type="button"
+          aria-expanded={ghostOpen}
+          onClick={() => setGhostOpen((open) => !open)}
+          className="absolute bottom-3 left-3 z-10 flex h-11 items-center gap-2 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+        >
+          <span className={"ghost-dot size-2 rounded-full bg-ghost " + (trackTravel ? "is-live" : "opacity-60")} />
+          Ghost trail
+        </button>
+        <GhostPanel
+          open={ghostOpen}
+          hours={ghostHours}
+          tracking={trackTravel}
+          onHours={(hours) => {
+            setGhostHours(hours);
+            useGhost.getState().prune(hours);
+          }}
+          onClose={() => setGhostOpen(false)}
+        />
         <div className="pointer-events-none absolute top-safe left-3 z-10 flex flex-col items-start gap-2">
           {addedFlash ? (
             <button

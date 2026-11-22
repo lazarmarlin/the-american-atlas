@@ -23,6 +23,7 @@ type Saved = {
   reservationColor: string;
   markerIcon: string;
   markerColor: string;
+  ghostHours: number;
 };
 
 type Settings = Saved & {
@@ -38,6 +39,7 @@ type Settings = Saved & {
   setReservationColor: (reservationColor: string) => void;
   setMarkerIcon: (markerIcon: string) => void;
   setMarkerColor: (markerColor: string) => void;
+  setGhostHours: (ghostHours: number) => void;
 };
 
 const KEY = "trak-settings";
@@ -54,7 +56,14 @@ const DEFAULTS: Saved = {
   reservationColor: "#3d7ab5",
   markerIcon: DEFAULT_MARKER_ICON,
   markerColor: DEFAULT_MARKER_COLOR,
+  ghostHours: 6,
 };
+
+function clampHours(value: unknown) {
+  const hours = Math.round(Number(value));
+  if (!Number.isFinite(hours)) return DEFAULTS.ghostHours;
+  return Math.min(24, Math.max(1, hours));
+}
 
 function readSaved(): Saved {
   if (typeof window === "undefined") return DEFAULTS;
@@ -73,6 +82,7 @@ function readSaved(): Saved {
       reservationColor: typeof raw.reservationColor === "string" ? raw.reservationColor : DEFAULTS.reservationColor,
       markerIcon: isMarkerIcon(raw.markerIcon) ? raw.markerIcon : DEFAULTS.markerIcon,
       markerColor: isMarkerColor(raw.markerColor) ? raw.markerColor.toLowerCase() : DEFAULTS.markerColor,
+      ghostHours: clampHours(raw.ghostHours),
     };
   } catch {
     return DEFAULTS;
@@ -132,5 +142,10 @@ export const useSettings = create<Settings>((set) => ({
   setMarkerColor: (markerColor) => {
     write({ markerColor });
     set({ markerColor });
+  },
+  setGhostHours: (ghostHours) => {
+    const hours = clampHours(ghostHours);
+    write({ ghostHours: hours });
+    set({ ghostHours: hours });
   },
 }));

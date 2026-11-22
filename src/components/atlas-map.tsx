@@ -8,6 +8,7 @@ import type { Mark } from "@/lib/marks";
 import { TIER_ZOOM, kindFor, placeKinds } from "@/lib/place-kinds";
 import { glyphImage, glyphKinds } from "@/lib/map-glyphs";
 import type { Fix } from "@/lib/nearby";
+import type { GhostLines } from "@/lib/ghost-trail";
 import { loadTowns } from "@/lib/towns-overlay";
 import { youMarkerImage } from "@/lib/you-marker";
 
@@ -33,6 +34,10 @@ type Props = {
   markerColor: string;
   offers: (Mark & { tier?: number })[];
   tripLine: [number, number][];
+  ghostLive: GhostLines;
+  ghostSaved: { id: string; focus: boolean; lines: GhostLines }[];
+  ghostFocus: string | null;
+  ghostLook: number;
   you: Fix | null;
   dot: Fix | null;
   onState: (abbr: string) => void;
@@ -93,6 +98,25 @@ function offerDotFeatures(items: Shown[]) {
     }));
 }
 
+function fadePieces(coordinates: [number, number][]) {
+  const parts = 4;
+  const span = coordinates.length - 1;
+  if (span < 1) return [];
+  const features = [];
+  for (let i = 0; i < parts; i++) {
+    const start = Math.floor((i * span) / parts);
+    const end = Math.ceil(((i + 1) * span) / parts);
+    const slice = coordinates.slice(start, end + 1);
+    if (slice.length < 2) continue;
+    features.push({
+      type: "Feature" as const,
+      properties: { fade: 0.12 + (i / (parts - 1)) * 0.5 },
+      geometry: { type: "LineString" as const, coordinates: slice },
+    });
+  }
+  return features;
+}
+
 function dotFeatures(items: Mark[]) {
   return items
     .filter((item) => !isLine(item) && item.category !== "state" && item.category !== "county" && item.lat != null && item.lon != null)
@@ -126,6 +150,10 @@ export function AtlasMap({
   markerColor,
   offers,
   tripLine,
+  ghostLive,
+  ghostSaved,
+  ghostFocus,
+  ghostLook,
   you,
   dot,
   onState,
@@ -235,6 +263,8 @@ export function AtlasMap({
         });
         map.addSource("routes", { type: "geojson", data: empty });
         map.addSource("trip", { type: "geojson", data: empty });
+        map.addSource("ghost-live", { type: "geojson", data: empty });
+        map.addSource("ghost-saved", { type: "geojson", data: empty });
         map.addSource("places", { type: "geojson", data: empty });
         map.addSource("offers", { type: "geojson", data: empty });
         map.addSource("offer-places", { type: "geojson", data: empty });
@@ -424,6 +454,55 @@ export function AtlasMap({
           type: "line",
           source: "trip",
           paint: { "line-color": "#f3f0e6", "line-width": 2, "line-opacity": 0.9, "line-dasharray": [1.2, 1.2] },
+          layout: { "line-cap": "round", "line-join": "round" },
+        });
+        // Older stretches are separate features with a lower fade, so the path thins out behind you.
+        map.addLayer({
+          id: "ghost-saved-haze",
+          type: "line",
+          source: "ghost-saved",
+          paint: {
+            "line-color": ["case", ["==", ["get", "focus"], 1], "#f3f0e6", "#d5e2ea"],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 10, 8, 18, 12, 30],
+            "line-blur": 8,
+            "line-opacity": ["case", ["==", ["get", "focus"], 1], 0.45, 0.22],
+          },
+          layout: { "line-cap": "round", "line-join": "round" },
+        });
+        map.addLayer({
+          id: "ghost-saved-line",
+          type: "line",
+          source: "ghost-saved",
+          paint: {
+            "line-color": ["case", ["==", ["get", "focus"], 1], "#f3f0e6", "#d5e2ea"],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1.4, 8, 2, 12, 2.8],
+            "line-blur": 1,
+            "line-opacity": ["case", ["==", ["get", "focus"], 1], 0.75, 0.4],
+          },
+          layout: { "line-cap": "round", "line-join": "round" },
+        });
+        map.addLayer({
+          id: "ghost-haze",
+          type: "line",
+          source: "ghost-live",
+          paint: {
+            "line-color": "#d5e2ea",
+            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 16, 8, 28, 12, 42],
+            "line-blur": 10,
+            "line-opacity": ["get", "fade"],
+          },
+          layout: { "line-cap": "round", "line-join": "round" },
+        });
+        map.addLayer({
+          id: "ghost-line",
+          type: "line",
+          source: "ghost-live",
+          paint: {
+            "line-color": "#f3f0e6",
+            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1.6, 8, 2.4, 12, 3.2],
+            "line-blur": 1.2,
+            "line-opacity": ["*", ["get", "fade"], 1.15],
+          },
           layout: { "line-cap": "round", "line-join": "round" },
         });
         map.addLayer({
@@ -758,6 +837,48 @@ export function AtlasMap({
         : [],
     });
   }, [ready, tripLine]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const liveFeatures = ghostLive.flatMap((coordinates) => fadePieces(coordinates));
+    const savedFeatures = ghostSaved.flatMap((trail) =>
+      trail.lines.map((coordinates) => ({
+        type: "Feature" as const,
+        properties: { focus: trail.focus ? 1 : 0 },
+        geometry: { type: "LineString" as const, coordinates },
+      })),
+    );
+    (map.getSource("ghost-live") as GeoJSONSource).setData({ type: "FeatureCollection", features: liveFeatures });
+    (map.getSource("ghost-saved") as GeoJSONSource).setData({ type: "FeatureCollection", features: savedFeatures });
+  }, [ghostLive, ghostSaved, ready]);
+
+  const framed = useRef(0);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map || !ghostFocus || ghostLook === framed.current) return;
+    framed.current = ghostLook;
+    const lines = ghostFocus === "live" ? ghostLive : (ghostSaved.find((trail) => trail.id === ghostFocus)?.lines ?? []);
+    const flat = lines.flat();
+    if (flat.length < 2) return;
+    let minX = 180;
+    let minY = 90;
+    let maxX = -180;
+    let maxY = -90;
+    for (const [x, y] of flat) {
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+    map.fitBounds(
+      [
+        [minX, minY],
+        [maxX, maxY],
+      ],
+      { padding: 56, maxZoom: 12, duration: duration() },
+    );
+  }, [ghostFocus, ghostLive, ghostLook, ghostSaved, ready]);
 
   useEffect(() => {
     const map = mapRef.current;

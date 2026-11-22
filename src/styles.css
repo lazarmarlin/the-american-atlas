@@ -14,6 +14,7 @@
   --color-usroute: #f3f0e6;
   --color-state: #8aa56a;
   --color-place: #e2b15a;
+  --color-ghost: #d5e2ea;
   --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Newsreader", ui-serif, Georgia, serif;
   --radius-card: 1rem;
@@ -68,6 +69,22 @@
 
 .maplibregl-ctrl-attrib a {
   color: var(--color-muted) !important;
+}
+
+.ghost-dot.is-live {
+  animation: ghost-pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes ghost-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ghost-dot.is-live {
+    animation: none;
+  }
 }
 
 .h-app,

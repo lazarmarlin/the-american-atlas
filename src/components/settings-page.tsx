@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { BORDER_COLORS, useSettings } from "@/lib/atlas-settings";
+import { useGhost } from "@/lib/ghost-trail";
 import { authEnabled, signOut } from "@/lib/auth/client";
 import { hasGateSessionMarker } from "@/lib/auth/gate-session-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
@@ -10,6 +11,7 @@ import { requestTrackingPermission } from "@/lib/background-location";
 import { type Profile } from "@/lib/profile";
 import { vaultSaveMarker, vaultSaveProfile } from "@/lib/vault";
 import { YouMarkerFace } from "@/components/you-marker-face";
+import { GhostHours } from "@/components/ghost-panel";
 import { isMarkerColor, isMarkerIcon, MARKER_COLORS, MARKER_ICONS, markerLabel } from "@/lib/you-marker";
 
 export function SettingsPage({
@@ -55,6 +57,8 @@ export function SettingsPage({
   const markerColor = useSettings((s) => s.markerColor);
   const setMarkerIcon = useSettings((s) => s.setMarkerIcon);
   const setMarkerColor = useSettings((s) => s.setMarkerColor);
+  const ghostHours = useSettings((s) => s.ghostHours);
+  const setGhostHours = useSettings((s) => s.setGhostHours);
   const pack = useOfflinePack();
   const packPct = pack.total ? Math.min(100, Math.round((pack.done / pack.total) * 100)) : 0;
   const [name, setName] = useState(profile.name);
@@ -128,7 +132,7 @@ export function SettingsPage({
           {(
             [
               ["account", "Account", "Sync and profile"],
-              ["tracking", "Tracking", "Travel tracking, your marker, and fast add"],
+              ["tracking", "Tracking", "Travel tracking, ghost trail, your marker, and fast add"],
               ["map", "Map", "Markers, borders, and overlays"],
               ["atlas", "Atlas", nativeApp ? "The tour" : "Offline atlas and the tour"],
             ] as const
@@ -309,6 +313,20 @@ export function SettingsPage({
           {trackTravel ? "Tracking on" : "Tracking off"}
         </button>
         {trackNote ? <p className="mt-2 text-sm text-muted">{trackNote}</p> : null}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="font-serif text-2xl">Ghost trail</h2>
+        <p className="mt-1 text-sm text-muted">
+          While tracking, a wispy path stays behind you, then fades. Pick how many hours it lasts, up to 24. The Ghost trail tab on the map is where you save one for good and look back at the ones you kept.
+        </p>
+        <GhostHours
+          hours={ghostHours}
+          onChange={(hours) => {
+            setGhostHours(hours);
+            useGhost.getState().prune(hours);
+          }}
+        />
       </section>
 
       <section className="mt-8">
