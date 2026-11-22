@@ -139,6 +139,14 @@ export function AtlasMap({
   viewRef.current = { stateAbbr, showCounties };
   const [ready, setReady] = useState(false);
   const overlaysLoaded = useRef(new Set<string>());
+  /** Download the town outlines once (for the town layer or a selected town's outline). */
+  const ensureTowns = (map: MlMap) => {
+    if (overlaysLoaded.current.has("towns")) return;
+    overlaysLoaded.current.add("towns");
+    void loadTowns()
+      .then((towns) => (map.getSource("towns") as GeoJSONSource | undefined)?.setData(towns))
+      .catch(() => overlaysLoaded.current.delete("towns"));
+  };
   const [countiesReady, setCountiesReady] = useState(false);
   const prevState = useRef<string | null | undefined>(undefined);
   const prevCounties = useRef<Set<string>>(new Set());
@@ -205,6 +213,9 @@ export function AtlasMap({
       map.on("load", () => {
         if (!map) return;
         const empty = { type: "FeatureCollection" as const, features: [] };
+        // Cities and towns draw a bit larger than other pins so they stand out.
+        const townBoost = (base: number) =>
+          ["match", ["get", "kind"], "city", base * 1.4, "town", base * 1.25, base] as unknown as number;
         map.addSource("states", { type: "geojson", data: "/atlas/states.geojson", promoteId: "abbr" });
         map.addSource("counties", { type: "geojson", data: "/atlas/counties.geojson", promoteId: "id" });
         // Towns and reservations are big files: they start empty and are only
@@ -282,6 +293,18 @@ export function AtlasMap({
             type: "fill",
             source: "towns",
             paint: { "fill-color": "#c4a484", "fill-opacity": 0.16 },
+          },
+          "states-line",
+        );
+        // Thin outline around the town or city whose pin is selected.
+        map.addLayer(
+          {
+            id: "town-outline",
+            type: "line",
+            source: "towns",
+            filter: ["==", ["get", "geoid"], ""],
+            paint: { "line-color": "#e2b15a", "line-width": 1.6, "line-opacity": 0.95 },
+            layout: { "line-join": "round" },
           },
           "states-line",
         );
@@ -389,7 +412,7 @@ export function AtlasMap({
           source: "offer-places",
           filter: offerFilter,
           paint: {
-            "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 3, 8, 5, 11, 7],
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, townBoost(3), 8, townBoost(5), 11, townBoost(7)],
             "circle-color": place,
             "circle-stroke-color": ink,
             "circle-stroke-width": 0.6,
@@ -403,7 +426,8 @@ export function AtlasMap({
           filter: offerFilter,
           layout: {
             "icon-image": ["concat", "k-", ["get", "kind"]],
-            "icon-size": ["interpolate", ["linear"], ["zoom"], 4, 0.5, 8, 0.72, 12, 1.05, 16, 1.3],
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 4, townBoost(0.5), 8, townBoost(0.72), 12, townBoost(1.05), 16, townBoost(1.3)],
+            "symbol-sort-key": ["match", ["get", "kind"], "city", 2, "town", 1, 0],
             "icon-allow-overlap": true,
             "icon-ignore-placement": true,
           },
@@ -413,7 +437,7 @@ export function AtlasMap({
           type: "circle",
           source: "places",
           paint: {
-            "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 2.2, 8, 3.6, 12, 5],
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, townBoost(2.2), 8, townBoost(3.6), 12, townBoost(5)],
             "circle-color": accent,
             "circle-stroke-color": ink,
             "circle-stroke-width": 0.6,
@@ -426,7 +450,8 @@ export function AtlasMap({
           source: "places",
           layout: {
             "icon-image": ["concat", "s-", ["get", "kind"]],
-            "icon-size": ["interpolate", ["linear"], ["zoom"], 3, 0.55, 8, 0.8, 12, 1.15, 16, 1.4],
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 3, townBoost(0.55), 8, townBoost(0.8), 12, townBoost(1.15), 16, townBoost(1.4)],
+            "symbol-sort-key": ["match", ["get", "kind"], "city", 2, "town", 1, 0],
             "icon-allow-overlap": true,
             "icon-ignore-placement": true,
           },
@@ -608,12 +633,7 @@ export function AtlasMap({
     map.setLayoutProperty("county-line", "visibility", countyOn);
     map.setLayoutProperty("town-fill", "visibility", showTowns ? "visible" : "none");
     map.setLayoutProperty("reservation-fill", "visibility", showReservations ? "visible" : "none");
-    if (showTowns && !overlaysLoaded.current.has("towns")) {
-      overlaysLoaded.current.add("towns");
-      void loadTowns()
-        .then((towns) => (map.getSource("towns") as GeoJSONSource | undefined)?.setData(towns))
-        .catch(() => overlaysLoaded.current.delete("towns"));
-    }
+    if (showTowns) ensureTowns(map);
     if (showReservations && !overlaysLoaded.current.has("reservations")) {
       overlaysLoaded.current.add("reservations");
       (map.getSource("reservations") as GeoJSONSource).setData("/atlas/overlays/reservations.geojson");
@@ -739,6 +759,23 @@ export function AtlasMap({
     if (!ready || !map) return;
     applyFilters(map);
   }, [hiddenKinds, ready]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    // Town place ids end in the Census GEOID their outline is keyed by
+    // (p:town:IL:1751622), so the selected pin maps straight to its shape.
+    const geoid = selected?.startsWith("p:town:") ? (selected.split(":")[3] ?? "") : "";
+    if (geoid) {
+      ensureTowns(map);
+      const mark = (preview && preview.id === selected ? preview : null) ?? marks.find((item) => item.id === selected);
+      const kind = mark ? kindFor(mark.category, mark.name, mark.points, mark.sys) : "town";
+      // Same color as the pin: gold for cities, pale gold for towns.
+      const color = placeKinds.find((item) => item.id === kind)?.color ?? "#e2b15a";
+      map.setPaintProperty("town-outline", "line-color", color);
+    }
+    map.setFilter("town-outline", ["==", ["get", "geoid"], geoid]);
+  }, [marks, preview, ready, selected]);
 
   useEffect(() => {
     const map = mapRef.current;
