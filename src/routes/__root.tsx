@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import { AuthProvider } from "@/lib/auth/provider";
+import { restoreBearerToken } from "@/lib/auth/token";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import { nativeApp } from "@/lib/native";
 import appCss from "../styles.css?url";
@@ -35,7 +36,16 @@ export const Route = createRootRoute({
       },
     ],
   }),
-  component: () => (
+  component: RootShell,
+});
+
+function RootShell() {
+  const [ready, setReady] = useState(!nativeApp);
+  useEffect(() => {
+    if (!nativeApp) return;
+    void restoreBearerToken().finally(() => setReady(true));
+  }, []);
+  return (
     <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
@@ -44,14 +54,12 @@ export const Route = createRootRoute({
         <PreviewHostBridge />
         <OfflineHost />
         {nativeApp ? <NativeHost /> : null}
-        <AuthProvider>
-          <Outlet />
-        </AuthProvider>
+        <AuthProvider>{ready ? <Outlet /> : null}</AuthProvider>
         <Scripts />
       </body>
     </html>
-  ),
-});
+  );
+}
 
 function OfflineHost() {
   useEffect(() => {

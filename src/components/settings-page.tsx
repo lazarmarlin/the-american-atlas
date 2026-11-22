@@ -72,7 +72,7 @@ export function SettingsPage({
         <ChevronLeft className="size-4" aria-hidden="true" />
         Map
       </button>
-      <p className="mt-2 text-xs tracking-widest text-faint uppercase">Field atlas</p>
+      <p className="mt-2 text-xs tracking-widest text-faint uppercase">{nativeApp ? "Android app" : "Field atlas"}</p>
       <h1 className="font-serif text-4xl leading-none">Settings</h1>
 
       <section className="mt-8">
@@ -95,8 +95,14 @@ export function SettingsPage({
               } finally {
                 setSyncing(false);
               }
-              const problem = await pack.refresh();
-              setSyncNote(problem ? `Account synced. ${problem}` : "Synced. Your account and the atlas are up to date.");
+              const problem = nativeApp ? null : await pack.refresh();
+              setSyncNote(
+                nativeApp
+                  ? "Synced. Your account is up to date."
+                  : problem
+                    ? `Account synced. ${problem}`
+                    : "Synced. Your account and the atlas are up to date.",
+              );
             })();
           }}
           className="mt-3 flex h-12 w-full items-center justify-center rounded-lg border border-ink bg-elevated text-sm disabled:text-faint"
@@ -204,16 +210,20 @@ export function SettingsPage({
               setTrackTravel(true);
               return;
             }
-            void requestTrackingPermission().then((result) => {
+            void requestTrackingPermission().then(async (result) => {
               if (result === "denied") {
-                setTrackNote("Android didn't allow location. Allow it for The American Atlas, including all the time, then turn tracking on again.");
+                setTrackNote("Android didn't allow location. Allow it all the time for The American Atlas, then turn tracking on again.");
+                const { BackgroundGeolocation } = await import("@capgo/background-geolocation");
+                await BackgroundGeolocation.openSettings().catch(() => {});
                 return;
               }
-              setTrackNote(
-                result === "always"
-                  ? null
-                  : "Tracking works while the app is open. To keep going with the screen off, choose Allow all the time.",
-              );
+              if (result !== "always") {
+                setTrackNote("To keep tracking with the screen off, choose Allow all the time.");
+                const { BackgroundGeolocation } = await import("@capgo/background-geolocation");
+                await BackgroundGeolocation.openSettings().catch(() => {});
+              } else {
+                setTrackNote(null);
+              }
               setTrackTravel(true);
             });
           }}

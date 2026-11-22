@@ -1,3 +1,5 @@
+import { nativeApp } from "@/lib/native";
+
 const STEPS = [
   {
     title: "The American Atlas",
@@ -21,7 +23,9 @@ const STEPS = [
   },
   {
     title: "Take it with you",
-    body: "In Settings, turn on Offline atlas. A progress bar runs while every place is saved on this device. You can replay this tour there too.",
+    body: nativeApp
+      ? "The places, roads, and counties are already on this phone. Sign in and they stay with your account. You can replay this tour in Settings."
+      : "In Settings, turn on Offline atlas. A progress bar runs while every place is saved on this device. You can replay this tour there too.",
   },
 ];
 
