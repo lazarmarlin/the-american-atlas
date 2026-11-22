@@ -104,6 +104,7 @@ function AtlasShell() {
   const [loadedPlaces, setLoadedPlaces] = useState<(CatalogPlace & { cat: string })[]>([]);
   const [focus, setFocus] = useState<Mark | null>(null);
   const [you, setYou] = useState<Fix | null>(null);
+  const [tracker, setTracker] = useState<Fix | null>(null);
   const [near, setNear] = useState<NearMark[]>([]);
   const [nearNote, setNearNote] = useState<string | null>(null);
   const [nearBusy, setNearBusy] = useState(false);
@@ -138,6 +139,11 @@ function AtlasShell() {
   const trackTravel = useSettings((s) => s.trackTravel);
   const setTrackTravel = useSettings((s) => s.setTrackTravel);
   const fastAdd = useSettings((s) => s.fastAdd);
+  const showParks = useSettings((s) => s.showParks);
+  const showTowns = useSettings((s) => s.showTowns);
+  const showReservations = useSettings((s) => s.showReservations);
+  const townColor = useSettings((s) => s.townColor);
+  const reservationColor = useSettings((s) => s.reservationColor);
   const pack = useOfflinePack();
   const packPct = pack.total ? Math.min(100, Math.round((pack.done / pack.total) * 100)) : 0;
 
@@ -434,7 +440,15 @@ function AtlasShell() {
     let dead = false;
     let last: Fix | null = null;
     let busy = false;
+    let lastDotAt = 0;
     const pending: Fix[] = [];
+
+    function paintTracker(fix: Fix, force = false) {
+      const now = Date.now();
+      if (!force && now - lastDotAt < 8000) return;
+      lastDotAt = now;
+      setTracker(fix);
+    }
 
     async function run(fix: Fix) {
       const atlas = metaRef.current;
@@ -466,7 +480,9 @@ function AtlasShell() {
       }
     }
 
-    function push(fixes: Fix[]) {
+    function push(fixes: Fix[], forceDot = false) {
+      const latest = fixes[fixes.length - 1];
+      if (latest) paintTracker(latest, forceDot);
       pending.push(...fixes);
       void pump();
     }
@@ -509,18 +525,29 @@ function AtlasShell() {
       });
     }
     const host = window as Window & { atlasPushFixes?: (fixes: Fix[]) => void };
-    host.atlasPushFixes = push;
+    host.atlasPushFixes = (fixes) => push(fixes);
+    const refreshDot = () => {
+      if (document.visibilityState === "hidden") return;
+      const queued = takeNativeFixes();
+      if (queued.length) push(queued, true);
+      void readDeviceLocation()
+        .then((fix) => {
+          if (!dead) paintTracker(fix, true);
+        })
+        .catch(() => {});
+    };
     push(takeNativeFixes());
-    const onShow = () => push(takeNativeFixes());
-    window.addEventListener("focus", onShow);
-    document.addEventListener("visibilitychange", onShow);
+    refreshDot();
+    window.addEventListener("focus", refreshDot);
+    document.addEventListener("visibilitychange", refreshDot);
     return () => {
       dead = true;
+      setTracker(null);
       if (nativeApp) void import("@capgo/background-geolocation").then(({ BackgroundGeolocation }) => BackgroundGeolocation.stop());
       else navigator.geolocation.clearWatch(watch);
       delete host.atlasPushFixes;
-      window.removeEventListener("focus", onShow);
-      document.removeEventListener("visibilitychange", onShow);
+      window.removeEventListener("focus", refreshDot);
+      document.removeEventListener("visibilitychange", refreshDot);
     };
   }, [setTrackTravel, trackTravel]);
 
@@ -665,6 +692,7 @@ function AtlasShell() {
     try {
       const fix = await readDeviceLocation();
       setYou(fix);
+      if (trackTravel) setTracker(fix);
       const rows = await placesNear(fix, meta.states);
       setNear(rows);
       setNearNote(rows.length ? null : "Nothing in the atlas within 80 miles.");
@@ -809,9 +837,15 @@ function AtlasShell() {
               visitedOnly={visitedOnly}
               stateBorder={stateBorder}
               countyColor={countyColor}
+              showParks={showParks}
+              showTowns={showTowns}
+              showReservations={showReservations}
+              townColor={townColor}
+              reservationColor={reservationColor}
               offers={offers}
               tripLine={tripLine}
               you={you}
+              dot={trackTravel ? (tracker ?? you) : you}
               onPress={() => {
                 if (mapCard) closeCard();
                 else setSheet(50);
@@ -833,6 +867,20 @@ function AtlasShell() {
                   countyToMark(
                     { id: county.id, name: county.name, lat: county.lat, lon: county.lon },
                     county.st,
+                  );
+                if (saved || !fastAdd) openFromMap(mark);
+                else quickAdd(mark);
+              }}
+              onPark={(park) => {
+                const saved = marks.find((item) => item.id === park.id);
+                const offered = offers.find((item) => item.id === park.id);
+                const mark =
+                  saved ??
+                  offered ??
+                  placeToMark(
+                    { id: park.id, name: park.name, lat: park.lat, lon: park.lon, pts: park.pts },
+                    "park",
+                    park.st,
                   );
                 if (saved || !fastAdd) openFromMap(mark);
                 else quickAdd(mark);

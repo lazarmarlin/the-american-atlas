@@ -1,12 +1,12 @@
 const DB = "american-atlas-pack";
 
 export const OFFLINE_READY_KEY = "atlas-offline-ready";
-export const OFFLINE_PACK_VERSION = "places-v3";
+export const OFFLINE_PACK_VERSION = "places-v4";
 /**
  * Browser cache for /atlas/* files. Bump the suffix (here and in public/sw.js)
  * whenever the atlas data changes so devices drop their stale copies.
  */
-export const ATLAS_CACHE = "atlas-files-v3";
+export const ATLAS_CACHE = "atlas-files-v4";
 
 function openDb() {
   return new Promise<IDBDatabase>((resolve, reject) => {

@@ -9,38 +9,68 @@ export const BORDER_COLORS = [
   { id: "#c4a484", label: "Tan" },
 ];
 
-type Settings = {
+type Saved = {
   icons: boolean;
   stateBorder: string;
   countyColor: string;
   trackTravel: boolean;
   fastAdd: boolean;
+  showParks: boolean;
+  showTowns: boolean;
+  showReservations: boolean;
+  townColor: string;
+  reservationColor: string;
+};
+
+type Settings = Saved & {
   setIcons: (icons: boolean) => void;
   setStateBorder: (stateBorder: string) => void;
   setCountyColor: (countyColor: string) => void;
   setTrackTravel: (trackTravel: boolean) => void;
   setFastAdd: (fastAdd: boolean) => void;
+  setShowParks: (showParks: boolean) => void;
+  setShowTowns: (showTowns: boolean) => void;
+  setShowReservations: (showReservations: boolean) => void;
+  setTownColor: (townColor: string) => void;
+  setReservationColor: (reservationColor: string) => void;
 };
 
 const KEY = "trak-settings";
+const DEFAULTS: Saved = {
+  icons: true,
+  stateBorder: "#f3f0e6",
+  countyColor: "#e23d2b",
+  trackTravel: false,
+  fastAdd: false,
+  showParks: true,
+  showTowns: true,
+  showReservations: true,
+  townColor: "#c4a484",
+  reservationColor: "#3d7ab5",
+};
 
-function readSaved(): Pick<Settings, "icons" | "stateBorder" | "countyColor" | "trackTravel" | "fastAdd"> {
-  if (typeof window === "undefined") return { icons: true, stateBorder: "#f3f0e6", countyColor: "#e23d2b", trackTravel: false, fastAdd: false };
+function readSaved(): Saved {
+  if (typeof window === "undefined") return DEFAULTS;
   try {
-    const raw = JSON.parse(localStorage.getItem(KEY) || "{}") as Partial<Settings>;
+    const raw = JSON.parse(localStorage.getItem(KEY) || "{}") as Partial<Saved>;
     return {
       icons: raw.icons !== false,
-      stateBorder: typeof raw.stateBorder === "string" ? raw.stateBorder : "#f3f0e6",
-      countyColor: typeof raw.countyColor === "string" ? raw.countyColor : "#e23d2b",
+      stateBorder: typeof raw.stateBorder === "string" ? raw.stateBorder : DEFAULTS.stateBorder,
+      countyColor: typeof raw.countyColor === "string" ? raw.countyColor : DEFAULTS.countyColor,
       trackTravel: raw.trackTravel === true,
       fastAdd: raw.fastAdd === true,
+      showParks: raw.showParks !== false,
+      showTowns: raw.showTowns !== false,
+      showReservations: raw.showReservations !== false,
+      townColor: typeof raw.townColor === "string" ? raw.townColor : DEFAULTS.townColor,
+      reservationColor: typeof raw.reservationColor === "string" ? raw.reservationColor : DEFAULTS.reservationColor,
     };
   } catch {
-    return { icons: true, stateBorder: "#f3f0e6", countyColor: "#e23d2b", trackTravel: false, fastAdd: false };
+    return DEFAULTS;
   }
 }
 
-function write(partial: Partial<Pick<Settings, "icons" | "stateBorder" | "countyColor" | "trackTravel" | "fastAdd">>) {
+function write(partial: Partial<Saved>) {
   localStorage.setItem(KEY, JSON.stringify({ ...readSaved(), ...partial }));
 }
 
@@ -65,5 +95,25 @@ export const useSettings = create<Settings>((set) => ({
   setFastAdd: (fastAdd) => {
     write({ fastAdd });
     set({ fastAdd });
+  },
+  setShowParks: (showParks) => {
+    write({ showParks });
+    set({ showParks });
+  },
+  setShowTowns: (showTowns) => {
+    write({ showTowns });
+    set({ showTowns });
+  },
+  setShowReservations: (showReservations) => {
+    write({ showReservations });
+    set({ showReservations });
+  },
+  setTownColor: (townColor) => {
+    write({ townColor });
+    set({ townColor });
+  },
+  setReservationColor: (reservationColor) => {
+    write({ reservationColor });
+    set({ reservationColor });
   },
 }));

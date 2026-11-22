@@ -351,6 +351,8 @@ function drawKind(g: CanvasRenderingContext2D, kind: string, color: string) {
   else if (kind === "drivein") screen(g);
   else if (kind === "fort") fortWall(g);
   else if (kind === "market") cart(g, color);
+  else if (kind === "outfitter") cart(g, color);
+  else if (kind === "bucee") storefront(g);
   else if (kind === "city") skyline(g);
   else if (kind === "food") fork(g);
   else if (kind === "diner") plate(g, color);

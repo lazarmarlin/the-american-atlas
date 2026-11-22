@@ -1,6 +1,6 @@
 const SHELL = "atlas-shell-v1";
 // Keep in sync with ATLAS_CACHE in src/lib/atlas-files.ts; bump when atlas data changes.
-const FILES = "atlas-files-v3";
+const FILES = "atlas-files-v4";
 const TILES = "atlas-tiles-v1";
 const TILE_LIMIT = 2500;
 // The Android app (Capacitor) serves the page from https://localhost with the

@@ -29,6 +29,8 @@ export const placeKinds: PlaceKind[] = [
   { id: "garden", label: "Gardens", color: "#6aaf6a", tier: 2, legend: true },
   { id: "amusement", label: "Amusement", color: "#e25d8c", tier: 2, legend: true },
   { id: "chain", label: "Chains", color: "#6a8cbf", tier: 2, legend: true },
+  { id: "bucee", label: "Buc-ee's", color: "#e23d2b", tier: 1, legend: true },
+  { id: "outfitter", label: "Bass Pro", color: "#3d8fd4", tier: 1, legend: true },
   { id: "market", label: "Groceries", color: "#8fbf5a", tier: 2, legend: true },
   { id: "food", label: "Foods", color: "#e07050", tier: 2, legend: true },
   { id: "mall", label: "Malls", color: "#b07cc9", tier: 2, legend: true },
@@ -62,6 +64,8 @@ export function kindFor(category: string, name: string, points: number, sys = ""
     return "route-sr";
   }
   if (category === "county") return "county";
+  if (/buc-?ee/i.test(name)) return "bucee";
+  if (/cabela|bass pro/i.test(name)) return "outfitter";
   if (category === "town") return points >= 30 ? "city" : "town";
   if (category === "park") return /national/i.test(name) ? "park-national" : "park-state";
   if (category === "span") return points >= 50 ? "span-long" : "span";

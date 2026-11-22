@@ -34,6 +34,16 @@ export function SettingsPage({
   const setTrackTravel = useSettings((s) => s.setTrackTravel);
   const fastAdd = useSettings((s) => s.fastAdd);
   const setFastAdd = useSettings((s) => s.setFastAdd);
+  const showParks = useSettings((s) => s.showParks);
+  const showTowns = useSettings((s) => s.showTowns);
+  const showReservations = useSettings((s) => s.showReservations);
+  const townColor = useSettings((s) => s.townColor);
+  const reservationColor = useSettings((s) => s.reservationColor);
+  const setShowParks = useSettings((s) => s.setShowParks);
+  const setShowTowns = useSettings((s) => s.setShowTowns);
+  const setShowReservations = useSettings((s) => s.setShowReservations);
+  const setTownColor = useSettings((s) => s.setTownColor);
+  const setReservationColor = useSettings((s) => s.setReservationColor);
   const pack = useOfflinePack();
   const packPct = pack.total ? Math.min(100, Math.round((pack.done / pack.total) * 100)) : 0;
   const [name, setName] = useState(profile.name);
@@ -44,6 +54,7 @@ export function SettingsPage({
   const [syncing, setSyncing] = useState(false);
   const [syncNote, setSyncNote] = useState<string | null>(null);
   const [trackNote, setTrackNote] = useState<string | null>(null);
+  const [page, setPage] = useState<"menu" | "account" | "tracking" | "map" | "atlas">("menu");
 
   useEffect(() => {
     setName(profile.name);
@@ -68,13 +79,44 @@ export function SettingsPage({
 
   return (
     <main className="safe-top safe-bottom mx-auto flex min-h-dvh w-full max-w-lg flex-col bg-bg px-4 text-ink">
-      <button type="button" onClick={onBack} className="mt-3 flex h-11 items-center gap-1 text-sm text-muted">
+      <button
+        type="button"
+        onClick={() => (page === "menu" ? onBack() : setPage("menu"))}
+        className="mt-3 flex h-11 items-center gap-1 text-sm text-muted"
+      >
         <ChevronLeft className="size-4" aria-hidden="true" />
-        Map
+        {page === "menu" ? "Map" : "Settings"}
       </button>
       <p className="mt-2 text-xs tracking-widest text-faint uppercase">{nativeApp ? "Android app" : "Field atlas"}</p>
-      <h1 className="font-serif text-4xl leading-none">Settings</h1>
+      <h1 className="font-serif text-4xl leading-none">
+        {page === "account" ? "Account" : page === "tracking" ? "Tracking" : page === "map" ? "Map" : page === "atlas" ? "Atlas" : "Settings"}
+      </h1>
 
+      {page === "menu" ? (
+        <nav className="mt-8 grid gap-2">
+          {(
+            [
+              ["account", "Account", "Sync and profile"],
+              ["tracking", "Tracking", "Travel tracking and fast add"],
+              ["map", "Map", "Markers, borders, and overlays"],
+              ["atlas", "Atlas", nativeApp ? "The tour" : "Offline atlas and the tour"],
+            ] as const
+          ).map(([id, label, detail]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setPage(id)}
+              className="flex min-h-16 flex-col items-start justify-center rounded-lg border border-line px-3 py-3 text-left"
+            >
+              <span className="font-serif text-2xl leading-none">{label}</span>
+              <span className="mt-1 text-sm text-muted">{detail}</span>
+            </button>
+          ))}
+        </nav>
+      ) : null}
+
+      {page === "account" ? (
+      <>
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Sync</h2>
         <p className="mt-1 text-sm text-muted">
@@ -189,7 +231,11 @@ export function SettingsPage({
           </button>
         ) : null}
       </section>
+      </>
+      ) : null}
 
+      {page === "tracking" ? (
+      <>
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Travel tracking</h2>
         <p className="mt-1 text-sm text-muted">
@@ -248,7 +294,11 @@ export function SettingsPage({
           {fastAdd ? "Fast add on" : "Fast add off"}
         </button>
       </section>
+      </>
+      ) : null}
 
+      {page === "atlas" ? (
+      <>
       {nativeApp ? null : (
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Offline atlas</h2>
@@ -284,7 +334,11 @@ export function SettingsPage({
           Replay the tour
         </button>
       </section>
+      </>
+      ) : null}
 
+      {page === "map" ? (
+      <>
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Map markers</h2>
         <p className="mt-1 text-sm text-muted">Icons use the same colors as the place types. Dots are the plain circles.</p>
@@ -351,6 +405,83 @@ export function SettingsPage({
           ))}
         </div>
       </section>
+
+      <section className="mt-8">
+        <h2 className="font-serif text-2xl">Parks</h2>
+        <p className="mt-1 text-sm text-muted">
+          Green shapes for national park boundaries, drawn behind the pins. Tap a park to open it, the same as tapping its pin.
+        </p>
+        <button
+          type="button"
+          aria-pressed={showParks}
+          onClick={() => setShowParks(!showParks)}
+          className={"mt-3 h-12 w-full rounded-lg border text-sm " + (showParks ? "border-ink bg-elevated" : "border-line")}
+        >
+          {showParks ? "Parks on" : "Parks off"}
+        </button>
+      </section>
+
+      <section className="mt-8">
+        <h2 className="font-serif text-2xl">Cities and towns</h2>
+        <p className="mt-1 text-sm text-muted">A faint wash over city and town boundaries. Tapping it does nothing.</p>
+        <button
+          type="button"
+          aria-pressed={showTowns}
+          onClick={() => setShowTowns(!showTowns)}
+          className={"mt-3 h-12 w-full rounded-lg border text-sm " + (showTowns ? "border-ink bg-elevated" : "border-line")}
+        >
+          {showTowns ? "Towns on" : "Towns off"}
+        </button>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {BORDER_COLORS.map((color) => (
+            <button
+              key={color.id}
+              type="button"
+              aria-pressed={townColor.toLowerCase() === color.id}
+              onClick={() => setTownColor(color.id)}
+              className={
+                "flex h-12 items-center justify-center gap-2 rounded-lg border text-sm " +
+                (townColor.toLowerCase() === color.id ? "border-ink bg-elevated" : "border-line")
+              }
+            >
+              <span className="size-3 rounded-full" style={{ background: color.id }} />
+              {color.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-8">
+        <h2 className="font-serif text-2xl">Reservations</h2>
+        <p className="mt-1 text-sm text-muted">A faint wash over Indian reservation boundaries. Tapping it does nothing.</p>
+        <button
+          type="button"
+          aria-pressed={showReservations}
+          onClick={() => setShowReservations(!showReservations)}
+          className={"mt-3 h-12 w-full rounded-lg border text-sm " + (showReservations ? "border-ink bg-elevated" : "border-line")}
+        >
+          {showReservations ? "Reservations on" : "Reservations off"}
+        </button>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {BORDER_COLORS.map((color) => (
+            <button
+              key={color.id}
+              type="button"
+              aria-pressed={reservationColor.toLowerCase() === color.id}
+              onClick={() => setReservationColor(color.id)}
+              className={
+                "flex h-12 items-center justify-center gap-2 rounded-lg border text-sm " +
+                (reservationColor.toLowerCase() === color.id ? "border-ink bg-elevated" : "border-line")
+              }
+            >
+              <span className="size-3 rounded-full" style={{ background: color.id }} />
+              {color.label}
+            </button>
+          ))}
+        </div>
+      </section>
+      </>
+      ) : null}
     </main>
   );
 }

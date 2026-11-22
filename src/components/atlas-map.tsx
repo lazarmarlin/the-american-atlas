@@ -22,11 +22,18 @@ type Props = {
   visitedOnly: boolean;
   stateBorder: string;
   countyColor: string;
+  showParks: boolean;
+  showTowns: boolean;
+  showReservations: boolean;
+  townColor: string;
+  reservationColor: string;
   offers: (Mark & { tier?: number })[];
   tripLine: [number, number][];
   you: Fix | null;
+  dot: Fix | null;
   onState: (abbr: string) => void;
   onCounty: (county: { id: string; name: string; st: string; lat: number; lon: number }) => void;
+  onPark: (park: { id: string; name: string; st: string; lat: number; lon: number; pts: number }) => void;
   onSelect: (id: string) => void;
   onOffer: (id: string) => void;
   onPress: () => void;
@@ -106,11 +113,18 @@ export function AtlasMap({
   visitedOnly,
   stateBorder,
   countyColor,
+  showParks,
+  showTowns,
+  showReservations,
+  townColor,
+  reservationColor,
   offers,
   tripLine,
   you,
+  dot,
   onState,
   onCounty,
+  onPark,
   onSelect,
   onOffer,
   onPress,
@@ -118,8 +132,8 @@ export function AtlasMap({
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
-  const propsRef = useRef({ onState, onCounty, onSelect, onOffer, onPress, onView });
-  propsRef.current = { onState, onCounty, onSelect, onOffer, onPress, onView };
+  const propsRef = useRef({ onState, onCounty, onPark, onSelect, onOffer, onPress, onView });
+  propsRef.current = { onState, onCounty, onPark, onSelect, onOffer, onPress, onView };
   const viewRef = useRef({ stateAbbr, showCounties });
   viewRef.current = { stateAbbr, showCounties };
   const [ready, setReady] = useState(false);
@@ -191,6 +205,9 @@ export function AtlasMap({
         const empty = { type: "FeatureCollection" as const, features: [] };
         map.addSource("states", { type: "geojson", data: "/atlas/states.geojson", promoteId: "abbr" });
         map.addSource("counties", { type: "geojson", data: "/atlas/counties.geojson", promoteId: "id" });
+        map.addSource("towns", { type: "geojson", data: "/atlas/overlays/towns.geojson" });
+        map.addSource("reservations", { type: "geojson", data: "/atlas/overlays/reservations.geojson" });
+        map.addSource("parks", { type: "geojson", data: "/atlas/overlays/parks.geojson" });
         map.on("sourcedata", (event) => {
           if (event.sourceId === "counties" && event.isSourceLoaded) setCountiesReady(true);
         });
@@ -255,6 +272,42 @@ export function AtlasMap({
             ],
           },
         });
+        map.addLayer(
+          {
+            id: "town-fill",
+            type: "fill",
+            source: "towns",
+            paint: { "fill-color": "#c4a484", "fill-opacity": 0.16 },
+          },
+          "states-line",
+        );
+        map.addLayer(
+          {
+            id: "reservation-fill",
+            type: "fill",
+            source: "reservations",
+            paint: { "fill-color": "#3d7ab5", "fill-opacity": 0.18 },
+          },
+          "states-line",
+        );
+        map.addLayer(
+          {
+            id: "park-fill",
+            type: "fill",
+            source: "parks",
+            paint: { "fill-color": "#1b6b3a", "fill-opacity": 0.34 },
+          },
+          "states-line",
+        );
+        map.addLayer(
+          {
+            id: "park-line",
+            type: "line",
+            source: "parks",
+            paint: { "line-color": "#1b6b3a", "line-width": 1.2, "line-opacity": 0.9 },
+          },
+          "states-line",
+        );
         map.addLayer({
           id: "county-fill",
           type: "fill",
@@ -367,8 +420,8 @@ export function AtlasMap({
           type: "circle",
           source: "you",
           paint: {
-            "circle-radius": 5,
-            "circle-color": accent,
+            "circle-radius": 6,
+            "circle-color": "#3d8fd4",
             "circle-stroke-color": ink,
             "circle-stroke-width": 2,
           },
@@ -390,7 +443,7 @@ export function AtlasMap({
           if (hover) map.setFeatureState({ source: "states", id: hover }, { hover: false });
           hover = null;
         });
-        for (const layer of ["route-line", "place-dots", "place-icons", "offer-line", "offer-dots", "offer-icons", "county-fill"]) {
+        for (const layer of ["route-line", "place-dots", "place-icons", "offer-line", "offer-dots", "offer-icons", "park-fill", "county-fill"]) {
           map.on("mouseenter", layer, () => map?.getCanvas().style.setProperty("cursor", "pointer"));
           map.on("mouseleave", layer, () => map?.getCanvas().style.setProperty("cursor", ""));
         }
@@ -411,6 +464,21 @@ export function AtlasMap({
           const offerId = offer[0]?.properties?.id;
           if (typeof offerId === "string") {
             propsRef.current.onOffer(offerId);
+            return;
+          }
+          const parkHit = map.queryRenderedFeatures(event.point, { layers: ["park-fill"] });
+          const park = parkHit[0]?.properties;
+          if (parkHit.length) {
+            if (park && typeof park.id === "string" && park.id) {
+              propsRef.current.onPark({
+                id: park.id,
+                name: String(park.name ?? "Park"),
+                st: String(park.st ?? ""),
+                lat: Number(park.lat),
+                lon: Number(park.lon),
+                pts: Number(park.pts ?? 0),
+              });
+            }
             return;
           }
           const countyHit = map.queryRenderedFeatures(event.point, { layers: ["county-fill"] });
@@ -470,20 +538,6 @@ export function AtlasMap({
       type: "FeatureCollection",
       features: dotFeatures(shown),
     });
-    (map.getSource("you") as GeoJSONSource).setData(
-      you
-        ? {
-            type: "FeatureCollection",
-            features: [
-              {
-                type: "Feature",
-                properties: {},
-                geometry: { type: "Point", coordinates: [you.lon, you.lat] },
-              },
-            ],
-          }
-        : { type: "FeatureCollection", features: [] },
-    );
 
     const accent = tokenColor("--color-accent", "#e23d2b");
     const ink = tokenColor("--color-ink", "#f3f0e6");
@@ -529,6 +583,12 @@ export function AtlasMap({
     const countyOn = showCounties ? "visible" : "none";
     map.setLayoutProperty("county-fill", "visibility", countyOn);
     map.setLayoutProperty("county-line", "visibility", countyOn);
+    map.setLayoutProperty("town-fill", "visibility", showTowns ? "visible" : "none");
+    map.setLayoutProperty("reservation-fill", "visibility", showReservations ? "visible" : "none");
+    map.setLayoutProperty("park-fill", "visibility", showParks ? "visible" : "none");
+    map.setLayoutProperty("park-line", "visibility", showParks ? "visible" : "none");
+    map.setPaintProperty("town-fill", "fill-color", townColor);
+    map.setPaintProperty("reservation-fill", "fill-color", reservationColor);
     if (showCounties) {
       const countyFilter: ExpressionSpecification = stateAbbr ? ["==", ["get", "st"], stateAbbr] : ["has", "st"];
       map.setFilter("county-fill", countyFilter);
@@ -578,7 +638,7 @@ export function AtlasMap({
       }
       prevCounties.current = visitedCounties;
     }
-  }, [countiesReady, countyColor, marks, preview, ready, selected, showCounties, showRoads, stateAbbr, stateBorder, states, useIcons, visitedOnly, you]);
+  }, [countiesReady, countyColor, marks, preview, ready, reservationColor, selected, showCounties, showParks, showReservations, showRoads, showTowns, stateAbbr, stateBorder, states, townColor, useIcons, visitedOnly, you]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -677,6 +737,26 @@ export function AtlasMap({
       map.easeTo({ center: [mark.lon, mark.lat], zoom: Math.max(map.getZoom(), 8), duration: duration() });
     }
   }, [marks, preview, ready, selected]);
+
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    (map.getSource("you") as GeoJSONSource).setData(
+      dot
+        ? {
+            type: "FeatureCollection",
+            features: [
+              {
+                type: "Feature",
+                properties: {},
+                geometry: { type: "Point", coordinates: [dot.lon, dot.lat] },
+              },
+            ],
+          }
+        : { type: "FeatureCollection", features: [] },
+    );
+  }, [dot, ready]);
 
   useEffect(() => {
     const map = mapRef.current;
