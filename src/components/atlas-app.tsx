@@ -28,6 +28,7 @@ import { BadgeIcon } from "@/components/badge-icon";
 import { useSettings } from "@/lib/atlas-settings";
 import { useOfflinePack } from "@/lib/offline-pack";
 import { nativeApp } from "@/lib/native";
+import { notifyPlacesAdded } from "@/lib/place-notifications";
 import { countyToMark } from "@/lib/counties";
 import { glyphUrl } from "@/lib/map-glyphs";
 import { type Profile } from "@/lib/profile";
@@ -449,6 +450,7 @@ function AtlasShell() {
       }
       const label = found.length === 1 ? `Added ${found[0]?.name}` : `Added ${found.length} places from the drive`;
       setPassedNote(label);
+      void notifyPlacesAdded(found);
     }
 
     async function pump() {

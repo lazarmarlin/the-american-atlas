@@ -76,3 +76,16 @@ Keep the keystore out of git.
 The source art is in `assets/`. It comes from `public/__grok/icon-512.png` on
 the `#121410` background. The generated launcher icons and splash screens are
 in `android/app/src/main/res/`.
+
+## Notifications
+
+When travel tracking adds places, the app posts a notification on the
+"Places added" channel. For example: "Added Fulton County · Saved to your atlas
+· +10 pts", or "Added 3 places" followed by their names.
+
+- Code: `src/lib/place-notifications.ts`
+- Icon: `ic_stat_atlas` in `android/app/src/main/res/drawable-*`
+
+Android asks for notification permission once, together with location, when
+tracking is turned on. The app never asks while running in the background. If
+the permission is off, places are still added, just without a notification.
