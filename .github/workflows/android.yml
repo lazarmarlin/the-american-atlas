@@ -39,6 +39,15 @@ jobs:
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
 
+      - name: Show the Android Auto entries in the built APK
+        working-directory: android
+        run: |
+          AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          "$AAPT2" dump badging "$APK" | grep -E "^package:|application-label:|sdkVersion|targetSdk" || true
+          "$AAPT2" dump xmltree --file AndroidManifest.xml "$APK" | grep -n -E "car|automotive|service|exported|category|MAP_TEMPLATES" || true
+          "$AAPT2" dump xmltree --file res/xml/automotive_app_desc.xml "$APK" || echo "automotive_app_desc.xml missing"
+
       - uses: actions/upload-artifact@v4
         with:
           name: american-atlas-debug-apk
