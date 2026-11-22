@@ -11,7 +11,10 @@
 import { spawnSync } from "node:child_process";
 import { rmSync } from "node:fs";
 
-const origin = (process.env.VITE_API_ORIGIN ?? "").trim().replace(/\/+$/, "");
+const origin = (process.env.VITE_API_ORIGIN ?? "https://traveltrack.grok.me")
+  .trim()
+  .replace(/^["']+|["']+$/g, "")
+  .replace(/\/+$/, "");
 if (!/^https:\/\/[^/]+$/.test(origin)) {
   console.error(
     "Set VITE_API_ORIGIN to the deployed web app, e.g.\n  VITE_API_ORIGIN=https://your-app.vercel.app npm run build:app",

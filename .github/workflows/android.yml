@@ -1,8 +1,8 @@
 # Builds a debug APK of the Capacitor app. Download it from the run's
 # "Artifacts" section and install it on an Android phone.
 #
-# Needs a repository variable API_ORIGIN (Settings → Secrets and variables →
-# Actions → Variables) set to the deployed web app, e.g. https://your-app.vercel.app
+# The phone talks to https://traveltrack.grok.me unless a repository variable
+# API_ORIGIN is set (Settings → Secrets and variables → Actions → Variables).
 name: Android APK
 
 on:
@@ -30,7 +30,7 @@ jobs:
 
       - name: Build app assets
         env:
-          VITE_API_ORIGIN: ${{ vars.API_ORIGIN }}
+          VITE_API_ORIGIN: ${{ vars.API_ORIGIN || 'https://traveltrack.grok.me' }}
         run: npm run build:app
 
       - name: Build debug APK
