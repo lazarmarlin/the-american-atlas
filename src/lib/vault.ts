@@ -1,5 +1,5 @@
 import { listMarks, removeMark, saveMark, updateJournal, updateVisits, type Mark } from "@/lib/marks";
-import { getProfile, saveProfile, type Profile } from "@/lib/profile";
+import { getProfile, saveMarker, saveProfile, type Profile } from "@/lib/profile";
 import { deleteTrip, ensureStops, listTrips, orderTripStops, saveTrip, setTripStop, type Trip, type TripStop } from "@/lib/trips";
 import { ensureVisits, type Visit } from "@/lib/visits";
 
@@ -19,9 +19,19 @@ type Op =
   | { kind: "delete-trip"; id: string }
   | { kind: "order-stops"; tripId: string; stops: TripStop[] }
   | { kind: "trip-stop"; tripId: string; poiId: string; on: boolean; stopId?: string }
-  | { kind: "profile"; name: string; photo: string };
+  | { kind: "profile"; name: string; photo: string; markerIcon?: string; markerColor?: string }
+  | { kind: "marker"; markerIcon: string; markerColor: string };
 
-const EMPTY: VaultSnapshot = { marks: [], trips: [], profile: { name: "", photo: "" }, pending: 0 };
+const EMPTY: VaultSnapshot = { marks: [], trips: [], profile: { name: "", photo: "", markerIcon: "", markerColor: "" }, pending: 0 };
+
+function asProfile(raw: Partial<Profile> | undefined): Profile {
+  return {
+    name: typeof raw?.name === "string" ? raw.name : "",
+    photo: typeof raw?.photo === "string" ? raw.photo : "",
+    markerIcon: typeof raw?.markerIcon === "string" ? raw.markerIcon : "",
+    markerColor: typeof raw?.markerColor === "string" ? raw.markerColor : "",
+  };
+}
 
 function openDb() {
   return new Promise<IDBDatabase>((resolve, reject) => {
@@ -112,7 +122,7 @@ export async function readVault(): Promise<VaultSnapshot> {
   return {
     marks: (marks ?? []).map((mark) => ensureVisits(mark)),
     trips: (trips ?? []).map((trip) => ensureStops(trip)),
-    profile: profile ?? { name: "", photo: "" },
+    profile: asProfile(profile),
     pending,
   };
 }
@@ -223,7 +233,23 @@ export function vaultTripStop(tripId: string, poiId: string, on: boolean) {
 }
 
 export function vaultSaveProfile(profile: Profile) {
-  return mutate({ kind: "profile", name: profile.name, photo: profile.photo }, (snap) => ({ ...snap, profile }));
+  return mutate(
+    {
+      kind: "profile",
+      name: profile.name,
+      photo: profile.photo,
+      markerIcon: profile.markerIcon,
+      markerColor: profile.markerColor,
+    },
+    (snap) => ({ ...snap, profile }),
+  );
+}
+
+export function vaultSaveMarker(markerIcon: string, markerColor: string) {
+  return mutate({ kind: "marker", markerIcon, markerColor }, (snap) => ({
+    ...snap,
+    profile: { ...snap.profile, markerIcon, markerColor },
+  }));
 }
 
 let flushing = false;
@@ -261,7 +287,12 @@ async function replay(op: Op) {
   else if (op.kind === "delete-trip") await deleteTrip({ data: op.id });
   else if (op.kind === "order-stops") await orderTripStops({ data: { tripId: op.tripId, stops: ensureStops({ id: op.tripId, name: "", stops: op.stops }).stops } });
   else if (op.kind === "trip-stop") await setTripStop({ data: op });
-  else await saveProfile({ data: { name: op.name, photo: op.photo } });
+  else if (op.kind === "marker") await saveMarker({ data: { markerIcon: op.markerIcon, markerColor: op.markerColor } });
+  else if (op.kind === "profile") {
+    await saveProfile({
+      data: { name: op.name, photo: op.photo, markerIcon: op.markerIcon, markerColor: op.markerColor },
+    });
+  }
 }
 
 /** Pull the account copy when the outbox is empty. Returns null if the device copy should stay. */

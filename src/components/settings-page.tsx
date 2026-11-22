@@ -8,7 +8,9 @@ import { nativeApp } from "@/lib/native";
 import type { SettingsPageId } from "@/lib/settings-route";
 import { requestTrackingPermission } from "@/lib/background-location";
 import { type Profile } from "@/lib/profile";
-import { vaultSaveProfile } from "@/lib/vault";
+import { vaultSaveMarker, vaultSaveProfile } from "@/lib/vault";
+import { YouMarkerFace } from "@/components/you-marker-face";
+import { isMarkerColor, isMarkerIcon, MARKER_COLORS, MARKER_ICONS, markerLabel } from "@/lib/you-marker";
 
 export function SettingsPage({
   profile,
@@ -49,6 +51,10 @@ export function SettingsPage({
   const setShowReservations = useSettings((s) => s.setShowReservations);
   const setTownColor = useSettings((s) => s.setTownColor);
   const setReservationColor = useSettings((s) => s.setReservationColor);
+  const markerIcon = useSettings((s) => s.markerIcon);
+  const markerColor = useSettings((s) => s.markerColor);
+  const setMarkerIcon = useSettings((s) => s.setMarkerIcon);
+  const setMarkerColor = useSettings((s) => s.setMarkerColor);
   const pack = useOfflinePack();
   const packPct = pack.total ? Math.min(100, Math.round((pack.done / pack.total) * 100)) : 0;
   const [name, setName] = useState(profile.name);
@@ -59,6 +65,8 @@ export function SettingsPage({
   const [syncing, setSyncing] = useState(false);
   const [syncNote, setSyncNote] = useState<string | null>(null);
   const [trackNote, setTrackNote] = useState<string | null>(null);
+  const [pendingIcon, setPendingIcon] = useState<string | null>(null);
+  const [markerNote, setMarkerNote] = useState<string | null>(null);
 
   useEffect(() => {
     setName(profile.name);
@@ -69,7 +77,7 @@ export function SettingsPage({
     setBusy(true);
     setNote(null);
     try {
-      const next = { name: name.trim(), photo };
+      const next = { name: name.trim(), photo, markerIcon: profile.markerIcon, markerColor: profile.markerColor };
       if (!next.name) throw new Error("Add a name");
       await vaultSaveProfile(next);
       onSaved(next);
@@ -78,6 +86,25 @@ export function SettingsPage({
       setNote(err instanceof Error ? err.message : "Couldn't save that.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function commitMarker(icon: string, color: string) {
+    if (!isMarkerIcon(icon) || !isMarkerColor(color)) return;
+    setMarkerIcon(icon);
+    setMarkerColor(color);
+    setPendingIcon(null);
+    const next = { name: profile.name, photo: profile.photo, markerIcon: icon, markerColor: color };
+    try {
+      await vaultSaveMarker(icon, color);
+      onSaved(next);
+      setMarkerNote(
+        typeof navigator !== "undefined" && navigator.onLine
+          ? "Saved to your account"
+          : "Saved on this device. It will sync when you're back online.",
+      );
+    } catch (err) {
+      setMarkerNote(err instanceof Error ? err.message : "Couldn't save that marker.");
     }
   }
 
@@ -101,7 +128,7 @@ export function SettingsPage({
           {(
             [
               ["account", "Account", "Sync and profile"],
-              ["tracking", "Tracking", "Travel tracking and fast add"],
+              ["tracking", "Tracking", "Travel tracking, your marker, and fast add"],
               ["map", "Map", "Markers, borders, and overlays"],
               ["atlas", "Atlas", nativeApp ? "The tour" : "Offline atlas and the tour"],
             ] as const
@@ -244,8 +271,8 @@ export function SettingsPage({
         <h2 className="font-serif text-2xl">Travel tracking</h2>
         <p className="mt-1 text-sm text-muted">
           {nativeApp
-            ? "When this is on, the county you are in, a road you are driving, or a site within a quarter mile is added for you. It keeps going with the screen off. Turning it on asks Android to allow location all the time."
-            : "When this is on, the county you are in, a road you are driving, or a site within a quarter mile is added for you. The open app can do that now. Background tracking, with the screen off, needs the installed phone app."}
+            ? "When this is on, a town or city you pass through, an Indian reservation you cross, the county you are in, a road you are driving, or a site within a quarter mile is added for you. It keeps going with the screen off. Turning it on asks Android to allow location all the time."
+            : "When this is on, a town or city you pass through, an Indian reservation you cross, the county you are in, a road you are driving, or a site within a quarter mile is added for you. The open app can do that now. Background tracking, with the screen off, needs the installed phone app."}
         </p>
         <button
           type="button"
@@ -282,6 +309,59 @@ export function SettingsPage({
           {trackTravel ? "Tracking on" : "Tracking off"}
         </button>
         {trackNote ? <p className="mt-2 text-sm text-muted">{trackNote}</p> : null}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="font-serif text-2xl">Your location</h2>
+        <p className="mt-1 text-sm text-muted">
+          The marker that follows you while tracking is on. Pick a color, then a picture. It is saved to your account.
+        </p>
+        <div className="mt-3 flex items-center gap-3">
+          <YouMarkerFace icon={markerIcon} color={markerColor} size={64} />
+          <p className="text-sm text-muted">
+            Now: {markerLabel(markerIcon)}
+          </p>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {MARKER_COLORS.map((color) => (
+            <button
+              key={color.id}
+              type="button"
+              aria-pressed={markerColor.toLowerCase() === color.id}
+              onClick={() => {
+                setMarkerColor(color.id);
+                if (isMarkerIcon(markerIcon)) void commitMarker(markerIcon, color.id);
+              }}
+              className={
+                "flex h-12 items-center justify-center gap-2 rounded-lg border text-sm " +
+                (markerColor.toLowerCase() === color.id ? "border-ink bg-elevated" : "border-line")
+              }
+            >
+              <span className="size-3 rounded-full" style={{ background: color.id }} />
+              {color.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-3 h-72 overflow-y-auto rounded-lg border border-line p-2">
+          <div className="grid grid-cols-3 gap-2">
+            {MARKER_ICONS.map((icon) => (
+              <button
+                key={icon.id}
+                type="button"
+                aria-pressed={markerIcon === icon.id}
+                onClick={() => setPendingIcon(icon.id)}
+                className={
+                  "flex flex-col items-center rounded-lg border px-1 py-2 " +
+                  (markerIcon === icon.id ? "border-ink bg-elevated" : "border-line")
+                }
+              >
+                <YouMarkerFace icon={icon.id} color={markerColor} size={48} />
+                <span className="mt-1 text-xs text-muted">{icon.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        {markerNote ? <p className="mt-2 text-sm text-muted">{markerNote}</p> : null}
       </section>
 
       <section className="mt-8">
@@ -457,7 +537,9 @@ export function SettingsPage({
 
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Reservations</h2>
-        <p className="mt-1 text-sm text-muted">A faint wash over Indian reservation boundaries. Tapping it does nothing.</p>
+        <p className="mt-1 text-sm text-muted">
+          A wash over Indian reservation boundaries. Tap one to add it, the same as a park. Driving through one adds it while tracking is on. Each reservation has its own points.
+        </p>
         <button
           type="button"
           aria-pressed={showReservations}
@@ -485,6 +567,38 @@ export function SettingsPage({
         </div>
       </section>
       </>
+      ) : null}
+      {pendingIcon ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="marker-confirm-title"
+        >
+          <div className="w-full max-w-xs rounded-xl border border-line bg-bg p-5 text-center">
+            <div className="flex justify-center">
+              <YouMarkerFace icon={pendingIcon} color={markerColor} size={112} />
+            </div>
+            <h2 id="marker-confirm-title" className="mt-3 font-serif text-3xl">
+              Use this marker?
+            </h2>
+            <p className="mt-1 text-sm text-muted">{markerLabel(pendingIcon)}</p>
+            <button
+              type="button"
+              onClick={() => void commitMarker(pendingIcon, markerColor)}
+              className="mt-4 h-12 w-full rounded-lg border border-ink bg-elevated text-sm"
+            >
+              Yes, that's the one
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingIcon(null)}
+              className="mt-2 h-12 w-full rounded-lg border border-line text-sm"
+            >
+              Pick a different one
+            </button>
+          </div>
+        </div>
       ) : null}
     </main>
   );

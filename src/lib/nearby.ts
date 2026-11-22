@@ -8,6 +8,7 @@ const NEAR_CATS = [
   "stadium",
   "chain",
   "park",
+  "reservation",
   "museum",
   "zoo",
   "brewery",

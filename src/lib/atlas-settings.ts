@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { DEFAULT_MARKER_COLOR, DEFAULT_MARKER_ICON, isMarkerColor, isMarkerIcon } from "@/lib/you-marker";
 
 export const BORDER_COLORS = [
   { id: "#f3f0e6", label: "Cream" },
@@ -20,6 +21,8 @@ type Saved = {
   showReservations: boolean;
   townColor: string;
   reservationColor: string;
+  markerIcon: string;
+  markerColor: string;
 };
 
 type Settings = Saved & {
@@ -33,6 +36,8 @@ type Settings = Saved & {
   setShowReservations: (showReservations: boolean) => void;
   setTownColor: (townColor: string) => void;
   setReservationColor: (reservationColor: string) => void;
+  setMarkerIcon: (markerIcon: string) => void;
+  setMarkerColor: (markerColor: string) => void;
 };
 
 const KEY = "trak-settings";
@@ -47,6 +52,8 @@ const DEFAULTS: Saved = {
   showReservations: true,
   townColor: "#c4a484",
   reservationColor: "#3d7ab5",
+  markerIcon: DEFAULT_MARKER_ICON,
+  markerColor: DEFAULT_MARKER_COLOR,
 };
 
 function readSaved(): Saved {
@@ -64,6 +71,8 @@ function readSaved(): Saved {
       showReservations: raw.showReservations !== false,
       townColor: typeof raw.townColor === "string" ? raw.townColor : DEFAULTS.townColor,
       reservationColor: typeof raw.reservationColor === "string" ? raw.reservationColor : DEFAULTS.reservationColor,
+      markerIcon: isMarkerIcon(raw.markerIcon) ? raw.markerIcon : DEFAULTS.markerIcon,
+      markerColor: isMarkerColor(raw.markerColor) ? raw.markerColor.toLowerCase() : DEFAULTS.markerColor,
     };
   } catch {
     return DEFAULTS;
@@ -115,5 +124,13 @@ export const useSettings = create<Settings>((set) => ({
   setReservationColor: (reservationColor) => {
     write({ reservationColor });
     set({ reservationColor });
+  },
+  setMarkerIcon: (markerIcon) => {
+    write({ markerIcon });
+    set({ markerIcon });
+  },
+  setMarkerColor: (markerColor) => {
+    write({ markerColor });
+    set({ markerColor });
   },
 }));

@@ -9,6 +9,7 @@ import { TIER_ZOOM, kindFor, placeKinds } from "@/lib/place-kinds";
 import { glyphImage, glyphKinds } from "@/lib/map-glyphs";
 import type { Fix } from "@/lib/nearby";
 import { loadTowns } from "@/lib/towns-overlay";
+import { youMarkerImage } from "@/lib/you-marker";
 
 type Props = {
   states: StateInfo[];
@@ -28,6 +29,8 @@ type Props = {
   showReservations: boolean;
   townColor: string;
   reservationColor: string;
+  markerIcon: string;
+  markerColor: string;
   offers: (Mark & { tier?: number })[];
   tripLine: [number, number][];
   you: Fix | null;
@@ -119,6 +122,8 @@ export function AtlasMap({
   showReservations,
   townColor,
   reservationColor,
+  markerIcon,
+  markerColor,
   offers,
   tripLine,
   you,
@@ -154,6 +159,8 @@ export function AtlasMap({
   const baseRef = useRef<number | null>(null);
   const hiddenRef = useRef(hiddenKinds);
   hiddenRef.current = hiddenKinds;
+  const markerRef = useRef({ icon: markerIcon, color: markerColor });
+  markerRef.current = { icon: markerIcon, color: markerColor };
 
   function applyFilters(map: MlMap) {
     if (!map.getLayer("offer-line")) return;
@@ -238,6 +245,8 @@ export function AtlasMap({
           map.addImage(`s-${id}`, glyphImage(id, color, true), { pixelRatio: 2 });
         }
 
+        map.addImage("you-marker", youMarkerImage(markerRef.current.icon, markerRef.current.color), { pixelRatio: 2 });
+
         const routeColor = [
           "case",
           ["==", ["get", "id"], ""],
@@ -313,7 +322,16 @@ export function AtlasMap({
             id: "reservation-fill",
             type: "fill",
             source: "reservations",
-            paint: { "fill-color": "#3d7ab5", "fill-opacity": 0.18 },
+            paint: { "fill-color": "#3d7ab5", "fill-opacity": 0.28 },
+          },
+          "states-line",
+        );
+        map.addLayer(
+          {
+            id: "reservation-line",
+            type: "line",
+            source: "reservations",
+            paint: { "line-color": "#d7e6f5", "line-width": 1.15, "line-opacity": 0.9 },
           },
           "states-line",
         );
@@ -366,6 +384,8 @@ export function AtlasMap({
         });
         // Parks sit above the county tint (which covers every county) but
         // under county borders, roads and pins.
+        map.moveLayer("reservation-fill", "county-line");
+        map.moveLayer("reservation-line", "county-line");
         map.moveLayer("park-fill", "county-line");
         map.moveLayer("park-line", "county-line");
         const offerFilter: ExpressionSpecification = ["==", ["get", "tier"], 0];
@@ -458,13 +478,14 @@ export function AtlasMap({
         });
         map.addLayer({
           id: "you-dot",
-          type: "circle",
+          type: "symbol",
           source: "you",
-          paint: {
-            "circle-radius": 6,
-            "circle-color": "#3d8fd4",
-            "circle-stroke-color": ink,
-            "circle-stroke-width": 2,
+          layout: {
+            "icon-image": "you-marker",
+            "icon-size": 1,
+            "icon-anchor": "center",
+            "icon-allow-overlap": true,
+            "icon-ignore-placement": true,
           },
         });
 
@@ -484,7 +505,7 @@ export function AtlasMap({
           if (hover) map.setFeatureState({ source: "states", id: hover }, { hover: false });
           hover = null;
         });
-        for (const layer of ["route-line", "place-dots", "place-icons", "offer-line", "offer-dots", "offer-icons", "park-fill", "county-fill"]) {
+        for (const layer of ["route-line", "place-dots", "place-icons", "offer-line", "offer-dots", "offer-icons", "park-fill", "reservation-fill", "county-fill"]) {
           map.on("mouseenter", layer, () => map?.getCanvas().style.setProperty("cursor", "pointer"));
           map.on("mouseleave", layer, () => map?.getCanvas().style.setProperty("cursor", ""));
         }
@@ -522,6 +543,22 @@ export function AtlasMap({
               lat: Number(park.lat),
               lon: Number(park.lon),
               pts: Number(park.pts ?? 0),
+            });
+            return;
+          }
+          const reservation = map
+            .queryRenderedFeatures(event.point, { layers: ["reservation-fill"] })
+            .map((feature) => feature.properties)
+            .find((props) => typeof props?.id === "string" && props.id);
+          if (reservation) {
+            propsRef.current.onPark({
+              id: String(reservation.id),
+              name: String(reservation.name ?? "Reservation"),
+              cat: "reservation",
+              st: String(reservation.st ?? ""),
+              lat: Number(reservation.lat),
+              lon: Number(reservation.lon),
+              pts: Number(reservation.pts ?? 0),
             });
             return;
           }
@@ -633,6 +670,7 @@ export function AtlasMap({
     map.setLayoutProperty("county-line", "visibility", countyOn);
     map.setLayoutProperty("town-fill", "visibility", showTowns ? "visible" : "none");
     map.setLayoutProperty("reservation-fill", "visibility", showReservations ? "visible" : "none");
+    map.setLayoutProperty("reservation-line", "visibility", showReservations ? "visible" : "none");
     if (showTowns) ensureTowns(map);
     if (showReservations && !overlaysLoaded.current.has("reservations")) {
       overlaysLoaded.current.add("reservations");
@@ -642,6 +680,7 @@ export function AtlasMap({
     map.setLayoutProperty("park-line", "visibility", showParks ? "visible" : "none");
     map.setPaintProperty("town-fill", "fill-color", townColor);
     map.setPaintProperty("reservation-fill", "fill-color", reservationColor);
+    map.setPaintProperty("reservation-line", "line-color", reservationColor);
     if (showCounties) {
       const countyFilter: ExpressionSpecification = stateAbbr ? ["==", ["get", "st"], stateAbbr] : ["has", "st"];
       map.setFilter("county-fill", countyFilter);
@@ -827,6 +866,12 @@ export function AtlasMap({
         : { type: "FeatureCollection", features: [] },
     );
   }, [dot, ready]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map || !map.hasImage("you-marker")) return;
+    map.updateImage("you-marker", youMarkerImage(markerIcon, markerColor));
+  }, [markerColor, markerIcon, ready]);
 
   useEffect(() => {
     const map = mapRef.current;

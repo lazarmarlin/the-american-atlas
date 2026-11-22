@@ -14,6 +14,18 @@ function tree(g: CanvasRenderingContext2D) {
   g.fillRect(14, 22, 4, 5);
 }
 
+function reservationMark(g: CanvasRenderingContext2D) {
+  g.beginPath();
+  g.moveTo(4, 24);
+  g.quadraticCurveTo(10, 12, 16, 24);
+  g.quadraticCurveTo(22, 13, 28, 24);
+  g.closePath();
+  g.fill();
+  g.beginPath();
+  g.arc(16, 10, 3.2, 0, Math.PI * 2);
+  g.fill();
+}
+
 function statePark(g: CanvasRenderingContext2D) {
   g.fillRect(14.2, 20, 3.6, 7);
   g.lineWidth = 1.8;
@@ -347,6 +359,7 @@ function drawKind(g: CanvasRenderingContext2D, kind: string, color: string) {
   g.fillStyle = color;
   g.strokeStyle = color;
   if (kind === "park-state") statePark(g);
+  else if (kind === "reservation") reservationMark(g);
   else if (kind.startsWith("park") || kind === "forest" || kind === "refuge") tree(g);
   else if (kind.startsWith("span") || kind === "bridge") bridge(g, color);
   else if (kind.startsWith("airport")) plane(g);

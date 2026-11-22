@@ -27,6 +27,7 @@ import { useSettingsRoute } from "@/lib/settings-route";
 import { Tour } from "@/components/tour";
 import { BadgeIcon } from "@/components/badge-icon";
 import { useSettings } from "@/lib/atlas-settings";
+import { isMarkerColor, isMarkerIcon } from "@/lib/you-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
 import { nativeApp } from "@/lib/native";
 import { notifyPlacesAdded } from "@/lib/place-notifications";
@@ -124,7 +125,7 @@ function AtlasShell() {
   const settingsRoute = useSettingsRoute();
   const settingsOpen = settingsRoute.page !== null;
   const [roadBack, setRoadBack] = useState<Mark | null>(null);
-  const [profile, setProfile] = useState<Profile>({ name: "", photo: "" });
+  const [profile, setProfile] = useState<Profile>({ name: "", photo: "", markerIcon: "", markerColor: "" });
   const [offline, setOffline] = useState(false);
   const [pendingSync, setPendingSync] = useState(0);
   const [passedNote, setPassedNote] = useState<string | null>(null);
@@ -146,6 +147,10 @@ function AtlasShell() {
   const showReservations = useSettings((s) => s.showReservations);
   const townColor = useSettings((s) => s.townColor);
   const reservationColor = useSettings((s) => s.reservationColor);
+  const markerIcon = useSettings((s) => s.markerIcon);
+  const markerColor = useSettings((s) => s.markerColor);
+  const setMarkerIcon = useSettings((s) => s.setMarkerIcon);
+  const setMarkerColor = useSettings((s) => s.setMarkerColor);
   const pack = useOfflinePack();
   const packPct = pack.total ? Math.min(100, Math.round((pack.done / pack.total) * 100)) : 0;
 
@@ -260,6 +265,7 @@ function AtlasShell() {
     const cats = [
       "town",
       "park",
+      "reservation",
       "forest",
       "refuge",
       "capitol",
@@ -506,7 +512,7 @@ function AtlasShell() {
         void BackgroundGeolocation.start(
           {
             backgroundTitle: "The American Atlas",
-            backgroundMessage: "Adding counties, roads, and places as you go.",
+            backgroundMessage: "Adding towns, reservations, counties, roads, and places as you go.",
             requestPermissions: true,
             stale: false,
             distanceFilter: 80,
@@ -772,6 +778,11 @@ function AtlasShell() {
   const cardOnly = mapCard && focus != null;
 
   useEffect(() => {
+    if (isMarkerIcon(profile.markerIcon)) setMarkerIcon(profile.markerIcon);
+    if (isMarkerColor(profile.markerColor)) setMarkerColor(profile.markerColor);
+  }, [profile.markerColor, profile.markerIcon, setMarkerColor, setMarkerIcon]);
+
+  useEffect(() => {
     if (!addedFlash) return;
     const timer = window.setTimeout(() => setAddedFlash(null), 4500);
     return () => window.clearTimeout(timer);
@@ -786,7 +797,12 @@ function AtlasShell() {
   if (settingsOpen) {
     return (
       <SettingsPage
-        profile={{ name: profile.name || user?.displayName || "", photo: profile.photo || user?.profileImageUrl || "" }}
+        profile={{
+          name: profile.name || user?.displayName || "",
+          photo: profile.photo || user?.profileImageUrl || "",
+          markerIcon: profile.markerIcon,
+          markerColor: profile.markerColor,
+        }}
         email={user?.primaryEmail ?? null}
         page={settingsRoute.page ?? "menu"}
         onPage={settingsRoute.open}
@@ -846,6 +862,8 @@ function AtlasShell() {
               showReservations={showReservations}
               townColor={townColor}
               reservationColor={reservationColor}
+              markerIcon={markerIcon}
+              markerColor={markerColor}
               offers={offers}
               tripLine={tripLine}
               you={you}

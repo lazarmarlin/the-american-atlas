@@ -11,6 +11,7 @@ export const placeKinds: PlaceKind[] = [
   { id: "town", label: "Towns", color: "#f3e2b0", tier: 1, legend: true },
   { id: "park-national", label: "National parks", color: "#1b6b3a", tier: 0, legend: true },
   { id: "park-state", label: "State parks", color: "#9ed68a", tier: 0, legend: true },
+  { id: "reservation", label: "Reservations", color: "#c4894a", tier: 0, legend: true },
   { id: "forest", label: "Forests", color: "#2f6b45", tier: 0, legend: true },
   { id: "refuge", label: "Refuges", color: "#7dcea0", tier: 0, legend: true },
   { id: "capitol", label: "Capitols", color: "#d4762c", tier: 0, legend: true },
