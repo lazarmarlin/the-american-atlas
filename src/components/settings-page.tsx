@@ -413,7 +413,7 @@ export function SettingsPage({
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Parks</h2>
         <p className="mt-1 text-sm text-muted">
-          Green shapes for national park boundaries, drawn behind the pins. Tap a park to open it, the same as tapping its pin.
+          Deeper green is a national park. Lighter green is a state park. Tap either shape to open it, the same as its pin.
         </p>
         <button
           type="button"

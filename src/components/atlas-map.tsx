@@ -300,7 +300,10 @@ export function AtlasMap({
             type: "fill",
             source: "parks",
             // Bright enough to read on the dark basemap.
-            paint: { "fill-color": "#3fa45b", "fill-opacity": 0.3 },
+            paint: {
+              "fill-color": ["match", ["get", "level"], "state", "#c6efb0", "#3fa45b"],
+              "fill-opacity": ["match", ["get", "level"], "state", 0.46, 0.34],
+            },
           },
           "states-line",
         );
@@ -309,7 +312,11 @@ export function AtlasMap({
             id: "park-line",
             type: "line",
             source: "parks",
-            paint: { "line-color": "#6cc483", "line-width": 1.3, "line-opacity": 0.9 },
+            paint: {
+              "line-color": ["match", ["get", "level"], "state", "#e7f8dc", "#8ee0a4"],
+              "line-width": ["match", ["get", "level"], "state", 1.05, 1.3],
+              "line-opacity": 0.95,
+            },
           },
           "states-line",
         );

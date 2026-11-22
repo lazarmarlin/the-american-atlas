@@ -14,6 +14,18 @@ function tree(g: CanvasRenderingContext2D) {
   g.fillRect(14, 22, 4, 5);
 }
 
+function statePark(g: CanvasRenderingContext2D) {
+  g.fillRect(14.2, 20, 3.6, 7);
+  g.lineWidth = 1.8;
+  g.strokeRect(6.5, 6, 19, 13);
+  g.beginPath();
+  g.moveTo(16, 8.2);
+  g.lineTo(21.5, 16.2);
+  g.lineTo(10.5, 16.2);
+  g.closePath();
+  g.fill();
+}
+
 function bridge(g: CanvasRenderingContext2D, color: string) {
   g.strokeStyle = color;
   g.lineWidth = 2;
@@ -334,7 +346,8 @@ function roadBend(g: CanvasRenderingContext2D, color: string) {
 function drawKind(g: CanvasRenderingContext2D, kind: string, color: string) {
   g.fillStyle = color;
   g.strokeStyle = color;
-  if (kind.startsWith("park") || kind === "forest" || kind === "refuge") tree(g);
+  if (kind === "park-state") statePark(g);
+  else if (kind.startsWith("park") || kind === "forest" || kind === "refuge") tree(g);
   else if (kind.startsWith("span") || kind === "bridge") bridge(g, color);
   else if (kind.startsWith("airport")) plane(g);
   else if (kind === "capitol" || kind === "president") dome(g);
