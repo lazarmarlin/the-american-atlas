@@ -8,7 +8,9 @@ name: Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    # feat/android-auto: the Android Auto work-in-progress branch, built so
+    # its car screens get compiled and tested before they reach main.
+    branches: [main, feat/android-auto]
 
 jobs:
   apk:
