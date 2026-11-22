@@ -4,7 +4,9 @@ android {
     namespace = "com.lazarmarlin.americanatlas"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.lazarmarlin.americanatlas"
+        // Branch build: its own app id so it installs next to the main app.
+        // The Java package and namespace stay com.lazarmarlin.americanatlas.
+        applicationId "com.lazarmarlin.americanatlas.auto"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

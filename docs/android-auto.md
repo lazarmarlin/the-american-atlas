@@ -4,6 +4,20 @@ This work lives on the `feat/android-auto` branch. The GitHub "Android APK"
 workflow builds this branch too, so every push produces a debug APK with the car
 screens.
 
+## Installs next to the main app
+
+On this branch the app id is `com.lazarmarlin.americanatlas.auto`, and the app
+is named **Atlas Auto**, so it installs alongside the regular The American
+Atlas instead of replacing it. Each app keeps its own sign-in and saved data on
+the phone, though both sync to the same account.
+
+Both apps answer the same sign-in link. When you sign in with Google or X, the
+phone may ask which app to open. Pick the one you started signing in from.
+Email and password sign-in isn't affected.
+
+Change `applicationId` in `android/app/build.gradle` and `app_name` in
+`res/values/strings.xml` back before merging into `main`.
+
 ## What it does
 
 When the phone is connected to Android Auto, The American Atlas appears in the

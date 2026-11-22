@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">The American Atlas</string>
-    <string name="title_activity_main">The American Atlas</string>
+    <string name="app_name">Atlas Auto</string>
+    <string name="title_activity_main">Atlas Auto</string>
     <string name="package_name">com.lazarmarlin.americanatlas</string>
     <string name="custom_url_scheme">com.lazarmarlin.americanatlas</string>
 </resources>
