@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { deleteGhostTrail, listGhostTrails, MAX_TRAILS, saveGhostTrail, setGhostTrailHidden, type PackedPoint, type SyncedTrail } from "@/lib/ghost-sync";
 import { milesBetween, type Fix } from "@/lib/nearby";
 
 /** One sample of where you were. `brk` starts a new wisp so a long jump is not a line across the map. */
@@ -16,10 +17,30 @@ export type GhostLines = [number, number][][];
 
 const MIN_METERS = 28;
 const BREAK_MILES = 25;
-const MAX_SAVED = 30;
-const KEY = "ghost-trails";
+const MAX_SAVED = MAX_TRAILS;
+/**
+ * The live trail always keeps this much history; the hours slider only
+ * changes how much of it is drawn and saved, so lowering it loses nothing.
+ */
+export const GHOST_KEEP_HOURS = 24;
+/** Before trails were stored per account (and synced) they lived under this key. */
+const LEGACY_KEY = "ghost-trails";
+const keyFor = (userId: string) => `ghost-trails:${userId}`;
 
-type Stored = { v: 1; live: GhostPoint[]; saved: SavedGhost[]; hidden: string[] };
+/** Saved-trail changes not yet on the server. */
+type Pending = { upsert: string[]; remove: string[]; hide: string[] };
+const noPending = (): Pending => ({ upsert: [], remove: [], hide: [] });
+
+type Stored = {
+  v: 2;
+  live: GhostPoint[];
+  saved: SavedGhost[];
+  hidden: string[];
+  pending: Pending;
+  /** True once this account's local trails have been merged with the server at least once. */
+  synced: boolean;
+};
+type StoredV1 = { v: 1; live: GhostPoint[]; saved: SavedGhost[]; hidden: string[] };
 
 type GhostState = {
   live: GhostPoint[];
@@ -31,6 +52,10 @@ type GhostState = {
   look: number;
   dirty: boolean;
   ready: boolean;
+  /** Account the trails on screen belong to (null when signed out). */
+  userId: string | null;
+  pending: Pending;
+  synced: boolean;
   record: (fixes: Fix[]) => void;
   prune: (hours: number) => void;
   saveLive: (name: string, hours: number) => "short" | "full" | SavedGhost;
@@ -188,23 +213,47 @@ function openDb() {
   });
 }
 
-function readStored(): Promise<Stored | null> {
+/** Reads one key from the shared on-device store; resolves null on any failure. */
+function readKey<T>(key: string): Promise<T | null> {
   if (typeof indexedDB === "undefined") return Promise.resolve(null);
-  return openDb().then(
-    (db) =>
-      new Promise((resolve) => {
-        const req = db.transaction("kv").objectStore("kv").get(KEY);
-        req.onsuccess = () => {
-          const raw = req.result as Stored | undefined;
-          if (!raw || raw.v !== 1) {
-            resolve(null);
-            return;
-          }
-          resolve(raw);
-        };
-        req.onerror = () => resolve(null);
-      }),
-  );
+  return openDb()
+    .then(
+      (db) =>
+        new Promise<T | null>((resolve) => {
+          const req = db.transaction("kv").objectStore("kv").get(key);
+          req.onsuccess = () => resolve((req.result as T | undefined) ?? null);
+          req.onerror = () => resolve(null);
+        }),
+    )
+    .catch(() => null);
+}
+
+function writeKey(key: string, value: unknown | undefined): Promise<void> {
+  if (typeof indexedDB === "undefined") return Promise.resolve();
+  return openDb()
+    .then(
+      (db) =>
+        new Promise<void>((resolve) => {
+          const store = db.transaction("kv", "readwrite").objectStore("kv");
+          const req = value === undefined ? store.delete(key) : store.put(value, key);
+          req.onsuccess = () => resolve();
+          req.onerror = () => resolve();
+        }),
+    )
+    .catch(() => {});
+}
+
+async function readStored(userId: string): Promise<Stored | null> {
+  const own = await readKey<Stored | StoredV1>(keyFor(userId));
+  if (own && own.v === 2) return own;
+  // First run after trails moved to per-account storage: adopt the old shared
+  // copy for whoever is signed in now, and remove it so no one else sees it.
+  const legacy = await readKey<StoredV1>(LEGACY_KEY);
+  if (legacy && legacy.v === 1) {
+    void writeKey(LEGACY_KEY, undefined);
+    return { v: 2, live: legacy.live, saved: legacy.saved, hidden: legacy.hidden, pending: noPending(), synced: false };
+  }
+  return null;
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -214,20 +263,15 @@ function scheduleSave() {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     saveTimer = null;
-    const { live, saved, hidden } = useGhost.getState();
-    const payload: Stored = { v: 1, live, saved, hidden };
-    void openDb()
-      .then(
-        (db) =>
-          new Promise<void>((resolve) => {
-            const req = db.transaction("kv", "readwrite").objectStore("kv").put(payload, KEY);
-            req.onsuccess = () => resolve();
-            req.onerror = () => resolve();
-          }),
-      )
-      .catch(() => {});
+    const { live, saved, hidden, pending, synced, userId } = useGhost.getState();
+    if (!userId) return; // signed out: nothing is kept on the device
+    const payload: Stored = { v: 2, live, saved, hidden, pending, synced };
+    void writeKey(keyFor(userId), payload);
   }, 400);
 }
+
+const addTo = (list: string[], id: string) => (list.includes(id) ? list : [...list, id]);
+const dropFrom = (list: string[], id: string) => list.filter((item) => item !== id);
 
 export const useGhost = create<GhostState>((set, get) => ({
   live: [],
@@ -237,6 +281,9 @@ export const useGhost = create<GhostState>((set, get) => ({
   look: 0,
   dirty: false,
   ready: false,
+  userId: null,
+  pending: noPending(),
+  synced: false,
   record: (fixes) => {
     if (!fixes.length) return;
     set((state) => {
@@ -260,7 +307,8 @@ export const useGhost = create<GhostState>((set, get) => ({
     if (!trailLines(live).length) return "short";
     if (state.saved.length >= MAX_SAVED) return "full";
     const trail: SavedGhost = {
-      id: `g-${Date.now().toString(36)}`,
+      // Time plus a random tail, so two devices saving at once can't collide.
+      id: `g-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
       name: name.trim().slice(0, 40) || suggestTrailName(live[0]?.t ?? Date.now()),
       savedAt: Date.now(),
       startedAt: live[0]?.t ?? Date.now(),
@@ -271,8 +319,10 @@ export const useGhost = create<GhostState>((set, get) => ({
       focusId: trail.id,
       look: state.look + 1,
       dirty: true,
+      pending: { ...state.pending, upsert: addTo(state.pending.upsert, trail.id) },
     });
     scheduleSave();
+    scheduleSync();
     return trail;
   },
   removeSaved: (id) => {
@@ -281,47 +331,203 @@ export const useGhost = create<GhostState>((set, get) => ({
       hidden: state.hidden.filter((item) => item !== id),
       focusId: state.focusId === id ? null : state.focusId,
       dirty: true,
+      pending: {
+        upsert: dropFrom(state.pending.upsert, id),
+        hide: dropFrom(state.pending.hide, id),
+        remove: addTo(state.pending.remove, id),
+      },
     }));
     scheduleSave();
+    scheduleSync();
   },
   toggleHidden: (id) => {
     set((state) => ({
       hidden: state.hidden.includes(id) ? state.hidden.filter((item) => item !== id) : [...state.hidden, id],
       dirty: true,
+      pending: { ...state.pending, hide: addTo(state.pending.hide, id) },
     }));
     scheduleSave();
+    scheduleSync();
   },
   lookAt: (id) => set((state) => ({ focusId: id, look: state.look + 1 })),
 }));
 
-let loading = false;
+// ---------------------------------------------------------------- loading, sync, sign-out
 
-export function loadGhost(hours: number) {
-  if (loading || typeof indexedDB === "undefined") return;
-  loading = true;
-  void readStored().then((data) => {
-    useGhost.setState((state) => {
+let loadingFor: string | null = null;
+
+/**
+ * Load the signed-in account's trails from the device, then merge with the
+ * server. Call again when the account changes; signed out (null) shows none.
+ */
+export function loadGhost(userId: string | null) {
+  const state = useGhost.getState();
+  if (userId === loadingFor && (state.ready || userId === null)) return;
+  if (state.userId !== userId) {
+    // Another account's trails never stay on screen.
+    useGhost.setState({ live: [], saved: [], hidden: [], focusId: null, dirty: false, ready: false, userId, pending: noPending(), synced: false });
+  }
+  loadingFor = userId;
+  if (!userId) {
+    useGhost.setState({ ready: true });
+    return;
+  }
+  void readStored(userId).then((data) => {
+    if (useGhost.getState().userId !== userId) return; // switched accounts meanwhile
+    useGhost.setState((cur) => {
       if (!data) return { ready: true };
       const diskLive = freshPoints(
         (Array.isArray(data.live) ? data.live : []).map(asPoint).filter((point): point is GhostPoint => point !== null),
-        hours,
+        GHOST_KEEP_HOURS,
       );
       const diskSaved = (Array.isArray(data.saved) ? data.saved : [])
         .map(asSaved)
         .filter((item): item is SavedGhost => item !== null)
         .slice(0, MAX_SAVED);
       const diskHidden = (Array.isArray(data.hidden) ? data.hidden : []).filter((id) => typeof id === "string");
-      if (!state.dirty) {
-        return { live: diskLive, saved: diskSaved, hidden: diskHidden, ready: true };
+      const diskPending: Pending = {
+        upsert: (data.pending?.upsert ?? []).filter((id) => typeof id === "string"),
+        remove: (data.pending?.remove ?? []).filter((id) => typeof id === "string"),
+        hide: (data.pending?.hide ?? []).filter((id) => typeof id === "string"),
+      };
+      if (!cur.dirty) {
+        return { live: diskLive, saved: diskSaved, hidden: diskHidden, pending: diskPending, synced: Boolean(data.synced), ready: true };
       }
-      const known = new Set(state.saved.map((item) => item.id));
+      const known = new Set(cur.saved.map((item) => item.id));
       return {
-        live: joinTrail(diskLive, state.live),
-        saved: [...state.saved, ...diskSaved.filter((item) => !known.has(item.id))],
-        hidden: state.hidden.length ? state.hidden : diskHidden,
+        live: joinTrail(diskLive, cur.live),
+        saved: [...cur.saved, ...diskSaved.filter((item) => !known.has(item.id))],
+        hidden: cur.hidden.length ? cur.hidden : diskHidden,
+        pending: {
+          upsert: [...new Set([...diskPending.upsert, ...cur.pending.upsert])],
+          remove: [...new Set([...diskPending.remove, ...cur.pending.remove])],
+          hide: [...new Set([...diskPending.hide, ...cur.pending.hide])],
+        },
+        synced: Boolean(data.synced),
         ready: true,
         dirty: true,
       };
     });
+    void syncGhost();
   });
+}
+
+const pack = (points: GhostPoint[]): PackedPoint[] => points.map((p) => (p.brk ? [p.lat, p.lon, p.t, 1] : [p.lat, p.lon, p.t]));
+const unpack = (points: PackedPoint[]): GhostPoint[] =>
+  points.map((p) => (p[3] === 1 ? { lat: p[0], lon: p[1], t: p[2], brk: true } : { lat: p[0], lon: p[1], t: p[2] }));
+
+let syncing: Promise<void> | null = null;
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleSync() {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    void syncGhost();
+  }, 800);
+}
+
+/**
+ * Push queued saves, deletes and show/hide changes, then pull the account's
+ * trails. Safe to call any time; it does nothing offline or signed out, and
+ * whatever fails stays queued for next time.
+ */
+export function syncGhost(): Promise<void> {
+  syncing ??= runSync().finally(() => {
+    syncing = null;
+  });
+  return syncing;
+}
+
+async function runSync() {
+  const start = useGhost.getState();
+  const userId = start.userId;
+  if (!userId || !start.ready) return;
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+  const still = () => useGhost.getState().userId === userId;
+
+  // Trails saved on this device before syncing existed get uploaded once.
+  if (!start.synced) {
+    useGhost.setState((s) => ({ pending: { ...s.pending, upsert: [...new Set([...s.pending.upsert, ...s.saved.map((t) => t.id)])] } }));
+  }
+
+  try {
+    for (const id of [...useGhost.getState().pending.remove]) {
+      await deleteGhostTrail({ data: id });
+      if (!still()) return;
+      useGhost.setState((s) => ({ pending: { ...s.pending, remove: dropFrom(s.pending.remove, id) } }));
+    }
+    for (const id of [...useGhost.getState().pending.upsert]) {
+      const cur = useGhost.getState();
+      const trail = cur.saved.find((t) => t.id === id);
+      if (trail && trail.points.length >= 2) {
+        try {
+          await saveGhostTrail({
+            data: {
+              id: trail.id,
+              name: trail.name,
+              startedAt: trail.startedAt,
+              savedAt: trail.savedAt,
+              hidden: cur.hidden.includes(trail.id),
+              points: pack(trail.points),
+            },
+          });
+        } catch (err) {
+          // A trail the server refuses (over the limit, unreadable) stays on
+          // this device only rather than retrying forever.
+          if (!/limit|up to|too (short|long)|Bad trail|Unknown trail/i.test(String((err as Error)?.message ?? err))) throw err;
+        }
+      }
+      if (!still()) return;
+      useGhost.setState((s) => ({ pending: { ...s.pending, upsert: dropFrom(s.pending.upsert, id) } }));
+    }
+    for (const id of [...useGhost.getState().pending.hide]) {
+      await setGhostTrailHidden({ data: { id, hidden: useGhost.getState().hidden.includes(id) } });
+      if (!still()) return;
+      useGhost.setState((s) => ({ pending: { ...s.pending, hide: dropFrom(s.pending.hide, id) } }));
+    }
+
+    const remote: SyncedTrail[] = await listGhostTrails();
+    if (!still()) return;
+    useGhost.setState((s) => {
+      // The server is the record; anything still queued here wins over it.
+      const queued = new Set([...s.pending.upsert]);
+      const gone = new Set(s.pending.remove);
+      const fromServer: SavedGhost[] = remote
+        .filter((t) => !gone.has(t.id) && !queued.has(t.id))
+        .map((t) => ({ id: t.id, name: t.name, savedAt: t.savedAt, startedAt: t.startedAt, points: unpack(t.points) }));
+      const localOnly = s.saved.filter((t) => queued.has(t.id));
+      const saved = [...localOnly, ...fromServer].sort((a, b) => b.savedAt - a.savedAt).slice(0, MAX_SAVED);
+      const ids = new Set(saved.map((t) => t.id));
+      const hidePending = new Set(s.pending.hide);
+      const hidden = [
+        ...remote.filter((t) => t.hidden && ids.has(t.id) && !hidePending.has(t.id)).map((t) => t.id),
+        ...s.hidden.filter((id) => ids.has(id) && (hidePending.has(id) || queued.has(id))),
+      ];
+      return {
+        saved,
+        hidden: [...new Set(hidden)],
+        focusId: s.focusId && s.focusId !== "live" && !ids.has(s.focusId) ? null : s.focusId,
+        synced: true,
+      };
+    });
+  } catch {
+    // Offline or the server is unreachable: keep the queue for next time.
+  }
+  scheduleSave();
+}
+
+/** Remove this account's trails from the device (they are on the account). Use before signing out. */
+export async function clearGhostLocal(): Promise<void> {
+  const { userId } = useGhost.getState();
+  try {
+    await Promise.race([syncGhost(), new Promise((resolve) => setTimeout(resolve, 3000))]);
+  } catch {
+    /* sign-out goes ahead regardless */
+  }
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = null;
+  loadingFor = null;
+  useGhost.setState({ live: [], saved: [], hidden: [], focusId: null, dirty: false, ready: true, userId: null, pending: noPending(), synced: false });
+  if (userId) await writeKey(keyFor(userId), undefined);
 }

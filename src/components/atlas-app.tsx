@@ -28,7 +28,7 @@ import { useSettingsRoute } from "@/lib/settings-route";
 import { Tour } from "@/components/tour";
 import { BadgeIcon } from "@/components/badge-icon";
 import { useSettings } from "@/lib/atlas-settings";
-import { freshPoints, loadGhost, trailLines, useGhost } from "@/lib/ghost-trail";
+import { freshPoints, GHOST_KEEP_HOURS, loadGhost, syncGhost, trailLines, useGhost } from "@/lib/ghost-trail";
 import { isMarkerColor, isMarkerIcon } from "@/lib/you-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
 import { nativeApp } from "@/lib/native";
@@ -790,12 +790,25 @@ function AtlasShell() {
 
   const cardOnly = mapCard && focus != null;
 
+  // Trails belong to the signed-in account: load its copy, keep 24 hours of
+  // live trail (the slider only changes what's drawn), and sync saved trails
+  // when the app comes back online or into view.
+  const ghostUserId = user?.id ?? null;
   useEffect(() => {
-    loadGhost(useSettings.getState().ghostHours);
-    const id = window.setInterval(() => {
-      useGhost.getState().prune(useSettings.getState().ghostHours);
-    }, 30_000);
-    return () => window.clearInterval(id);
+    loadGhost(ghostUserId);
+  }, [ghostUserId]);
+  useEffect(() => {
+    const prune = window.setInterval(() => useGhost.getState().prune(GHOST_KEEP_HOURS), 30_000);
+    const sync = () => {
+      if (document.visibilityState === "visible") void syncGhost();
+    };
+    window.addEventListener("online", sync);
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      window.clearInterval(prune);
+      window.removeEventListener("online", sync);
+      document.removeEventListener("visibilitychange", sync);
+    };
   }, []);
 
   const ghostLiveLines = useMemo(() => trailLines(freshPoints(ghostLive, ghostHours)), [ghostHours, ghostLive]);
@@ -972,10 +985,7 @@ function AtlasShell() {
           open={ghostOpen}
           hours={ghostHours}
           tracking={trackTravel}
-          onHours={(hours) => {
-            setGhostHours(hours);
-            useGhost.getState().prune(hours);
-          }}
+          onHours={setGhostHours}
           onClose={() => setGhostOpen(false)}
         />
         <div className="pointer-events-none absolute top-safe left-3 z-10 flex flex-col items-start gap-2">
