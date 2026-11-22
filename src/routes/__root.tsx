@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
+import { createRootRoute, HeadContent, Outlet, Scripts, useRouter } from "@tanstack/react-router";
 import { AuthProvider } from "@/lib/auth/provider";
 import { restoreBearerToken } from "@/lib/auth/token";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
@@ -71,19 +71,29 @@ function OfflineHost() {
   return null;
 }
 
-/** Android back button: go back in the app, or leave it from the first screen. */
+/**
+ * Android back button. Settings pages are history entries (see
+ * src/lib/settings-route.ts): back steps out of them one at a time. On the map
+ * it leaves the app, even if the web view still has older entries (from
+ * signing in, say), which would otherwise make back reload the map.
+ */
 function NativeHost() {
+  const router = useRouter();
   useEffect(() => {
     let remove: (() => void) | undefined;
     void import("@capacitor/app").then(({ App }) =>
-      App.addListener("backButton", ({ canGoBack }) => {
-        if (canGoBack) window.history.back();
+      App.addListener("backButton", () => {
+        const depth = (window.history.state as { atlasDepth?: number } | null)?.atlasDepth ?? 0;
+        const inSettings = new URLSearchParams(window.location.search).has("settings");
+        if (depth > 0) window.history.back();
+        // Opened straight onto a settings page: nothing of ours to pop, so go up a level.
+        else if (inSettings) void router.navigate({ to: "/", search: {}, replace: true });
         else void App.minimizeApp();
       }).then((handle) => {
         remove = () => void handle.remove();
       }),
     );
     return () => remove?.();
-  }, []);
+  }, [router]);
   return null;
 }

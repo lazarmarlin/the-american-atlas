@@ -23,6 +23,7 @@ import { placeToMark, placesNear, readDeviceLocation, roadToMark, stateToMark, s
 import { collectPassed, takeNativeFixes } from "@/lib/travel";
 import { AtlasSplash, LoginScreen } from "@/components/login-screen";
 import { SettingsPage } from "@/components/settings-page";
+import { useSettingsRoute } from "@/lib/settings-route";
 import { Tour } from "@/components/tour";
 import { BadgeIcon } from "@/components/badge-icon";
 import { useSettings } from "@/lib/atlas-settings";
@@ -120,7 +121,8 @@ function AtlasShell() {
   const [visitedOnly, setVisitedOnly] = useState(false);
   const [typesOpen, setTypesOpen] = useState(true);
   const [headerOpen, setHeaderOpen] = useState(true);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRoute = useSettingsRoute();
+  const settingsOpen = settingsRoute.page !== null;
   const [roadBack, setRoadBack] = useState<Mark | null>(null);
   const [profile, setProfile] = useState<Profile>({ name: "", photo: "" });
   const [offline, setOffline] = useState(false);
@@ -786,13 +788,15 @@ function AtlasShell() {
       <SettingsPage
         profile={{ name: profile.name || user?.displayName || "", photo: profile.photo || user?.profileImageUrl || "" }}
         email={user?.primaryEmail ?? null}
-        onBack={() => setSettingsOpen(false)}
+        page={settingsRoute.page ?? "menu"}
+        onPage={settingsRoute.open}
+        onBack={settingsRoute.back}
         onSaved={setProfile}
         onSync={syncAccount}
         onTour={() => {
           setTourStep(0);
           setTourOpen(true);
-          setSettingsOpen(false);
+          settingsRoute.close();
         }}
       />
     );
@@ -879,7 +883,7 @@ function AtlasShell() {
                   offered ??
                   placeToMark(
                     { id: park.id, name: park.name, lat: park.lat, lon: park.lon, pts: park.pts },
-                    "park",
+                    park.cat,
                     park.st,
                   );
                 if (saved || !fastAdd) openFromMap(mark);
@@ -1108,14 +1112,14 @@ function AtlasShell() {
                   <button
                     type="button"
                     aria-label="Settings"
-                    onClick={() => setSettingsOpen(true)}
+                    onClick={() => settingsRoute.open("menu")}
                     className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-line text-ink"
                   >
                     <Settings className="size-4" />
                   </button>
                   <button
                     type="button"
-                    onClick={() => setSettingsOpen(true)}
+                    onClick={() => settingsRoute.open("menu")}
                     className="flex min-w-0 items-center gap-2 rounded-full py-1 pr-2 text-left"
                   >
                     {profile.photo || user?.profileImageUrl ? (

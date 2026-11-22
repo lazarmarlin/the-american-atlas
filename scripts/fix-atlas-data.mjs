@@ -31,6 +31,14 @@ const MOVES = [
   { id: "p:amusement:WI:way1304627694", from: "WI", to: "IL" }, // Goebbert's Farm, Pingree Grove IL
 ];
 
+/** Names double-encoded somewhere upstream (UTF-8 read as Latin-1). */
+const NAME_FIXES = {
+  "La Ca\u00c3\u00b1ada Flintridge": "La Ca\u00f1ada Flintridge",
+  "Espa\u00c3\u00b1ola": "Espa\u00f1ola",
+  "Ca\u00c3\u00b1on City": "Ca\u00f1on City",
+  "Utqiag\u00cc\u0087vik": "Utqia\u0121vik",
+};
+
 /** Records with no real counterpart in the state they claim. */
 const REMOVE = new Set([
   "r:AZ:SR:464:", // no AZ 464; the point is in Louisiana and there is no geometry
@@ -184,6 +192,30 @@ for (const move of MOVES) {
       dest.sort((a, b) => a.name.localeCompare(b.name));
     }
     note(`moved ${row.name} (${cat}) ${move.from} -> ${move.to}`);
+  }
+}
+
+for (const [st, bundle] of Object.entries(places)) {
+  for (const rows of Object.values(bundle)) {
+    for (const row of rows) {
+      const fixed = NAME_FIXES[row.name];
+      if (fixed) {
+        note(`${st} renamed ${JSON.stringify(row.name)} -> ${fixed}`);
+        row.name = fixed;
+      }
+    }
+  }
+}
+
+// The town list the map's town outlines are built from (scripts/build-towns-overlay.py).
+{
+  const file = path.join(ATLAS, "towns-cities.csv");
+  const text = fs.readFileSync(file, "utf8");
+  let next = text;
+  for (const [bad, good] of Object.entries(NAME_FIXES)) next = next.split(`${bad},`).join(`${good},`);
+  if (next !== text) {
+    note("towns-cities.csv: fixed garbled town names");
+    if (!CHECK) fs.writeFileSync(file, next);
   }
 }
 

@@ -340,7 +340,7 @@ function drawKind(g: CanvasRenderingContext2D, kind: string, color: string) {
   else if (kind === "capitol" || kind === "president") dome(g);
   else if (kind === "beach" || kind === "seashore") wave(g, color);
   else if (kind === "stadium") oval(g, color);
-  else if (kind === "lighthouse" || kind === "fort") tower(g);
+  else if (kind === "lighthouse") tower(g);
   else if (kind === "garden") flower(g);
   else if (kind === "brewery") mug(g, color);
   else if (kind === "winery") wineGlass(g);

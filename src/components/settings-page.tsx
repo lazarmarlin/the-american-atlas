@@ -5,6 +5,7 @@ import { authEnabled, signOut } from "@/lib/auth/client";
 import { hasGateSessionMarker } from "@/lib/auth/gate-session-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
 import { nativeApp } from "@/lib/native";
+import type { SettingsPageId } from "@/lib/settings-route";
 import { requestTrackingPermission } from "@/lib/background-location";
 import { type Profile } from "@/lib/profile";
 import { vaultSaveProfile } from "@/lib/vault";
@@ -12,6 +13,8 @@ import { vaultSaveProfile } from "@/lib/vault";
 export function SettingsPage({
   profile,
   email,
+  page,
+  onPage,
   onBack,
   onSaved,
   onSync,
@@ -19,6 +22,8 @@ export function SettingsPage({
 }: {
   profile: Profile;
   email: string | null;
+  page: SettingsPageId;
+  onPage: (page: SettingsPageId) => void;
   onBack: () => void;
   onSaved: (profile: Profile) => void;
   onSync: () => Promise<void>;
@@ -54,7 +59,6 @@ export function SettingsPage({
   const [syncing, setSyncing] = useState(false);
   const [syncNote, setSyncNote] = useState<string | null>(null);
   const [trackNote, setTrackNote] = useState<string | null>(null);
-  const [page, setPage] = useState<"menu" | "account" | "tracking" | "map" | "atlas">("menu");
 
   useEffect(() => {
     setName(profile.name);
@@ -81,7 +85,7 @@ export function SettingsPage({
     <main className="safe-top safe-bottom mx-auto flex min-h-dvh w-full max-w-lg flex-col bg-bg px-4 text-ink">
       <button
         type="button"
-        onClick={() => (page === "menu" ? onBack() : setPage("menu"))}
+        onClick={onBack}
         className="mt-3 flex h-11 items-center gap-1 text-sm text-muted"
       >
         <ChevronLeft className="size-4" aria-hidden="true" />
@@ -105,7 +109,7 @@ export function SettingsPage({
             <button
               key={id}
               type="button"
-              onClick={() => setPage(id)}
+              onClick={() => onPage(id)}
               className="flex min-h-16 flex-col items-start justify-center rounded-lg border border-line px-3 py-3 text-left"
             >
               <span className="font-serif text-2xl leading-none">{label}</span>
