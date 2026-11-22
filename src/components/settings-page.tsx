@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { BORDER_COLORS, useSettings } from "@/lib/atlas-settings";
-import { useGhost } from "@/lib/ghost-trail";
 import { authEnabled, signOut } from "@/lib/auth/client";
+import { clearGhostLocal } from "@/lib/ghost-trail";
 import { hasGateSessionMarker } from "@/lib/auth/gate-session-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
 import { nativeApp } from "@/lib/native";
@@ -258,7 +258,10 @@ export function SettingsPage({
             disabled={signingOut}
             onClick={() => {
               setSigningOut(true);
-              void signOut().catch(() => setSigningOut(false));
+              // Trails are on the account; take this account's copy off the device first.
+              void clearGhostLocal()
+                .then(() => signOut())
+                .catch(() => setSigningOut(false));
             }}
             className="mt-3 text-sm text-faint underline-offset-4 hover:underline disabled:no-underline"
           >
@@ -318,15 +321,9 @@ export function SettingsPage({
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Ghost trail</h2>
         <p className="mt-1 text-sm text-muted">
-          While tracking, a wispy path stays behind you, then fades. Pick how many hours it lasts, up to 24. The Ghost trail tab on the map is where you save one for good and look back at the ones you kept.
+          While tracking, a wispy path stays behind you, then fades. Pick how many hours of it to show, up to 24. The Ghost trail tab on the map is where you save one for good; saved trails stay on your account and show up on all your devices.
         </p>
-        <GhostHours
-          hours={ghostHours}
-          onChange={(hours) => {
-            setGhostHours(hours);
-            useGhost.getState().prune(hours);
-          }}
-        />
+        <GhostHours hours={ghostHours} onChange={setGhostHours} />
       </section>
 
       <section className="mt-8">
