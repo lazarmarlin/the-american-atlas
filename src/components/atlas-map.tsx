@@ -8,7 +8,7 @@ import type { Mark } from "@/lib/marks";
 import { TIER_ZOOM, kindFor, placeKinds } from "@/lib/place-kinds";
 import { glyphImage, glyphKinds } from "@/lib/map-glyphs";
 import type { Fix } from "@/lib/nearby";
-import type { GhostLines } from "@/lib/ghost-trail";
+import { displayLine, type GhostLines } from "@/lib/ghost-trail";
 import { loadTowns } from "@/lib/towns-overlay";
 import { youMarkerImage } from "@/lib/you-marker";
 
@@ -96,25 +96,6 @@ function offerDotFeatures(items: Shown[]) {
       properties: { id: item.id, pts: item.points, tier: item.tier ?? 0, kind: kindFor(item.category, item.name, item.points, item.sys) },
       geometry: { type: "Point" as const, coordinates: [item.lon as number, item.lat as number] },
     }));
-}
-
-function fadePieces(coordinates: [number, number][]) {
-  const parts = 4;
-  const span = coordinates.length - 1;
-  if (span < 1) return [];
-  const features = [];
-  for (let i = 0; i < parts; i++) {
-    const start = Math.floor((i * span) / parts);
-    const end = Math.ceil(((i + 1) * span) / parts);
-    const slice = coordinates.slice(start, end + 1);
-    if (slice.length < 2) continue;
-    features.push({
-      type: "Feature" as const,
-      properties: { fade: 0.12 + (i / (parts - 1)) * 0.5 },
-      geometry: { type: "LineString" as const, coordinates: slice },
-    });
-  }
-  return features;
 }
 
 function dotFeatures(items: Mark[]) {
@@ -263,7 +244,8 @@ export function AtlasMap({
         });
         map.addSource("routes", { type: "geojson", data: empty });
         map.addSource("trip", { type: "geojson", data: empty });
-        map.addSource("ghost-live", { type: "geojson", data: empty });
+        // lineMetrics lets the live trail fade along its length with line-gradient.
+        map.addSource("ghost-live", { type: "geojson", data: empty, lineMetrics: true });
         map.addSource("ghost-saved", { type: "geojson", data: empty });
         map.addSource("places", { type: "geojson", data: empty });
         map.addSource("offers", { type: "geojson", data: empty });
@@ -456,16 +438,19 @@ export function AtlasMap({
           paint: { "line-color": "#f3f0e6", "line-width": 2, "line-opacity": 0.9, "line-dasharray": [1.2, 1.2] },
           layout: { "line-cap": "round", "line-join": "round" },
         });
-        // Older stretches are separate features with a lower fade, so the path thins out behind you.
+        // Ghost trail: a thin bright line with a soft, narrow glow. The live
+        // trail is one line per stretch that fades smoothly from its oldest end
+        // (transparent) to where you are now; saved trails draw evenly, dimmer.
+        const savedFocus = ["==", ["get", "focus"], 1] as ExpressionSpecification;
         map.addLayer({
           id: "ghost-saved-haze",
           type: "line",
           source: "ghost-saved",
           paint: {
-            "line-color": ["case", ["==", ["get", "focus"], 1], "#f3f0e6", "#d5e2ea"],
-            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 10, 8, 18, 12, 30],
-            "line-blur": 8,
-            "line-opacity": ["case", ["==", ["get", "focus"], 1], 0.45, 0.22],
+            "line-color": ["case", savedFocus, "#f3f0e6", "#d5e2ea"],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 4, 10, 7, 14, 10],
+            "line-blur": ["interpolate", ["linear"], ["zoom"], 4, 3, 14, 6],
+            "line-opacity": ["case", savedFocus, 0.3, 0.14],
           },
           layout: { "line-cap": "round", "line-join": "round" },
         });
@@ -474,10 +459,10 @@ export function AtlasMap({
           type: "line",
           source: "ghost-saved",
           paint: {
-            "line-color": ["case", ["==", ["get", "focus"], 1], "#f3f0e6", "#d5e2ea"],
-            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1.4, 8, 2, 12, 2.8],
-            "line-blur": 1,
-            "line-opacity": ["case", ["==", ["get", "focus"], 1], 0.75, 0.4],
+            "line-color": ["case", savedFocus, "#f3f0e6", "#d5e2ea"],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1, 10, 1.6, 14, 2.2],
+            "line-blur": 0.5,
+            "line-opacity": ["case", savedFocus, 0.8, 0.4],
           },
           layout: { "line-cap": "round", "line-join": "round" },
         });
@@ -486,10 +471,19 @@ export function AtlasMap({
           type: "line",
           source: "ghost-live",
           paint: {
-            "line-color": "#d5e2ea",
-            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 16, 8, 28, 12, 42],
-            "line-blur": 10,
-            "line-opacity": ["get", "fade"],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 6, 10, 10, 14, 14],
+            "line-blur": ["interpolate", ["linear"], ["zoom"], 4, 3, 14, 7],
+            "line-gradient": [
+              "interpolate",
+              ["linear"],
+              ["line-progress"],
+              0,
+              "rgba(213, 226, 234, 0)",
+              0.4,
+              "rgba(213, 226, 234, 0.16)",
+              1,
+              "rgba(213, 226, 234, 0.5)",
+            ],
           },
           layout: { "line-cap": "round", "line-join": "round" },
         });
@@ -498,10 +492,19 @@ export function AtlasMap({
           type: "line",
           source: "ghost-live",
           paint: {
-            "line-color": "#f3f0e6",
-            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1.6, 8, 2.4, 12, 3.2],
-            "line-blur": 1.2,
-            "line-opacity": ["*", ["get", "fade"], 1.15],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1.2, 10, 1.8, 14, 2.4],
+            "line-blur": 0.6,
+            "line-gradient": [
+              "interpolate",
+              ["linear"],
+              ["line-progress"],
+              0,
+              "rgba(243, 240, 230, 0)",
+              0.25,
+              "rgba(243, 240, 230, 0.3)",
+              1,
+              "rgba(243, 240, 230, 0.95)",
+            ],
           },
           layout: { "line-cap": "round", "line-join": "round" },
         });
@@ -841,12 +844,17 @@ export function AtlasMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
-    const liveFeatures = ghostLive.flatMap((coordinates) => fadePieces(coordinates));
+    // displayLine drops GPS jitter spikes and softens corners for drawing only.
+    const liveFeatures = ghostLive.map((coordinates) => ({
+      type: "Feature" as const,
+      properties: {},
+      geometry: { type: "LineString" as const, coordinates: displayLine(coordinates) },
+    }));
     const savedFeatures = ghostSaved.flatMap((trail) =>
       trail.lines.map((coordinates) => ({
         type: "Feature" as const,
         properties: { focus: trail.focus ? 1 : 0 },
-        geometry: { type: "LineString" as const, coordinates },
+        geometry: { type: "LineString" as const, coordinates: displayLine(coordinates) },
       })),
     );
     (map.getSource("ghost-live") as GeoJSONSource).setData({ type: "FeatureCollection", features: liveFeatures });
