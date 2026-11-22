@@ -8,6 +8,7 @@ import type { Mark } from "@/lib/marks";
 import { TIER_ZOOM, kindFor, placeKinds } from "@/lib/place-kinds";
 import { glyphImage, glyphKinds } from "@/lib/map-glyphs";
 import type { Fix } from "@/lib/nearby";
+import { loadTowns } from "@/lib/towns-overlay";
 
 type Props = {
   states: StateInfo[];
@@ -33,7 +34,7 @@ type Props = {
   dot: Fix | null;
   onState: (abbr: string) => void;
   onCounty: (county: { id: string; name: string; st: string; lat: number; lon: number }) => void;
-  onPark: (park: { id: string; name: string; st: string; lat: number; lon: number; pts: number }) => void;
+  onPark: (park: { id: string; name: string; cat: string; st: string; lat: number; lon: number; pts: number }) => void;
   onSelect: (id: string) => void;
   onOffer: (id: string) => void;
   onPress: () => void;
@@ -137,6 +138,7 @@ export function AtlasMap({
   const viewRef = useRef({ stateAbbr, showCounties });
   viewRef.current = { stateAbbr, showCounties };
   const [ready, setReady] = useState(false);
+  const overlaysLoaded = useRef(new Set<string>());
   const [countiesReady, setCountiesReady] = useState(false);
   const prevState = useRef<string | null | undefined>(undefined);
   const prevCounties = useRef<Set<string>>(new Set());
@@ -205,8 +207,10 @@ export function AtlasMap({
         const empty = { type: "FeatureCollection" as const, features: [] };
         map.addSource("states", { type: "geojson", data: "/atlas/states.geojson", promoteId: "abbr" });
         map.addSource("counties", { type: "geojson", data: "/atlas/counties.geojson", promoteId: "id" });
-        map.addSource("towns", { type: "geojson", data: "/atlas/overlays/towns.geojson" });
-        map.addSource("reservations", { type: "geojson", data: "/atlas/overlays/reservations.geojson" });
+        // Towns and reservations are big files: they start empty and are only
+        // downloaded the first time their layer is switched on (see below).
+        map.addSource("towns", { type: "geojson", data: empty });
+        map.addSource("reservations", { type: "geojson", data: empty });
         map.addSource("parks", { type: "geojson", data: "/atlas/overlays/parks.geojson" });
         map.on("sourcedata", (event) => {
           if (event.sourceId === "counties" && event.isSourceLoaded) setCountiesReady(true);
@@ -295,7 +299,8 @@ export function AtlasMap({
             id: "park-fill",
             type: "fill",
             source: "parks",
-            paint: { "fill-color": "#1b6b3a", "fill-opacity": 0.34 },
+            // Bright enough to read on the dark basemap.
+            paint: { "fill-color": "#3fa45b", "fill-opacity": 0.3 },
           },
           "states-line",
         );
@@ -304,7 +309,7 @@ export function AtlasMap({
             id: "park-line",
             type: "line",
             source: "parks",
-            paint: { "line-color": "#1b6b3a", "line-width": 1.2, "line-opacity": 0.9 },
+            paint: { "line-color": "#6cc483", "line-width": 1.3, "line-opacity": 0.9 },
           },
           "states-line",
         );
@@ -329,6 +334,10 @@ export function AtlasMap({
             "line-opacity": ["case", ["boolean", ["feature-state", "visited"], false], 1, 0.55],
           },
         });
+        // Parks sit above the county tint (which covers every county) but
+        // under county borders, roads and pins.
+        map.moveLayer("park-fill", "county-line");
+        map.moveLayer("park-line", "county-line");
         const offerFilter: ExpressionSpecification = ["==", ["get", "tier"], 0];
         map.addLayer({
           id: "offer-halo",
@@ -343,7 +352,7 @@ export function AtlasMap({
           type: "line",
           source: "offers",
           filter: offerFilter,
-          paint: { "line-color": routeColor, "line-width": 1.4, "line-opacity": 0.7 },
+          paint: { "line-color": routeColor, "line-width": ["case", ["==", ["get", "sys"], "I"], 1.4, 0.7], "line-opacity": 0.7 },
           layout: { "line-cap": "round", "line-join": "round" },
         });
         map.addLayer({
@@ -466,19 +475,22 @@ export function AtlasMap({
             propsRef.current.onOffer(offerId);
             return;
           }
-          const parkHit = map.queryRenderedFeatures(event.point, { layers: ["park-fill"] });
-          const park = parkHit[0]?.properties;
-          if (parkHit.length) {
-            if (park && typeof park.id === "string" && park.id) {
-              propsRef.current.onPark({
-                id: park.id,
-                name: String(park.name ?? "Park"),
-                st: String(park.st ?? ""),
-                lat: Number(park.lat),
-                lon: Number(park.lon),
-                pts: Number(park.pts ?? 0),
-              });
-            }
+          // Outlines not linked to an atlas place (no id) don't take the tap,
+          // so the county or state underneath still opens.
+          const park = map
+            .queryRenderedFeatures(event.point, { layers: ["park-fill"] })
+            .map((feature) => feature.properties)
+            .find((props) => typeof props?.id === "string" && props.id);
+          if (park) {
+            propsRef.current.onPark({
+              id: String(park.id),
+              name: String(park.name ?? "Park"),
+              cat: typeof park.cat === "string" && park.cat ? park.cat : "park",
+              st: String(park.st ?? ""),
+              lat: Number(park.lat),
+              lon: Number(park.lon),
+              pts: Number(park.pts ?? 0),
+            });
             return;
           }
           const countyHit = map.queryRenderedFeatures(event.point, { layers: ["county-fill"] });
@@ -555,17 +567,21 @@ export function AtlasMap({
     map.setPaintProperty("route-line", "line-color", roadColor);
     map.setPaintProperty("route-halo", "line-color", accent);
     map.setPaintProperty("route-halo", "line-opacity", 0.9);
+    // Interstates keep their full width; US and state routes and scenic drives
+    // draw about half as wide so they don't crowd the map.
+    const isInterstate = ["==", ["get", "sys"], "I"] as ExpressionSpecification;
+    const picked = ["==", ["get", "id"], selectedId] as ExpressionSpecification;
     map.setPaintProperty("route-halo", "line-width", [
       "case",
-      ["==", ["get", "id"], selectedId],
-      5.5,
-      4,
+      isInterstate,
+      ["case", picked, 5.5, 4],
+      ["case", picked, 3.2, 2.2],
     ] as ExpressionSpecification);
     map.setPaintProperty("route-line", "line-width", [
       "case",
-      ["==", ["get", "id"], selectedId],
-      2.4,
-      1.6,
+      isInterstate,
+      ["case", picked, 2.4, 1.6],
+      ["case", picked, 1.4, 0.8],
     ] as ExpressionSpecification);
     map.setPaintProperty("place-dots", "circle-color", kindColor);
     map.setPaintProperty("offer-dots", "circle-color", kindColor);
@@ -585,6 +601,16 @@ export function AtlasMap({
     map.setLayoutProperty("county-line", "visibility", countyOn);
     map.setLayoutProperty("town-fill", "visibility", showTowns ? "visible" : "none");
     map.setLayoutProperty("reservation-fill", "visibility", showReservations ? "visible" : "none");
+    if (showTowns && !overlaysLoaded.current.has("towns")) {
+      overlaysLoaded.current.add("towns");
+      void loadTowns()
+        .then((towns) => (map.getSource("towns") as GeoJSONSource | undefined)?.setData(towns))
+        .catch(() => overlaysLoaded.current.delete("towns"));
+    }
+    if (showReservations && !overlaysLoaded.current.has("reservations")) {
+      overlaysLoaded.current.add("reservations");
+      (map.getSource("reservations") as GeoJSONSource).setData("/atlas/overlays/reservations.geojson");
+    }
     map.setLayoutProperty("park-fill", "visibility", showParks ? "visible" : "none");
     map.setLayoutProperty("park-line", "visibility", showParks ? "visible" : "none");
     map.setPaintProperty("town-fill", "fill-color", townColor);
