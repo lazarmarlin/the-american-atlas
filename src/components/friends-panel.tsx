@@ -15,6 +15,7 @@ import {
 import { formatMiles, trailLines, type GhostLines } from "@/lib/ghost-trail";
 import type { PackedPoint } from "@/lib/ghost-sync";
 import { apiOrigin, nativeApp } from "@/lib/native";
+import { friendPhotos, type PhotoInfo } from "@/lib/photos";
 import { type LiveFriend } from "@/lib/live-share";
 import { friendsLeaderboard, periodRange, type LeaderRow } from "@/lib/recap";
 
@@ -74,6 +75,7 @@ export function FriendsPanel({
   const [linkNote, setLinkNote] = useState<string | null>(null);
   const [drop, setDrop] = useState(false);
   const [shown, setShown] = useState<string | null>(null);
+  const [shots, setShots] = useState<PhotoInfo[]>([]);
   const [board, setBoard] = useState<LeaderRow[] | null>(null);
   const month = periodRange("month");
 
@@ -111,10 +113,12 @@ export function FriendsPanel({
       setPage(null);
       setDrop(false);
       setShown(null);
+      setShots([]);
       return;
     }
     let dead = false;
     setPage(null);
+    setShots([]);
     setError(null);
     loadFriend({ data: { id: openId } })
       .then((next) => {
@@ -122,6 +126,13 @@ export function FriendsPanel({
       })
       .catch((err) => {
         if (!dead) setError(err instanceof Error ? err.message : "Couldn't open that friend.");
+      });
+    friendPhotos({ data: { id: openId } })
+      .then((rows) => {
+        if (!dead) setShots(rows);
+      })
+      .catch(() => {
+        if (!dead) setShots([]);
       });
     return () => {
       dead = true;
@@ -238,6 +249,20 @@ export function FriendsPanel({
               </ul>
             ) : (
               <p className="mt-2 px-2 text-sm text-muted">No badges yet.</p>
+            )}
+
+            <h3 className="mt-5 px-2 font-serif text-xl">Photos</h3>
+            <p className="mt-1 px-2 text-sm text-muted">Pictures they chose to share. A gold edge on the map is one of theirs.</p>
+            {shots.length ? (
+              <ul className="mt-2 grid grid-cols-3 gap-2">
+                {shots.map((photo) => (
+                  <li key={photo.id}>
+                    <img src={photo.thumb} alt={photo.caption || ""} className="aspect-square w-full rounded-md object-cover ring-1 ring-[#e2b15a]" />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 px-2 text-sm text-muted">No shared photos.</p>
             )}
 
             <h3 className="mt-5 px-2 font-serif text-xl">Ghost trails</h3>

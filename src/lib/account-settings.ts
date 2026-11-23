@@ -16,6 +16,7 @@ export type AccountSettings = {
   showParks?: boolean;
   showTowns?: boolean;
   showReservations?: boolean;
+  showPhotos?: boolean;
   townColor?: string;
   reservationColor?: string;
   ghostHours?: number;
@@ -45,6 +46,7 @@ export function cleanAccountSettings(input: unknown): AccountSettings {
   if (typeof row.showParks === "boolean") next.showParks = row.showParks;
   if (typeof row.showTowns === "boolean") next.showTowns = row.showTowns;
   if (typeof row.showReservations === "boolean") next.showReservations = row.showReservations;
+  if (typeof row.showPhotos === "boolean") next.showPhotos = row.showPhotos;
   if (typeof row.keepGhost === "boolean") next.keepGhost = row.keepGhost;
   const stateBorder = border(row.stateBorder);
   const countyColor = border(row.countyColor);

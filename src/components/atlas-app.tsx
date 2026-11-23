@@ -26,6 +26,7 @@ import { AtlasSplash, LoginScreen } from "@/components/login-screen";
 import { SettingsPage } from "@/components/settings-page";
 import { GhostPanel } from "@/components/ghost-panel";
 import { FriendsPanel } from "@/components/friends-panel";
+import { PhotosPanel } from "@/components/photos-panel";
 import { RecapPanel } from "@/components/recap-panel";
 import { deviceId, flushDriveLog, logDrive, switchDriveLog } from "@/lib/drive-log";
 import { acceptFriend } from "@/lib/friends";
@@ -38,6 +39,8 @@ import { clearLiveTrail, incomingLive, pullLiveTrail, pushLiveTrail, useLiveShar
 import { loadAccountSettings, saveAccountSettings, type AccountSettings } from "@/lib/account-settings";
 import { clearGhostCache, pullGhostCache, pushGhostCache } from "@/lib/ghost-cache";
 import { setTripRecording } from "@/lib/trips";
+import { friendPhotoPins, listPhotos, savePhoto, type FriendPhotoPin, type PhotoInfo } from "@/lib/photos";
+import { readPhotoFile } from "@/lib/photo-file";
 import { requestTrackingPermission } from "@/lib/background-location";
 import { bindSheetBack } from "@/lib/sheet-back";
 import { isMarkerColor, isMarkerIcon } from "@/lib/you-marker";
@@ -73,6 +76,7 @@ const TABS = [
   ["badges", "Badges"],
   ["recap", "Recap"],
   ["friends", "Friends"],
+  ["photos", "Photos"],
 ] as const;
 
 function Shield({ sys, label }: { sys: System | "place"; label: string }) {
@@ -116,6 +120,7 @@ function pickSettings(state: AccountSettings): AccountSettings {
     showParks: state.showParks,
     showTowns: state.showTowns,
     showReservations: state.showReservations,
+    showPhotos: state.showPhotos,
     townColor: state.townColor,
     reservationColor: state.reservationColor,
     ghostHours: state.ghostHours,
@@ -146,6 +151,8 @@ function AtlasShell() {
   const [activeTrip, setActiveTrip] = useState<string | null>(null);
   const [recordingId, setRecordingId] = useState<string | null>(null);
   const [livePins, setLivePins] = useState<LiveFriend[]>([]);
+  const [photos, setPhotos] = useState<PhotoInfo[]>([]);
+  const [sharedShots, setSharedShots] = useState<FriendPhotoPin[]>([]);
   const [roads, setRoads] = useState<RoadRec[]>([]);
   const [catalog, setCatalog] = useState<CatalogPlace[]>([]);
   const [stateRoads, setStateRoads] = useState<RoadRec[]>([]);
@@ -191,6 +198,7 @@ function AtlasShell() {
   const showParks = useSettings((s) => s.showParks);
   const showTowns = useSettings((s) => s.showTowns);
   const showReservations = useSettings((s) => s.showReservations);
+  const showPhotos = useSettings((s) => s.showPhotos);
   const townColor = useSettings((s) => s.townColor);
   const reservationColor = useSettings((s) => s.reservationColor);
   const markerIcon = useSettings((s) => s.markerIcon);
@@ -869,6 +877,52 @@ function AtlasShell() {
     return line;
   }, [activeTrip, marks, recordingId, trips]);
 
+  const photoPins = useMemo(() => {
+    const pins: { id: string; poiId: string; lat: number; lon: number; thumb: string; friendId?: string }[] = [];
+    if (showPhotos) {
+      const byPlace = new Map<string, PhotoInfo>();
+      for (const photo of photos) {
+        const prev = byPlace.get(photo.poiId);
+        if (!prev || (photo.takenAt ?? 0) > (prev.takenAt ?? 0)) byPlace.set(photo.poiId, photo);
+      }
+      for (const photo of byPlace.values()) {
+        const mark = marks.find((item) => item.id === photo.poiId);
+        const lat = photo.lat ?? mark?.lat ?? null;
+        const lon = photo.lon ?? mark?.lon ?? null;
+        if (lat == null || lon == null) continue;
+        pins.push({ id: photo.id, poiId: photo.poiId, lat, lon, thumb: photo.thumb });
+      }
+      const seen = new Set<string>();
+      for (const photo of sharedShots) {
+        const key = `${photo.friendId}:${photo.poiId}`;
+        if (seen.has(key) || photo.lat == null || photo.lon == null) continue;
+        seen.add(key);
+        pins.push({ id: photo.id, poiId: photo.poiId, lat: photo.lat, lon: photo.lon, thumb: photo.thumb, friendId: photo.friendId });
+      }
+    }
+    return pins;
+  }, [marks, photos, sharedShots, showPhotos]);
+
+  async function addPlacePhoto(mark: Mark, file: File) {
+    const read = await readPhotoFile(file);
+    const id = `ph-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const row: PhotoInfo = {
+      id,
+      poiId: mark.id,
+      tripId: recordingId ?? "",
+      caption: "",
+      takenAt: read.gps?.takenAt ?? Date.now(),
+      lat: mark.lat,
+      lon: mark.lon,
+      shared: false,
+      thumb: read.thumb,
+    };
+    await savePhoto({
+      data: { ...row, image: read.image },
+    });
+    setPhotos((prev) => [row, ...prev]);
+  }
+
   async function locate() {
     if (!meta) return;
     setNearBusy(true);
@@ -1121,6 +1175,23 @@ function AtlasShell() {
   }, [user?.id]);
 
   useEffect(() => {
+    let dead = false;
+    listPhotos()
+      .then((rows) => {
+        if (!dead) setPhotos(rows);
+      })
+      .catch(() => {});
+    friendPhotoPins()
+      .then((rows) => {
+        if (!dead) setSharedShots(rows);
+      })
+      .catch(() => {});
+    return () => {
+      dead = true;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
     if (!friendLive) return;
     let dead = false;
     const pull = () => {
@@ -1192,6 +1263,9 @@ function AtlasShell() {
           setTourOpen(true);
           settingsRoute.close();
         }}
+        marks={marks}
+        tripId={recordingId}
+        onPhotosSaved={(rows) => setPhotos((prev) => [...rows, ...prev])}
       />
     );
   }
@@ -1253,6 +1327,7 @@ function AtlasShell() {
               friendLook={friendLook}
               friendLive={friendLive != null}
               friendPins={livePins}
+              photoPins={photoPins}
               you={you}
               dot={trackTravel ? (tracker ?? you) : you}
               onPress={() => {
@@ -1523,6 +1598,8 @@ function AtlasShell() {
               void add(mark);
             }}
             onClose={closeCard}
+            placeThumbs={photos.filter((photo) => photo.poiId === focus.id).map((photo) => photo.thumb)}
+            onAddPhoto={(file) => addPlacePhoto(focus, file)}
           />
         ) : (
           <>
@@ -1614,7 +1691,7 @@ function AtlasShell() {
           </div>
         </header>
 
-        {tab !== "badges" && tab !== "trips" && tab !== "recap" && tab !== "friends" ? (
+        {tab !== "badges" && tab !== "trips" && tab !== "recap" && tab !== "friends" && tab !== "photos" ? (
           <div className="shrink-0 px-4 pb-3">
             <label className="flex items-center gap-2 rounded-card border border-line bg-bg px-3">
               <Search className="size-4 shrink-0 text-faint" aria-hidden="true" />
@@ -1733,9 +1810,18 @@ function AtlasShell() {
               }}
             />
           ) : null}
+          {tab === "photos" ? (
+            <PhotosPanel
+              photos={photos}
+              marks={marks}
+              trips={trips}
+              tripId={recordingId}
+              onChange={setPhotos}
+            />
+          ) : null}
         </div>
 
-        {focus && selected === focus.id && tab !== "badges" && tab !== "trips" && tab !== "friends" ? (
+        {focus && selected === focus.id && tab !== "badges" && tab !== "trips" && tab !== "friends" && tab !== "photos" ? (
           <Detail
             mark={focus}
             saved={savedIds.has(focus.id)}
@@ -1751,6 +1837,8 @@ function AtlasShell() {
               void add(mark);
             }}
             onClose={closeCard}
+            placeThumbs={photos.filter((photo) => photo.poiId === focus.id).map((photo) => photo.thumb)}
+            onAddPhoto={(file) => addPlacePhoto(focus, file)}
           />
         ) : null}
           </>
@@ -2542,6 +2630,8 @@ function Detail({
   savedIds,
   onAddAlong,
   onClose,
+  placeThumbs = [],
+  onAddPhoto,
   solo = false,
 }: {
   mark: Mark;
@@ -2555,6 +2645,8 @@ function Detail({
   savedIds: Set<string>;
   onAddAlong: (mark: Mark) => void;
   onClose: () => void;
+  placeThumbs?: string[];
+  onAddPhoto?: (file: File) => Promise<void>;
   solo?: boolean;
 }) {
   const road = mark.category === "route" || mark.category === "drive";
@@ -2732,6 +2824,31 @@ function Detail({
             <button type="button" onClick={() => patchVisit({ photo: "" })} className="mt-1 text-xs text-faint">
               Remove photo
             </button>
+          ) : null}
+          {placeThumbs.length ? (
+            <div className="mt-2 flex gap-2 overflow-x-auto">
+              {placeThumbs.map((thumb) => (
+                <img key={thumb.slice(-24)} src={thumb} alt="" className="size-14 shrink-0 rounded-md object-cover" />
+              ))}
+            </div>
+          ) : null}
+          {onAddPhoto ? (
+            <label className="mt-2 block text-xs text-muted">
+              Add to the photo gallery
+              <input
+                type="file"
+                accept="image/*"
+                className="mt-1 block w-full text-xs"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (!file) return;
+                  void onAddPhoto(file).catch((err: unknown) => {
+                    setDetailNote(err instanceof Error ? err.message : "Couldn't add that photo");
+                  });
+                }}
+              />
+            </label>
           ) : null}
           {trips.length ? (
             <label className="mt-2 block text-xs text-muted">

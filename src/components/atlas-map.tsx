@@ -55,6 +55,7 @@ type Props = {
   friendLook: number;
   friendLive: boolean;
   friendPins: { id: string; name: string; lat: number; lon: number; icon: string; color: string }[];
+  photoPins: { id: string; poiId: string; lat: number; lon: number; thumb: string; friendId?: string }[];
   you: Fix | null;
   dot: Fix | null;
   onState: (abbr: string) => void;
@@ -71,6 +72,37 @@ const USA: [[number, number], [number, number]] = [
   [-128, 24.2],
   [-66.5, 49.6],
 ];
+
+function roundPhoto(url: string, ring: string) {
+  return new Promise<ImageData>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 64;
+      canvas.height = 64;
+      const g = canvas.getContext("2d");
+      if (!g) {
+        reject(new Error("No canvas"));
+        return;
+      }
+      g.save();
+      g.beginPath();
+      g.arc(32, 32, 26, 0, Math.PI * 2);
+      g.closePath();
+      g.clip();
+      g.drawImage(img, 6, 6, 52, 52);
+      g.restore();
+      g.beginPath();
+      g.arc(32, 32, 26, 0, Math.PI * 2);
+      g.strokeStyle = ring;
+      g.lineWidth = 4;
+      g.stroke();
+      resolve(g.getImageData(0, 0, 64, 64));
+    };
+    img.onerror = () => reject(new Error("Bad photo"));
+    img.src = url;
+  });
+}
 
 function duration() {
   if (typeof window === "undefined") return 0;
@@ -180,6 +212,7 @@ export function AtlasMap({
   friendLook,
   friendLive,
   friendPins,
+  photoPins,
   you,
   dot,
   onState,
@@ -300,6 +333,7 @@ export function AtlasMap({
         map.addSource("offers", { type: "geojson", data: empty });
         map.addSource("offer-places", { type: "geojson", data: empty });
         map.addSource("you", { type: "geojson", data: empty });
+        map.addSource("photo-pins", { type: "geojson", data: empty });
         map.addSource("friend-people", { type: "geojson", data: empty });
         for (const id of glyphKinds()) {
           const color = placeKinds.find((kind) => kind.id === id)?.color ?? "#e2b15a";
@@ -701,6 +735,18 @@ export function AtlasMap({
           },
         });
         map.addLayer({
+          id: "photo-pins",
+          type: "symbol",
+          source: "photo-pins",
+          layout: {
+            "icon-image": ["get", "icon"],
+            "icon-size": 0.85,
+            "icon-anchor": "center",
+            "icon-allow-overlap": true,
+            "icon-ignore-placement": true,
+          },
+        });
+        map.addLayer({
           id: "you-dot",
           type: "symbol",
           source: "you",
@@ -741,7 +787,7 @@ export function AtlasMap({
           if (hover) map.setFeatureState({ source: "states", id: hover }, { hover: false });
           hover = null;
         });
-        for (const layer of ["route-line", "place-dots", "place-icons", "offer-line", "offer-dots", "offer-icons", "park-fill", "reservation-fill", "county-fill", "friend-people"]) {
+        for (const layer of ["route-line", "place-dots", "place-icons", "offer-line", "offer-dots", "offer-icons", "park-fill", "reservation-fill", "county-fill", "friend-people", "photo-pins"]) {
           map.on("mouseenter", layer, () => map?.getCanvas().style.setProperty("cursor", "pointer"));
           map.on("mouseleave", layer, () => map?.getCanvas().style.setProperty("cursor", ""));
         }
@@ -756,6 +802,17 @@ export function AtlasMap({
           const personId = person[0]?.properties?.id;
           if (typeof personId === "string") {
             propsRef.current.onFriend(personId);
+            return;
+          }
+          const shot = map.queryRenderedFeatures(area, { layers: ["photo-pins"] });
+          const shotFriend = shot[0]?.properties?.friendId;
+          const shotPlace = shot[0]?.properties?.poiId;
+          if (typeof shotFriend === "string" && shotFriend) {
+            propsRef.current.onFriend(shotFriend);
+            return;
+          }
+          if (typeof shotPlace === "string" && shotPlace) {
+            propsRef.current.onSelect(shotPlace);
             return;
           }
           const saved = map.queryRenderedFeatures(area, { layers: ["route-line", "place-icons", "place-dots"] });
@@ -1213,6 +1270,38 @@ export function AtlasMap({
     }
     (map.getSource("friend-people") as GeoJSONSource).setData({ type: "FeatureCollection", features });
   }, [friendPins, ready]);
+
+  const photoKeys = useRef(new Map<string, string>());
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    let dead = false;
+    void Promise.all(
+      photoPins.map(async (pin) => {
+        const imageId = `ph-${pin.id}`;
+        const key = `${pin.friendId ?? ""}:${pin.thumb.length}:${pin.thumb.slice(20, 60)}`;
+        if (photoKeys.current.get(pin.id) !== key) {
+          const image = await roundPhoto(pin.thumb, pin.friendId ? "#e2b15a" : "#1c1915");
+          if (dead) return null;
+          if (map.hasImage(imageId)) map.updateImage(imageId, image);
+          else map.addImage(imageId, image, { pixelRatio: 2 });
+          photoKeys.current.set(pin.id, key);
+        }
+        return {
+          type: "Feature" as const,
+          properties: { id: pin.id, poiId: pin.poiId, friendId: pin.friendId ?? "", icon: imageId },
+          geometry: { type: "Point" as const, coordinates: [pin.lon, pin.lat] as [number, number] },
+        };
+      }),
+    ).then((features) => {
+      if (dead) return;
+      const readyFeatures = features.filter((feature) => feature !== null);
+      (map.getSource("photo-pins") as GeoJSONSource).setData({ type: "FeatureCollection", features: readyFeatures });
+    });
+    return () => {
+      dead = true;
+    };
+  }, [photoPins, ready]);
 
   useEffect(() => {
     const map = mapRef.current;

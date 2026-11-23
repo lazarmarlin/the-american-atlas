@@ -1,0 +1,315 @@
+import { useRef, useState } from "react";
+import { matchPlace, readPhotoFile } from "@/lib/photo-file";
+import { deletePhoto, loadPhoto, savePhoto, setPhotoShared, type PhotoInfo } from "@/lib/photos";
+
+type Place = { id: string; name: string; lat: number | null; lon: number | null; category: string; state?: string };
+
+type Candidate = {
+  key: string;
+  thumb: string;
+  image: string;
+  lat: number;
+  lon: number;
+  takenAt: number | null;
+  place: Place | null;
+  keep: boolean;
+};
+
+export function PhotoFinder({
+  marks,
+  tripId,
+  onSaved,
+}: {
+  marks: Place[];
+  tripId: string | null;
+  onSaved: (rows: PhotoInfo[]) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [rows, setRows] = useState<Candidate[] | null>(null);
+
+  async function scan(files: FileList | null) {
+    if (!files?.length) return;
+    setBusy(true);
+    setNote(null);
+    const next: Candidate[] = [];
+    let skipped = 0;
+    for (const file of Array.from(files).slice(0, 40)) {
+      try {
+        const read = await readPhotoFile(file);
+        if (!read.gps) {
+          skipped += 1;
+          continue;
+        }
+        const place = matchPlace(read.gps.lat, read.gps.lon, marks);
+        next.push({
+          key: `${file.name}-${file.size}-${next.length}`,
+          thumb: read.thumb,
+          image: read.image,
+          lat: read.gps.lat,
+          lon: read.gps.lon,
+          takenAt: read.gps.takenAt,
+          place,
+          keep: Boolean(place),
+        });
+      } catch {
+        skipped += 1;
+      }
+    }
+    setRows(next);
+    const matched = next.filter((row) => row.place).length;
+    setNote(
+      matched
+        ? `${matched} match a place you've added.${skipped ? ` ${skipped} had no location.` : ""} Nothing is saved until you keep them.`
+        : skipped
+          ? "None of those photos had a location near a place you've added."
+          : "No photos to check.",
+    );
+    setBusy(false);
+  }
+
+  async function keep() {
+    const chosen = (rows ?? []).filter((row) => row.keep && row.place);
+    if (!chosen.length) {
+      setNote("Choose at least one photo that matches a place.");
+      return;
+    }
+    setBusy(true);
+    const saved: PhotoInfo[] = [];
+    for (const row of chosen) {
+      const id = `ph-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      const place = row.place!;
+      try {
+        await savePhoto({
+          data: {
+            id,
+            poiId: place.id,
+            tripId: tripId ?? "",
+            caption: "",
+            takenAt: row.takenAt,
+            lat: place.lat ?? row.lat,
+            lon: place.lon ?? row.lon,
+            thumb: row.thumb,
+            image: row.image,
+          },
+        });
+        saved.push({
+          id,
+          poiId: place.id,
+          tripId: tripId ?? "",
+          caption: "",
+          takenAt: row.takenAt,
+          lat: place.lat ?? row.lat,
+          lon: place.lon ?? row.lon,
+          shared: false,
+          thumb: row.thumb,
+        });
+      } catch (err) {
+        setNote(err instanceof Error ? err.message : "Couldn't save a photo.");
+        break;
+      }
+    }
+    if (saved.length) onSaved(saved);
+    setRows(null);
+    setNote(saved.length ? `Added ${saved.length} ${saved.length === 1 ? "photo" : "photos"}.` : note);
+    setBusy(false);
+  }
+
+  return (
+    <div>
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          void scan(event.target.files);
+          event.target.value = "";
+        }}
+      />
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => input.current?.click()}
+        className="h-11 w-full rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
+      >
+        {busy ? "Reading photos…" : "Find photos of places you've been"}
+      </button>
+      <p className="mt-2 text-xs text-muted">
+        Choose pictures from your camera roll. The location saved on the picture is matched to places already on your atlas. Nothing is uploaded until you keep it.
+      </p>
+      {note ? <p className="mt-2 text-sm text-muted">{note}</p> : null}
+      {rows?.length ? (
+        <div className="mt-3">
+          <ul className="grid gap-2">
+            {rows.map((row) => (
+              <li key={row.key} className="flex items-center gap-2 rounded-lg border border-line px-2 py-2">
+                <img src={row.thumb} alt="" className="size-12 shrink-0 rounded-md object-cover" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm">{row.place?.name ?? "No place nearby"}</span>
+                  <span className="block text-xs text-faint">
+                    {row.takenAt
+                      ? new Date(row.takenAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+                      : "No date"}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  aria-pressed={row.keep}
+                  disabled={!row.place}
+                  onClick={() => setRows((list) => list?.map((item) => (item.key === row.key ? { ...item, keep: !item.keep } : item)) ?? list)}
+                  className={"h-11 shrink-0 rounded-lg border px-3 text-xs disabled:text-faint " + (row.keep ? "border-ink bg-elevated" : "border-line")}
+                >
+                  {row.place ? (row.keep ? "Keep" : "Skip") : "Skip"}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2 flex gap-2">
+            <button type="button" disabled={busy} onClick={() => void keep()} className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm">
+              Add the kept photos
+            </button>
+            <button type="button" onClick={() => setRows(null)} className="h-11 flex-1 rounded-lg border border-line text-sm">
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function PhotosPanel({
+  photos,
+  marks,
+  trips,
+  tripId,
+  onChange,
+}: {
+  photos: PhotoInfo[];
+  marks: Place[];
+  trips: { id: string; name: string }[];
+  tripId: string | null;
+  onChange: (photos: PhotoInfo[]) => void;
+}) {
+  const [group, setGroup] = useState<"place" | "trip" | "month">("place");
+  const [open, setOpen] = useState<PhotoInfo | null>(null);
+  const [full, setFull] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const names = new Map(marks.map((mark) => [mark.id, mark.name]));
+  const tripNames = new Map(trips.map((trip) => [trip.id, trip.name]));
+
+  async function openPhoto(photo: PhotoInfo) {
+    setOpen(photo);
+    setFull(null);
+    setNote(null);
+    try {
+      const row = await loadPhoto({ data: photo.id });
+      setFull(row.image);
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Couldn't open that photo.");
+    }
+  }
+
+  async function share(photo: PhotoInfo) {
+    const shared = !photo.shared;
+    onChange(photos.map((item) => (item.id === photo.id ? { ...item, shared } : item)));
+    setOpen({ ...photo, shared });
+    try {
+      await setPhotoShared({ data: { id: photo.id, shared } });
+    } catch (err) {
+      onChange(photos);
+      setNote(err instanceof Error ? err.message : "Couldn't update sharing.");
+    }
+  }
+
+  async function remove(photo: PhotoInfo) {
+    onChange(photos.filter((item) => item.id !== photo.id));
+    setOpen(null);
+    try {
+      await deletePhoto({ data: photo.id });
+    } catch (err) {
+      onChange(photos);
+      setNote(err instanceof Error ? err.message : "Couldn't remove that photo.");
+    }
+  }
+
+  const groups = new Map<string, PhotoInfo[]>();
+  for (const photo of photos) {
+    const key =
+      group === "trip"
+        ? photo.tripId || "No trip"
+        : group === "month"
+          ? new Date(photo.takenAt || 0).toLocaleDateString(undefined, { month: "long", year: "numeric" })
+          : names.get(photo.poiId) || "Place";
+    groups.set(key, [...(groups.get(key) ?? []), photo]);
+  }
+
+  if (open) {
+    return (
+      <div className="px-2 pb-4">
+        <button type="button" onClick={() => setOpen(null)} className="h-11 px-2 text-sm text-muted">
+          All photos
+        </button>
+        {full ? <img src={full} alt="" className="mt-1 max-h-80 w-full rounded-lg object-cover" /> : <p className="px-2 text-sm text-muted">Opening…</p>}
+        <p className="mt-2 px-2 font-serif text-xl">{names.get(open.poiId) || "Place"}</p>
+        <p className="px-2 text-xs text-muted">
+          {open.takenAt ? new Date(open.takenAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "No date on the photo"}
+          {open.tripId && tripNames.get(open.tripId) ? ` · ${tripNames.get(open.tripId)}` : ""}
+        </p>
+        {note ? <p className="mt-2 px-2 text-sm text-accent">{note}</p> : null}
+        <button
+          type="button"
+          onClick={() => void share(open)}
+          className={"mt-3 h-11 w-full rounded-lg border text-sm " + (open.shared ? "border-ink bg-elevated" : "border-line")}
+        >
+          {open.shared ? "Shared with friends" : "Private"}
+        </button>
+        <button type="button" onClick={() => void remove(open)} className="mt-2 h-11 w-full rounded-lg border border-line text-sm text-muted">
+          Remove photo
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-2 pb-4">
+      <h2 className="px-2 font-serif text-2xl">Photos</h2>
+      <p className="mt-1 px-2 text-sm text-muted">Pictures stay with the place. Friends see one only after you share it.</p>
+      <div className="mt-3 px-2">
+        <PhotoFinder marks={marks} tripId={tripId} onSaved={(rows) => onChange([...rows, ...photos])} />
+      </div>
+      <div className="mt-4 flex gap-2 px-2">
+        {(["place", "trip", "month"] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={group === id}
+            onClick={() => setGroup(id)}
+            className={"h-10 flex-1 rounded-lg border text-xs capitalize " + (group === id ? "border-ink bg-elevated" : "border-line text-muted")}
+          >
+            {id}
+          </button>
+        ))}
+      </div>
+      {photos.length === 0 ? <p className="mt-4 px-2 text-sm text-muted">No photos yet.</p> : null}
+      {[...groups.entries()].map(([label, items]) => (
+        <section key={label} className="mt-4">
+          <h3 className="px-2 font-serif text-lg">{label}</h3>
+          <ul className="mt-2 grid grid-cols-3 gap-2 px-2">
+            {items.map((photo) => (
+              <li key={photo.id}>
+                <button type="button" onClick={() => void openPhoto(photo)} className="block w-full text-left">
+                  <img src={photo.thumb} alt="" className="aspect-square w-full rounded-md object-cover" />
+                  {photo.shared ? <span className="mt-1 block text-[10px] tracking-wide text-faint uppercase">Shared</span> : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}

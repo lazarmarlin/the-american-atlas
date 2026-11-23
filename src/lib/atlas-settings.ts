@@ -37,6 +37,7 @@ type Saved = {
   showParks: boolean;
   showTowns: boolean;
   showReservations: boolean;
+  showPhotos: boolean;
   townColor: string;
   reservationColor: string;
   markerIcon: string;
@@ -56,6 +57,7 @@ type Settings = Saved & {
   setShowParks: (showParks: boolean) => void;
   setShowTowns: (showTowns: boolean) => void;
   setShowReservations: (showReservations: boolean) => void;
+  setShowPhotos: (showPhotos: boolean) => void;
   setTownColor: (townColor: string) => void;
   setReservationColor: (reservationColor: string) => void;
   setMarkerIcon: (markerIcon: string) => void;
@@ -76,6 +78,7 @@ const DEFAULTS: Saved = {
   showParks: true,
   showTowns: true,
   showReservations: true,
+  showPhotos: true,
   townColor: "#c4a484",
   reservationColor: "#3d7ab5",
   markerIcon: DEFAULT_MARKER_ICON,
@@ -104,6 +107,7 @@ function readSaved(): Saved {
       showParks: raw.showParks !== false,
       showTowns: raw.showTowns !== false,
       showReservations: raw.showReservations !== false,
+      showPhotos: raw.showPhotos !== false,
       townColor: typeof raw.townColor === "string" ? raw.townColor : DEFAULTS.townColor,
       reservationColor: typeof raw.reservationColor === "string" ? raw.reservationColor : DEFAULTS.reservationColor,
       markerIcon: isMarkerIcon(raw.markerIcon) ? raw.markerIcon : DEFAULTS.markerIcon,
@@ -180,6 +184,10 @@ export const useSettings = create<Settings>((set) => ({
     write({ showReservations });
     set({ showReservations });
   },
+  setShowPhotos: (showPhotos) => {
+    write({ showPhotos });
+    set({ showPhotos });
+  },
   setTownColor: (townColor) => {
     write({ townColor });
     set({ townColor });
@@ -217,6 +225,7 @@ export const useSettings = create<Settings>((set) => ({
     if (typeof saved.showParks === "boolean") next.showParks = saved.showParks;
     if (typeof saved.showTowns === "boolean") next.showTowns = saved.showTowns;
     if (typeof saved.showReservations === "boolean") next.showReservations = saved.showReservations;
+    if (typeof saved.showPhotos === "boolean") next.showPhotos = saved.showPhotos;
     if (typeof saved.keepGhost === "boolean") next.keepGhost = saved.keepGhost;
     if (typeof saved.stateBorder === "string") next.stateBorder = saved.stateBorder;
     if (typeof saved.countyColor === "string") next.countyColor = saved.countyColor;

@@ -13,7 +13,9 @@ import { type Profile } from "@/lib/profile";
 import { vaultSaveMarker, vaultSaveProfile } from "@/lib/vault";
 import { YouMarkerFace } from "@/components/you-marker-face";
 import { GhostColors, GhostHours } from "@/components/ghost-panel";
+import { PhotoFinder } from "@/components/photos-panel";
 import { isMarkerColor, isMarkerIcon, MARKER_COLORS, MARKER_ICONS, markerLabel } from "@/lib/you-marker";
+import type { PhotoInfo } from "@/lib/photos";
 
 export function SettingsPage({
   profile,
@@ -24,6 +26,9 @@ export function SettingsPage({
   onSaved,
   onSync,
   onTour,
+  marks,
+  tripId,
+  onPhotosSaved,
 }: {
   profile: Profile;
   email: string | null;
@@ -33,6 +38,9 @@ export function SettingsPage({
   onSaved: (profile: Profile) => void;
   onSync: () => Promise<void>;
   onTour: () => void;
+  marks: { id: string; name: string; lat: number | null; lon: number | null; category: string }[];
+  tripId: string | null;
+  onPhotosSaved: (rows: PhotoInfo[]) => void;
 }) {
   const icons = useSettings((s) => s.icons);
   const stateBorder = useSettings((s) => s.stateBorder);
@@ -47,11 +55,13 @@ export function SettingsPage({
   const showParks = useSettings((s) => s.showParks);
   const showTowns = useSettings((s) => s.showTowns);
   const showReservations = useSettings((s) => s.showReservations);
+  const showPhotos = useSettings((s) => s.showPhotos);
   const townColor = useSettings((s) => s.townColor);
   const reservationColor = useSettings((s) => s.reservationColor);
   const setShowParks = useSettings((s) => s.setShowParks);
   const setShowTowns = useSettings((s) => s.setShowTowns);
   const setShowReservations = useSettings((s) => s.setShowReservations);
+  const setShowPhotos = useSettings((s) => s.setShowPhotos);
   const setTownColor = useSettings((s) => s.setTownColor);
   const setReservationColor = useSettings((s) => s.setReservationColor);
   const markerIcon = useSettings((s) => s.markerIcon);
@@ -129,7 +139,7 @@ export function SettingsPage({
       </button>
       <p className="mt-2 text-xs tracking-widest text-faint uppercase">{nativeApp ? "Android app" : "Field atlas"}</p>
       <h1 className="font-serif text-4xl leading-none">
-        {page === "account" ? "Account" : page === "tracking" ? "Tracking" : page === "map" ? "Map" : page === "atlas" ? "Atlas" : "Settings"}
+        {page === "account" ? "Account" : page === "tracking" ? "Tracking" : page === "map" ? "Map" : page === "photos" ? "Photos" : page === "atlas" ? "Atlas" : "Settings"}
       </h1>
 
       {page === "menu" ? (
@@ -139,6 +149,7 @@ export function SettingsPage({
               ["account", "Account", "Sync and profile"],
               ["tracking", "Tracking", "Travel tracking, ghost trail, your marker, and fast add"],
               ["map", "Map", "Markers, borders, and overlays"],
+              ["photos", "Photos", "Camera roll and the map"],
               ["atlas", "Atlas", nativeApp ? "The tour" : "Offline atlas and the tour"],
             ] as const
           ).map(([id, label, detail]) => (
@@ -456,6 +467,26 @@ export function SettingsPage({
         </button>
       </section>
       </>
+      ) : null}
+
+      {page === "photos" ? (
+        <section className="mt-8">
+          <h2 className="font-serif text-2xl">Camera roll</h2>
+          <p className="mt-1 text-sm text-muted">
+            On the phone, choose the pictures to check. The website can only see the ones you pick. A match needs a location on the photo and a place you have already added.
+          </p>
+          <div className="mt-3">
+            <PhotoFinder marks={marks} tripId={tripId} onSaved={onPhotosSaved} />
+          </div>
+          <button
+            type="button"
+            aria-pressed={showPhotos}
+            onClick={() => setShowPhotos(!showPhotos)}
+            className={"mt-6 h-12 w-full rounded-lg border text-sm " + (showPhotos ? "border-ink bg-elevated" : "border-line")}
+          >
+            {showPhotos ? "Photos on the map" : "Photos hidden on the map"}
+          </button>
+        </section>
       ) : null}
 
       {page === "map" ? (
