@@ -1,7 +1,10 @@
 /**
  * Friends. Each account has one link (`/?friend=CODE`). Opening it while
- * signed in adds both people. A friend can see earned badges and saved ghost
- * trails, never places, the live trail, or a trail the owner hid.
+ * signed in adds both people. A friend can see earned badges and the saved
+ * ghost trails the owner chose to share — never places, the live trail, or an
+ * unshared trail. Shared trails lose their first and last half kilometer (so
+ * they don't point at a home or hotel) and their times are cut to the day.
+ * Resetting the link stops new people adding you; existing friends stay.
  */
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
@@ -76,6 +79,37 @@ function asPoints(value: unknown): PackedPoint[] {
   return Array.isArray(rows) ? (rows as PackedPoint[]) : [];
 }
 
+/** Meters trimmed off each end of a trail before a friend sees it. */
+const TRIM_METERS = 500;
+const DAY_MS = 86_400_000;
+
+function metersBetween(a: PackedPoint, b: PackedPoint) {
+  const k = Math.cos((((a[0] + b[0]) / 2) * Math.PI) / 180);
+  return Math.hypot((b[1] - a[1]) * 111_320 * k, (b[0] - a[0]) * 110_540);
+}
+
+/** The day a time falls on (UTC midnight + 1 ms), so friends never see exact times. */
+const toDay = (t: number) => Math.floor(t / DAY_MS) * DAY_MS + 1;
+
+/**
+ * What a friend gets: the trail minus its first and last TRIM_METERS along
+ * the path, with every time set to the trail's day. Empty if nothing is left.
+ */
+function forFriends(points: PackedPoint[], savedAt: number): PackedPoint[] {
+  if (points.length < 2) return [];
+  const along: number[] = [0];
+  for (let i = 1; i < points.length; i++) {
+    // A new-line marker means a jump in the recording, not distance travelled.
+    const hop = points[i]![3] === 1 ? 0 : metersBetween(points[i - 1]!, points[i]!);
+    along.push(along[i - 1]! + hop);
+  }
+  const total = along[along.length - 1]!;
+  if (total <= TRIM_METERS * 2) return [];
+  const day = toDay(savedAt);
+  const kept = points.filter((_, i) => along[i]! >= TRIM_METERS && along[i]! <= total - TRIM_METERS);
+  return kept.map((p, i) => (p[3] === 1 && i > 0 ? [p[0], p[1], day, 1] : [p[0], p[1], day]));
+}
+
 type NameRow = { id: string; name: string; photo: string };
 
 async function friendName(sql: Awaited<ReturnType<typeof import("@/lib/db").getSql>>, userId: string): Promise<NameRow> {
@@ -126,26 +160,60 @@ export const myFriendCode = createServerFn({ method: "GET" })
     throw new Error("Couldn't make a friend link. Try again.");
   });
 
+/** New link code; the old link stops working. Friends you already have stay. */
+export const resetFriendCode = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = makeCode();
+      try {
+        await sql`
+          insert into friend_links (user_id, code) values (${context.userId}, ${code})
+          on conflict (user_id) do update set code = excluded.code
+        `;
+        return { code };
+      } catch {
+        // The code collided with someone else's. Try another.
+      }
+    }
+    throw new Error("Couldn't make a new link. Try again.");
+  });
+
 export const listFriends = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }): Promise<FriendRow[]> => {
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
-    const rows = await sql<{ id: string; name: string; photo: string; trails: number | string }>`
+    const rows = await sql<{ id: string; name: string; photo: string }>`
       select f.friend_id as id,
         coalesce(nullif(p.name, ''), nullif(u.name, ''), 'Friend') as name,
-        coalesce(p.photo, '') as photo,
-        (select count(*) from ghost_trails g where g.user_id = f.friend_id and g.hidden = false) as trails
+        coalesce(p.photo, '') as photo
       from friendships f
       left join profiles p on p.user_id = f.friend_id
       left join "user" u on u.id = f.friend_id
       where f.user_id = ${context.userId}
       order by 2
     `;
+    // Count only trails a friend can actually open (some are too short once trimmed).
+    const shared = rows.length
+      ? await sql<{ user_id: string; points: unknown; saved_at: unknown }>`
+          select g.user_id, g.points, g.saved_at from ghost_trails g
+          join friendships f on f.friend_id = g.user_id and f.user_id = ${context.userId}
+          where g.shared = true
+        `
+      : [];
+    const usable = new Map<string, number>();
+    for (const trail of shared) {
+      if (forFriends(asPoints(trail.points), toMs(trail.saved_at)).length >= 2) {
+        usable.set(trail.user_id, (usable.get(trail.user_id) ?? 0) + 1);
+      }
+    }
     return rows.map((row) => {
       const photo = row.photo ?? "";
       const ok = photo.startsWith("https://") || photo.startsWith("data:image/");
-      return { id: row.id, name: row.name || "Friend", photo: ok ? photo : "", trails: Number(row.trails) || 0 };
+      return { id: row.id, name: row.name || "Friend", photo: ok ? photo : "", trails: usable.get(row.id) ?? 0 };
     });
   });
 
@@ -232,25 +300,30 @@ export const loadFriend = createServerFn({ method: "POST" })
     const trails = await sql<{ id: string; name: string; started_at: unknown; saved_at: unknown; points: unknown }>`
       select id, name, started_at, saved_at, points
       from ghost_trails
-      where user_id = ${friendId} and hidden = false
+      where user_id = ${friendId} and shared = true
       order by saved_at desc
       limit 30
     `;
     return {
       ...friend,
       badges,
-      trails: trails.map((trail) => {
-        const points = asPoints(trail.points).map((p) =>
-          p[3] === 1 ? { lat: p[0], lon: p[1], t: p[2], brk: true as const } : { lat: p[0], lon: p[1], t: p[2] },
-        );
-        return {
-          id: trail.id,
-          name: trail.name,
-          startedAt: toMs(trail.started_at),
-          savedAt: toMs(trail.saved_at),
-          miles: trailMiles(points),
-        };
-      }),
+      trails: trails
+        .map((trail) => {
+          const savedAt = toMs(trail.saved_at);
+          const points = forFriends(asPoints(trail.points), savedAt).map((p) =>
+            p[3] === 1 ? { lat: p[0], lon: p[1], t: p[2], brk: true as const } : { lat: p[0], lon: p[1], t: p[2] },
+          );
+          return {
+            id: trail.id,
+            name: trail.name,
+            startedAt: toDay(toMs(trail.started_at)),
+            savedAt: toDay(savedAt),
+            miles: trailMiles(points),
+            usable: points.length >= 2,
+          };
+        })
+        .filter((trail) => trail.usable)
+        .map(({ usable: _usable, ...trail }) => trail),
     };
   });
 
@@ -264,10 +337,12 @@ export const friendTrail = createServerFn({ method: "POST" })
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
     await assertFriend(sql, context.userId, data.friendId);
-    const rows = await sql<{ points: unknown }>`
-      select points from ghost_trails
-      where user_id = ${data.friendId} and id = ${data.id} and hidden = false
+    const rows = await sql<{ points: unknown; saved_at: unknown }>`
+      select points, saved_at from ghost_trails
+      where user_id = ${data.friendId} and id = ${data.id} and shared = true
     `;
     if (!rows[0]) throw new Error("That trail isn't shared.");
-    return asPoints(rows[0].points);
+    const points = forFriends(asPoints(rows[0].points), toMs(rows[0].saved_at));
+    if (points.length < 2) throw new Error("That trail is too short to share.");
+    return points;
   });

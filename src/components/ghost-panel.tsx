@@ -70,6 +70,8 @@ export function GhostPanel({
   const saveLive = useGhost((s) => s.saveLive);
   const removeSaved = useGhost((s) => s.removeSaved);
   const toggleHidden = useGhost((s) => s.toggleHidden);
+  const sharedIds = useGhost((s) => s.shared);
+  const toggleShared = useGhost((s) => s.toggleShared);
   const lookAt = useGhost((s) => s.lookAt);
   const [now, setNow] = useState(() => Date.now());
   const [asking, setAsking] = useState(false);
@@ -198,10 +200,15 @@ export function GhostPanel({
         </div>
 
         <h3 className="mt-5 font-serif text-xl">Previous trails</h3>
+        <p className="mt-1 text-xs text-muted">
+          Saved trails are private until you share one. Friends see a shared trail without its first and last half
+          kilometer, and only the day it was made.
+        </p>
         {saved.length ? (
           <ul className="mt-2 grid gap-2">
             {saved.map((trail) => {
               const off = hidden.includes(trail.id);
+              const shared = sharedIds.includes(trail.id);
               const focused = focusId === trail.id;
               return (
                 <li key={trail.id} className={"rounded-lg border px-3 py-2 " + (focused ? "border-ink bg-elevated" : "border-line")}>
@@ -227,6 +234,15 @@ export function GhostPanel({
                   <div className="mt-2 flex gap-2">
                     <button type="button" onClick={() => toggleHidden(trail.id)} className="h-11 flex-1 rounded-lg border border-line text-xs">
                       {off ? "Show" : "Hide"}
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={shared}
+                      onClick={() => toggleShared(trail.id)}
+                      title="Friends see it without the first and last half kilometer, and without times"
+                      className={"h-11 flex-1 rounded-lg border text-xs " + (shared ? "border-ink bg-elevated text-ink" : "border-line text-muted")}
+                    >
+                      {shared ? "Shared with friends" : "Private"}
                     </button>
                     {dropId === trail.id ? (
                       <>

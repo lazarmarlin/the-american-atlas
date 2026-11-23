@@ -137,7 +137,8 @@ export function LoginScreen() {
             <button
               key={provider.providerId}
               type="button"
-              onClick={() => signIn(provider.providerId, { callbackURL: "/" })}
+              // Keep a friend link through the Google / X round trip.
+              onClick={() => signIn(provider.providerId, { callbackURL: friend ? `/?friend=${friend}` : "/" })}
               className="h-12 w-full rounded-card border border-line bg-surface text-sm text-ink"
             >
               Continue with {provider.label}

@@ -15,6 +15,8 @@ export type SyncedTrail = {
   startedAt: number;
   savedAt: number;
   hidden: boolean;
+  /** Visible to friends (see src/lib/friends.ts). Off unless the owner turns it on. */
+  shared: boolean;
   points: PackedPoint[];
 };
 
@@ -67,9 +69,10 @@ export const listGhostTrails = createServerFn({ method: "GET" })
       started_at: unknown;
       saved_at: unknown;
       hidden: boolean;
+      shared: boolean;
       points: unknown;
     }>`
-      select id, name, started_at, saved_at, hidden, points from ghost_trails
+      select id, name, started_at, saved_at, hidden, shared, points from ghost_trails
       where user_id = ${context.userId}
       order by saved_at desc
       limit ${MAX_TRAILS}
@@ -80,6 +83,7 @@ export const listGhostTrails = createServerFn({ method: "GET" })
       startedAt: toMs(row.started_at),
       savedAt: toMs(row.saved_at),
       hidden: Boolean(row.hidden),
+      shared: Boolean(row.shared),
       points: (typeof row.points === "string"
         ? JSON.parse(row.points)
         : row.points) as PackedPoint[],
@@ -103,6 +107,7 @@ export const saveGhostTrail = createServerFn({ method: "POST" })
       startedAt: Number.isFinite(startedAt) && startedAt > 0 ? startedAt : points[0]![2],
       savedAt: Number.isFinite(savedAt) && savedAt > 0 ? Math.min(savedAt, Date.now()) : Date.now(),
       hidden: row.hidden === true,
+      shared: row.shared === true,
       points,
     };
   })
@@ -116,14 +121,14 @@ export const saveGhostTrail = createServerFn({ method: "POST" })
     if (!existing[0]?.has && count >= MAX_TRAILS)
       throw new Error(`You can keep up to ${MAX_TRAILS} trails. Delete one first.`);
     await sql`
-      insert into ghost_trails (user_id, id, name, started_at, saved_at, hidden, points)
+      insert into ghost_trails (user_id, id, name, started_at, saved_at, hidden, shared, points)
       values (
         ${context.userId}, ${data.id}, ${data.name},
         to_timestamp(${data.startedAt / 1000}), to_timestamp(${data.savedAt / 1000}),
-        ${data.hidden}, ${JSON.stringify(data.points)}::jsonb
+        ${data.hidden}, ${data.shared}, ${JSON.stringify(data.points)}::jsonb
       )
       on conflict (user_id, id) do update set
-        name = excluded.name, hidden = excluded.hidden, points = excluded.points
+        name = excluded.name, hidden = excluded.hidden, shared = excluded.shared, points = excluded.points
     `;
     return { ok: true as const };
   });
@@ -138,6 +143,19 @@ export const setGhostTrailHidden = createServerFn({ method: "POST" })
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
     await sql`update ghost_trails set hidden = ${data.hidden} where user_id = ${context.userId} and id = ${data.id}`;
+    return { ok: true as const };
+  });
+
+export const setGhostTrailShared = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    const row = (input ?? {}) as Record<string, unknown>;
+    return { id: parseId(row.id), shared: row.shared === true };
+  })
+  .handler(async ({ context, data }) => {
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    await sql`update ghost_trails set shared = ${data.shared} where user_id = ${context.userId} and id = ${data.id}`;
     return { ok: true as const };
   });
 

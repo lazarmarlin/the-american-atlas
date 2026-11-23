@@ -6,6 +6,7 @@ import {
   loadFriend,
   myFriendCode,
   removeFriend,
+  resetFriendCode,
   type FriendBadge,
   type FriendPage,
   type FriendRow,
@@ -14,6 +15,7 @@ import {
 import { formatMiles, trailLines, type GhostLines } from "@/lib/ghost-trail";
 import type { PackedPoint } from "@/lib/ghost-sync";
 import { apiOrigin, nativeApp } from "@/lib/native";
+import { friendsLeaderboard, periodRange, type LeaderRow } from "@/lib/recap";
 
 function friendUrl(code: string) {
   const origin = nativeApp && apiOrigin ? apiOrigin : window.location.origin;
@@ -50,14 +52,36 @@ export function FriendsPanel({
 }) {
   const [friends, setFriends] = useState<FriendRow[] | null>(null);
   const [code, setCode] = useState<string | null>(null);
+  const [resetAsk, setResetAsk] = useState(false);
+
+  async function resetLink() {
+    setResetAsk(false);
+    try {
+      const row = await resetFriendCode();
+      setCode(row.code);
+      setLinkNote("New link ready. The old one no longer works.");
+    } catch (err) {
+      setLinkNote(err instanceof Error ? err.message : "Couldn't make a new link.");
+    }
+  }
   const [page, setPage] = useState<FriendPage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [linkNote, setLinkNote] = useState<string | null>(null);
   const [drop, setDrop] = useState(false);
   const [shown, setShown] = useState<string | null>(null);
+  const [board, setBoard] = useState<LeaderRow[] | null>(null);
+  const month = periodRange("month");
 
   useEffect(() => {
     let dead = false;
+    const { from, to, tz } = periodRange("month");
+    friendsLeaderboard({ data: { from, to, tz } })
+      .then((rows) => {
+        if (!dead) setBoard(rows);
+      })
+      .catch(() => {
+        if (!dead) setBoard([]);
+      });
     listFriends()
       .then((rows) => {
         if (!dead) setFriends(rows);
@@ -244,7 +268,8 @@ export function FriendsPanel({
       <div className="px-2">
         <h2 className="font-serif text-2xl">Friends</h2>
         <p className="mt-1 text-sm text-muted">
-          Send a link. Once they open it and sign in, you can both see earned badges and saved ghost trails.
+          Send a link. Once they open it and sign in, you can both see earned badges and any saved ghost trails you
+          choose to share.
         </p>
       </div>
       {note ? <p className="mt-3 px-2 text-sm text-ink">{note}</p> : null}
@@ -258,6 +283,23 @@ export function FriendsPanel({
         </button>
       </div>
       {linkNote ? <p className="mt-2 px-2 text-sm break-all text-muted">{linkNote}</p> : null}
+      {resetAsk ? (
+        <div className="mx-2 mt-2 rounded-lg border border-line px-3 py-3">
+          <p className="text-sm">Make a new link? The old one stops working. Friends you already have stay.</p>
+          <div className="mt-2 flex gap-2">
+            <button type="button" onClick={() => void resetLink()} className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm">
+              New link
+            </button>
+            <button type="button" onClick={() => setResetAsk(false)} className="h-11 flex-1 rounded-lg border border-line text-sm">
+              Keep this one
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" disabled={!code} onClick={() => setResetAsk(true)} className="mt-1 h-11 px-2 text-xs text-faint disabled:opacity-50">
+          Reset my link
+        </button>
+      )}
 
       {friends === null ? (
         <p className="mt-4 px-2 text-sm text-muted">Loading friends…</p>
@@ -272,7 +314,7 @@ export function FriendsPanel({
                 <span>
                   <span className="block text-sm">{friend.name}</span>
                   <span className="block text-xs text-faint">
-                    {friend.trails} {friend.trails === 1 ? "saved trail" : "saved trails"}
+                    {friend.trails} {friend.trails === 1 ? "shared trail" : "shared trails"}
                   </span>
                 </span>
               </button>
@@ -280,6 +322,31 @@ export function FriendsPanel({
           ))}
         </ul>
       )}
+
+      {friends && friends.length > 0 && board && board.length > 1 ? (
+        <div className="mt-6 px-2">
+          <h3 className="font-serif text-xl">{month.label}</h3>
+          <p className="mt-1 text-xs text-muted">Points and new counties this month.</p>
+          <ol className="mt-2 grid gap-1">
+            {board.map((row, i) => (
+              <li
+                key={row.id}
+                className={"flex items-center gap-3 rounded-lg border px-3 py-2 " + (row.me ? "border-ink bg-elevated" : "border-line")}
+              >
+                <span className="w-5 text-right font-serif text-lg text-muted">{i + 1}</span>
+                <Face name={row.name} photo={row.photo} />
+                <span className="min-w-0 flex-1 truncate text-sm">{row.name}</span>
+                <span className="text-right">
+                  <span className="block text-sm">{row.points.toLocaleString()} pts</span>
+                  <span className="block text-xs text-faint">
+                    {row.counties} {row.counties === 1 ? "county" : "counties"}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
     </div>
   );
 }

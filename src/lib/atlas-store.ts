@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-type Tab = "yours" | "add" | "near" | "trips" | "badges" | "friends";
+type Tab = "yours" | "add" | "near" | "trips" | "badges" | "recap" | "friends";
 
 type AtlasUi = {
   stateAbbr: string | null;
