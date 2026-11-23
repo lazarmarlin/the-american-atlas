@@ -1,11 +1,101 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { matchPlace, readPhotoFile, tripFor, type RecordingTrip } from "@/lib/photo-file";
+import { loadParkShapes, matchPark, choosePhotoPlace } from "@/lib/park-photo";
 import { deletePhoto, loadPhoto, savePhoto, setPhotoShared, type PhotoInfo } from "@/lib/photos";
 
 type Place = { id: string; name: string; lat: number | null; lon: number | null; category: string; state?: string };
 
 function placeLabel(place: Place) {
   return place.state ? `${place.name}, ${place.state}` : place.name;
+}
+
+function matchesPlace(place: Place, query: string) {
+  const name = place.name.toLowerCase();
+  if (name.includes(query)) return true;
+  const parts = query.split(/\s+/).filter(Boolean);
+  const state = (place.state ?? "").toLowerCase();
+  const last = parts[parts.length - 1] ?? "";
+  if (parts.length < 2 || !state || state !== last) return false;
+  return name.includes(parts.slice(0, -1).join(" "));
+}
+
+function PlacePick({
+  place,
+  empty,
+  marks,
+  onPick,
+}: {
+  place: Place | null;
+  empty: string;
+  marks: Place[];
+  onPick: (place: Place) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const choices = useMemo(() => [...marks].sort((a, b) => placeLabel(a).localeCompare(placeLabel(b))), [marks]);
+  const q = query.trim().toLowerCase();
+  const hits = q.length < 2 ? [] : choices.filter((mark) => matchesPlace(mark, q)).slice(0, 30);
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        onClick={() => {
+          setQuery("");
+          setOpen(true);
+        }}
+        className="block h-9 w-full truncate rounded-md border border-line bg-bg px-2 text-left text-sm text-ink"
+      >
+        {place ? placeLabel(place) : empty}
+      </button>
+      {open ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 px-3 pb-6"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-label="Pick a place"
+            className="w-full max-w-sm rounded-card border border-line bg-surface p-3"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p className="text-xs tracking-widest text-faint uppercase">Place</p>
+            <input
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search places you've added"
+              className="mt-2 h-11 w-full rounded-lg border border-line bg-bg px-3 text-sm text-ink outline-none"
+            />
+            {q.length < 2 ? <p className="mt-3 text-sm text-muted">Type at least two letters.</p> : null}
+            {q.length >= 2 && hits.length === 0 ? <p className="mt-3 text-sm text-muted">No place named that.</p> : null}
+            {hits.length ? (
+              <ul className="mt-2 max-h-64 overflow-y-auto">
+                {hits.map((mark) => (
+                  <li key={mark.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onPick(mark);
+                        setOpen(false);
+                      }}
+                      className="flex h-11 w-full items-center text-left text-sm"
+                    >
+                      <span className="min-w-0 flex-1 truncate">{placeLabel(mark)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <button type="button" onClick={() => setOpen(false)} className="mt-2 h-11 w-full rounded-lg border border-line text-sm">
+              Close
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
 }
 
 type Candidate = {
@@ -30,8 +120,6 @@ export function PhotoFinder({
   trip: RecordingTrip;
   onSaved: (rows: PhotoInfo[]) => void;
 }) {
-  const choices = [...marks].sort((a, b) => placeLabel(a).localeCompare(placeLabel(b)));
-  const byId = new Map(marks.map((mark) => [mark.id, mark]));
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -41,6 +129,7 @@ export function PhotoFinder({
     if (!files?.length) return;
     setBusy(true);
     setNote(null);
+    const shapes = await loadParkShapes().catch(() => null);
     const next: Candidate[] = [];
     let unreadable = 0;
     let noLocation = 0;
@@ -48,7 +137,9 @@ export function PhotoFinder({
       try {
         const read = await readPhotoFile(file);
         if (!read.gps) noLocation += 1;
-        const place = read.gps ? matchPlace(read.gps.lat, read.gps.lon, marks) : null;
+        const byPoint = read.gps ? matchPlace(read.gps.lat, read.gps.lon, marks) : null;
+        const park = read.gps && shapes ? matchPark(read.gps.lat, read.gps.lon, marks, shapes) : null;
+        const place = read.gps ? choosePhotoPlace(read.gps.lat, read.gps.lon, byPoint, park) : null;
         next.push({
           key: `${file.name}-${file.size}-${next.length}`,
           thumb: read.thumb,
@@ -155,22 +246,14 @@ export function PhotoFinder({
               <li key={row.key} className="flex items-center gap-2 rounded-lg border border-line px-2 py-2">
                 <img src={row.thumb} alt="" className="size-12 shrink-0 rounded-md object-cover" />
                 <span className="min-w-0 flex-1">
-                  <select
-                    aria-label="Place for this photo"
-                    value={row.place?.id ?? ""}
-                    onChange={(event) => {
-                      const place = byId.get(event.target.value) ?? null;
-                      setRows((list) => list?.map((item) => (item.key === row.key ? { ...item, place, keep: Boolean(place) } : item)) ?? list);
+                  <PlacePick
+                    place={row.place}
+                    empty={row.lat == null ? "No location. Pick a place" : "Nothing close. Pick a place"}
+                    marks={marks}
+                    onPick={(place) => {
+                      setRows((list) => list?.map((item) => (item.key === row.key ? { ...item, place, keep: true } : item)) ?? list);
                     }}
-                    className="block h-9 w-full truncate rounded-md border border-line bg-bg px-2 text-sm text-ink"
-                  >
-                    <option value="">{row.lat == null ? "No location. Pick a place" : "Nothing close. Pick a place"}</option>
-                    {choices.map((mark) => (
-                      <option key={mark.id} value={mark.id}>
-                        {placeLabel(mark)}
-                      </option>
-                    ))}
-                  </select>
+                  />
                   <span className="mt-0.5 block text-xs text-faint">
                     {row.takenAt
                       ? new Date(row.takenAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
