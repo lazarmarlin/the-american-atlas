@@ -114,6 +114,158 @@ function wave(g: CanvasRenderingContext2D, color: string) {
   g.stroke();
 }
 
+function arrowhead(g: CanvasRenderingContext2D) {
+  g.beginPath();
+  g.moveTo(16, 3);
+  g.lineTo(28, 14);
+  g.lineTo(24, 27);
+  g.lineTo(8, 27);
+  g.lineTo(4, 14);
+  g.closePath();
+  g.fill();
+  g.save();
+  g.globalCompositeOperation = "destination-out";
+  g.beginPath();
+  g.moveTo(16, 9);
+  g.lineTo(22.5, 20);
+  g.lineTo(9.5, 20);
+  g.closePath();
+  g.fill();
+  g.restore();
+}
+
+function pines(g: CanvasRenderingContext2D) {
+  const pine = (x: number, y: number, h: number) => {
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + h * 0.55, y + h);
+    g.lineTo(x - h * 0.55, y + h);
+    g.closePath();
+    g.fill();
+  };
+  pine(16, 4, 12);
+  pine(8.5, 13, 10);
+  pine(23.5, 13, 10);
+}
+
+function bird(g: CanvasRenderingContext2D) {
+  g.beginPath();
+  g.moveTo(3, 18);
+  g.quadraticCurveTo(10, 8, 16, 16);
+  g.quadraticCurveTo(22, 8, 29, 18);
+  g.quadraticCurveTo(22, 15, 16, 19);
+  g.quadraticCurveTo(10, 15, 3, 18);
+  g.fill();
+}
+
+/** A register plaque with a star cut out of it. */
+function plaque(g: CanvasRenderingContext2D) {
+  g.beginPath();
+  g.moveTo(9, 6);
+  g.lineTo(23, 6);
+  g.quadraticCurveTo(27, 6, 27, 10);
+  g.lineTo(27, 22);
+  g.quadraticCurveTo(27, 27, 23, 27);
+  g.lineTo(9, 27);
+  g.quadraticCurveTo(5, 27, 5, 22);
+  g.lineTo(5, 10);
+  g.quadraticCurveTo(5, 6, 9, 6);
+  g.closePath();
+  g.fill();
+  g.save();
+  g.globalCompositeOperation = "destination-out";
+  g.beginPath();
+  g.moveTo(16, 10);
+  g.lineTo(17.6, 14.2);
+  g.lineTo(22, 14.4);
+  g.lineTo(18.6, 17.2);
+  g.lineTo(19.6, 21.6);
+  g.lineTo(16, 19.2);
+  g.lineTo(12.4, 21.6);
+  g.lineTo(13.4, 17.2);
+  g.lineTo(10, 14.4);
+  g.lineTo(14.4, 14.2);
+  g.closePath();
+  g.fill();
+  g.restore();
+}
+
+function museumFront(g: CanvasRenderingContext2D) {
+  g.beginPath();
+  g.moveTo(4, 14);
+  g.lineTo(16, 5);
+  g.lineTo(28, 14);
+  g.closePath();
+  g.fill();
+  g.fillRect(6, 14, 20, 12);
+  g.clearRect(14, 18, 4, 8);
+  g.fillRect(9, 17, 2, 5);
+  g.fillRect(21, 17, 2, 5);
+}
+
+function basket(g: CanvasRenderingContext2D, color: string) {
+  g.beginPath();
+  g.moveTo(8, 13);
+  g.lineTo(24, 13);
+  g.lineTo(22, 26);
+  g.lineTo(10, 26);
+  g.closePath();
+  g.fill();
+  g.clearRect(9, 17, 14, 1.5);
+  g.clearRect(9, 21, 14, 1.5);
+  g.strokeStyle = color;
+  g.lineWidth = 2;
+  g.beginPath();
+  g.arc(16, 13, 6, Math.PI, 0);
+  g.stroke();
+}
+
+function fish(g: CanvasRenderingContext2D) {
+  g.beginPath();
+  g.moveTo(5, 16);
+  g.quadraticCurveTo(14, 8, 22, 16);
+  g.quadraticCurveTo(14, 24, 5, 16);
+  g.closePath();
+  g.fill();
+  g.beginPath();
+  g.moveTo(21, 16);
+  g.lineTo(28, 10);
+  g.lineTo(28, 22);
+  g.closePath();
+  g.fill();
+}
+
+function beaver(g: CanvasRenderingContext2D) {
+  g.beginPath();
+  g.ellipse(16, 15, 9, 8, 0, 0, Math.PI * 2);
+  g.fill();
+  g.fillRect(12.4, 21, 2.4, 5);
+  g.fillRect(17.2, 21, 2.4, 5);
+  g.beginPath();
+  g.arc(11, 8, 3, 0, Math.PI * 2);
+  g.arc(21, 8, 3, 0, Math.PI * 2);
+  g.fill();
+}
+
+function links(g: CanvasRenderingContext2D, color: string) {
+  g.strokeStyle = color;
+  g.lineWidth = 2.4;
+  g.beginPath();
+  g.ellipse(12, 16, 5, 8, 0, 0, Math.PI * 2);
+  g.stroke();
+  g.beginPath();
+  g.ellipse(20, 16, 5, 8, 0, 0, Math.PI * 2);
+  g.stroke();
+}
+
+function mallFront(g: CanvasRenderingContext2D) {
+  g.fillRect(3, 12, 26, 14);
+  g.fillRect(3, 8, 26, 4);
+  g.clearRect(6, 15, 4, 7);
+  g.clearRect(14, 15, 4, 7);
+  g.clearRect(22, 15, 4, 7);
+}
+
 function oval(g: CanvasRenderingContext2D, color: string) {
   g.strokeStyle = color;
   g.lineWidth = 2;
@@ -374,9 +526,12 @@ function roadBend(g: CanvasRenderingContext2D, color: string) {
 function drawKind(g: CanvasRenderingContext2D, kind: string, color: string) {
   g.fillStyle = color;
   g.strokeStyle = color;
-  if (kind === "park-state") statePark(g);
+  if (kind === "park-national") arrowhead(g);
+  else if (kind === "park-state") statePark(g);
   else if (kind === "reservation") reservationMark(g);
-  else if (kind.startsWith("park") || kind === "forest" || kind === "refuge") tree(g);
+  else if (kind === "forest") pines(g);
+  else if (kind === "refuge") bird(g);
+  else if (kind.startsWith("park")) tree(g);
   else if (kind.startsWith("span") || kind === "bridge") bridge(g, color);
   else if (kind.startsWith("airport")) plane(g);
   else if (kind === "capitol" || kind === "president") dome(g);
@@ -387,21 +542,24 @@ function drawKind(g: CanvasRenderingContext2D, kind: string, color: string) {
   else if (kind === "brewery") mug(g, color);
   else if (kind === "winery") wineGlass(g);
   else if (kind === "distillery") barrel(g);
-  else if (kind === "historic" || kind === "museum") column(g);
+  else if (kind === "register") plaque(g);
+  else if (kind === "museum") museumFront(g);
+  else if (kind === "historic") column(g);
   else if (kind === "battlefield") flag(g);
   else if (kind === "cemetery") headstone(g);
   else if (kind === "amusement") loop(g, color);
   else if (kind === "drivein") screen(g);
   else if (kind === "fort") fortWall(g);
-  else if (kind === "market") cart(g, color);
-  else if (kind === "outfitter") cart(g, color);
-  else if (kind === "bucee") storefront(g);
+  else if (kind === "market") basket(g, color);
+  else if (kind === "outfitter") fish(g);
+  else if (kind === "bucee") beaver(g);
+  else if (kind === "chain") links(g, color);
   else if (kind === "city") skyline(g);
   else if (kind === "food") fork(g);
   else if (kind === "diner") plate(g, color);
   else if (kind === "zoo") animal(g);
-  else if (kind === "town" || kind === "chain") house(g);
-  else if (kind === "mall") storefront(g);
+  else if (kind === "town") house(g);
+  else if (kind === "mall") mallFront(g);
   else if (kind === "roadside") star(g);
   else if (kind === "highpoint") peak(g);
   else if (kind === "waterfall") falls(g);

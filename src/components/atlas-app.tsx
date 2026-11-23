@@ -370,6 +370,7 @@ function AtlasShell() {
       "market",
       "museum",
       "historic",
+      "register",
       "zoo",
       "brewery",
       "lighthouse",

@@ -19,6 +19,7 @@ export const placeKinds: PlaceKind[] = [
   { id: "stadium", label: "Stadiums", color: "#7d6bb5", tier: 2, legend: true },
   { id: "museum", label: "Museums", color: "#c4923a", tier: 2, legend: true },
   { id: "historic", label: "Historic", color: "#c4a484", tier: 2, legend: true },
+  { id: "register", label: "Historic register", color: "#c4a06a", tier: 2, legend: true },
   { id: "zoo", label: "Zoos", color: "#e07a3d", tier: 2, legend: true },
   { id: "brewery", label: "Breweries", color: "#e0b03a", tier: 2, legend: true },
   { id: "lighthouse", label: "Lighthouses", color: "#e36a4a", tier: 2, legend: true },

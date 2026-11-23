@@ -13,6 +13,7 @@ const KINDS: Record<string, string> = {
   market: "grocery store",
   museum: "museum",
   historic: "historic site",
+  register: "place on the National Register of Historic Places",
   zoo: "zoo or aquarium",
   brewery: "brewery",
   lighthouse: "lighthouse",
