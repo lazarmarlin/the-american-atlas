@@ -1,5 +1,7 @@
 package com.lazarmarlin.americanatlas;
 
+import android.app.Activity;
+import android.content.ClipData;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
@@ -59,21 +61,37 @@ public class ApkUpdaterPlugin extends Plugin {
             call.reject("needs-permission");
             return;
         }
-        call.setKeepAlive(false);
+        call.setKeepAlive(true);
         new Thread(() -> {
+            File apk = new File(new File(getContext().getCacheDir(), "updates"), "american-atlas.apk");
             try {
-                File dir = new File(getContext().getCacheDir(), "updates");
-                if (!dir.exists() && !dir.mkdirs()) throw new Exception("Couldn't make room for the update.");
-                File apk = new File(dir, "american-atlas.apk");
-                download(url, apk);
+                File dir = apk.getParentFile();
+                if (dir == null || (!dir.exists() && !dir.mkdirs())) throw new Exception("Couldn't make room for the update.");
+                File part = new File(dir, "american-atlas.apk.part");
+                download(url, part);
+                if (apk.exists() && !apk.delete()) throw new Exception("Couldn't replace the last download.");
+                if (!part.renameTo(apk)) throw new Exception("Couldn't save the update.");
+                Activity activity = getActivity();
+                if (activity == null) throw new Exception("Stay in the app, then try the install again.");
                 Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apk);
-                Intent intent = new Intent(Intent.ACTION_VIEW);
-                intent.setDataAndType(uri, "application/vnd.android.package-archive");
-                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-                getContext().startActivity(intent);
-                call.resolve();
+                activity.runOnUiThread(() -> {
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_VIEW);
+                        intent.setDataAndType(uri, "application/vnd.android.package-archive");
+                        // Without the clip data, Android opens the installer but won't let it read the file.
+                        intent.setClipData(ClipData.newRawUri("American Atlas update", uri));
+                        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        activity.startActivity(intent);
+                        call.resolve();
+                    } catch (Exception e) {
+                        call.reject(e.getMessage() == null ? "The installer didn't open." : e.getMessage());
+                    } finally {
+                        call.setKeepAlive(false);
+                    }
+                });
             } catch (Exception e) {
                 call.reject(e.getMessage() == null ? "The download didn't finish." : e.getMessage());
+                call.setKeepAlive(false);
             }
         }).start();
     }
@@ -90,8 +108,9 @@ public class ApkUpdaterPlugin extends Plugin {
         for (int hop = 0; hop < 6; hop++) {
             conn = (HttpURLConnection) new URL(next).openConnection();
             conn.setInstanceFollowRedirects(false);
+            conn.setRequestProperty("User-Agent", "AmericanAtlas");
             conn.setConnectTimeout(20000);
-            conn.setReadTimeout(30000);
+            conn.setReadTimeout(60000);
             int code = conn.getResponseCode();
             if (code >= 300 && code < 400) {
                 String loc = conn.getHeaderField("Location");

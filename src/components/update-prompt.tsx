@@ -125,6 +125,13 @@ export function AppVersion() {
   const { current, available, status, percent, message } = useUpdate();
   useEffect(() => {
     if (nativeApp) void checkForUpdate();
+    if (!nativeApp) return;
+    const onShow = () => {
+      if (document.visibilityState !== "visible") return;
+      void resumeAfterPermission();
+    };
+    document.addEventListener("visibilitychange", onShow);
+    return () => document.removeEventListener("visibilitychange", onShow);
   }, []);
   if (!nativeApp) return null;
   return (
@@ -135,7 +142,21 @@ export function AppVersion() {
         is lost.
       </p>
       {available && status === "downloading" ? <DownloadBar percent={percent} size={available.size} /> : null}
-      {available && status !== "downloading" ? (
+      {available && status === "permission" ? (
+        <>
+          <p className="mt-2 text-sm">
+            Android needs your OK once: turn on <span className="text-ink">Allow from this source</span>, then come back. The install continues on its own.
+          </p>
+          <button
+            type="button"
+            onClick={() => void allowInstalls()}
+            className="mt-3 h-12 w-full rounded-lg border border-ink bg-elevated text-sm"
+          >
+            Open the setting
+          </button>
+        </>
+      ) : null}
+      {available && status !== "downloading" && status !== "permission" ? (
         <button
           type="button"
           onClick={() => {
@@ -144,7 +165,7 @@ export function AppVersion() {
           }}
           className="mt-3 h-12 w-full rounded-lg border border-ink bg-elevated text-sm"
         >
-          Install build {available.build}
+          {status === "installing" ? "Opening the installer…" : `Install build ${available.build}`}
         </button>
       ) : null}
       {!available ? (

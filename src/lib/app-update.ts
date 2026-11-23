@@ -102,7 +102,7 @@ export async function checkForUpdate(force = false) {
 /** Download the update and open Android's installer. */
 export async function installUpdate() {
   const update = useUpdate.getState().available;
-  if (!update) return;
+  if (!update || useUpdate.getState().status === "downloading") return;
   const { allowed } = await Updater.canInstall();
   if (!allowed) {
     useUpdate.setState({ status: "permission", message: null });
@@ -118,13 +118,13 @@ export async function installUpdate() {
   try {
     await Updater.install({ url: update.url });
     // Android's installer is open now. If they back out of it, the button works again.
-    useUpdate.setState({ status: "installing" });
+    useUpdate.setState({ status: "installing", message: null });
     window.setTimeout(() => {
       if (useUpdate.getState().status === "installing") useUpdate.setState({ status: "idle" });
     }, 8000);
   } catch (err) {
     const text = err instanceof Error ? err.message : "";
-    if (text === "needs-permission") useUpdate.setState({ status: "permission" });
+    if (text === "needs-permission") useUpdate.setState({ status: "permission", message: null });
     else
       useUpdate.setState({
         status: "error",
