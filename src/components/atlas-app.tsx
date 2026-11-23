@@ -26,7 +26,7 @@ import { AtlasSplash, LoginScreen } from "@/components/login-screen";
 import { SettingsPage } from "@/components/settings-page";
 import { GhostPanel } from "@/components/ghost-panel";
 import { FriendsPanel } from "@/components/friends-panel";
-import { PhotosPanel } from "@/components/photos-panel";
+import { PhotosPanel, PhotoViewer } from "@/components/photos-panel";
 import { matchPlace, tripFor, type RecordingTrip } from "@/lib/photo-file";
 import { choosePhotoPlace, loadParkShapes, matchPark } from "@/lib/park-photo";
 import { UpdatePrompt } from "@/components/update-prompt";
@@ -46,7 +46,7 @@ import { friendPhotoPins, listPhotos, savePhoto, type FriendPhotoPin, type Photo
 import { readPhotoFile } from "@/lib/photo-file";
 import { listLocalPhotos, setLocalPhotoOwner } from "@/lib/photo-local";
 import { requestTrackingPermission } from "@/lib/background-location";
-import { bindSheetBack } from "@/lib/sheet-back";
+import { pushBack } from "@/lib/sheet-back";
 import { isMarkerColor, isMarkerIcon } from "@/lib/you-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
 import { nativeApp } from "@/lib/native";
@@ -159,6 +159,11 @@ function AtlasShell() {
   const [recordingId, setRecordingId] = useState<string | null>(null);
   const [livePins, setLivePins] = useState<LiveFriend[]>([]);
   const [photos, setPhotos] = useState<PhotoInfo[]>([]);
+  const [viewing, setViewing] = useState<{ list: PhotoInfo[]; id: string } | null>(null);
+  const closeViewer = useCallback(() => setViewing(null), []);
+  // Back from a zoomed-in map or a picked state goes to the whole country first.
+  const [homeTick, setHomeTick] = useState(0);
+  const [mapAway, setMapAway] = useState(false);
   const keepGhost = useSettings((s) => s.keepGhost);
   const keptGhostBefore = useRef(keepGhost);
   // Turning "keep the trail on my account" off removes the copy already there.
@@ -1113,15 +1118,16 @@ function AtlasShell() {
 
   const sheetBack = useRef<() => boolean>(() => false);
   sheetBack.current = () => {
+    // A place card (from the list or the map) closes first, at any sheet height.
+    if (focus || mapCard || roadBack) {
+      closeCard();
+      return true;
+    }
     if (sheet > 20) {
       if (tab === "friends" && friendId) {
         setFriendId(null);
         setFriendLines([]);
         setFriendLive(null);
-        return true;
-      }
-      if (mapCard || roadBack) {
-        closeCard();
         return true;
       }
       setSheetInstant(true);
@@ -1133,12 +1139,14 @@ function AtlasShell() {
       setGhostOpen(false);
       return true;
     }
+    if (stateAbbr || mapAway) {
+      chooseState(null);
+      setHomeTick((n) => n + 1);
+      return true;
+    }
     return false;
   };
-  useEffect(() => {
-    bindSheetBack(() => sheetBack.current());
-    return () => bindSheetBack(null);
-  }, []);
+  useEffect(() => pushBack(() => sheetBack.current()), []);
 
   useEffect(() => {
     void useLiveShare.getState().load().catch(() => {});
@@ -1337,6 +1345,14 @@ function AtlasShell() {
       style={cardOnly ? undefined : { ["--sheet" as string]: sheet <= 12 ? "var(--sheet-peek)" : `${sheet}dvh` }}
     >
       {popped ? null : <UpdatePrompt />}
+      {viewing ? (
+        <PhotoViewer
+          photos={viewing.list}
+          startId={viewing.id}
+          title={marks.find((mark) => mark.id === viewing.list[0]?.poiId)?.name ?? "Photos"}
+          onClose={closeViewer}
+        />
+      ) : null}
       {popped ? (
         <div className="pointer-events-none absolute inset-x-0 top-safe z-30 flex justify-center px-4 pt-3">
           <button
@@ -1441,6 +1457,8 @@ function AtlasShell() {
                 if (mark) openFromMap(mark);
                 else setSelected(id);
               }}
+              homeTick={homeTick}
+              onAway={setMapAway}
               onView={(zoom, base) => {
                 setViewZoom(zoom);
                 setViewBase(base);
@@ -1658,7 +1676,8 @@ function AtlasShell() {
               void add(mark);
             }}
             onClose={closeCard}
-            placeThumbs={photos.filter((photo) => photo.poiId === focus.id).map((photo) => photo.thumb)}
+            placePhotos={photos.filter((photo) => photo.poiId === focus.id)}
+            onOpenPhoto={(id) => setViewing({ list: photos.filter((photo) => photo.poiId === focus.id), id })}
             onAddPhoto={(file) => addPlacePhoto(focus, file)}
           />
         ) : (
@@ -1899,7 +1918,8 @@ function AtlasShell() {
               void add(mark);
             }}
             onClose={closeCard}
-            placeThumbs={photos.filter((photo) => photo.poiId === focus.id).map((photo) => photo.thumb)}
+            placePhotos={photos.filter((photo) => photo.poiId === focus.id)}
+            onOpenPhoto={(id) => setViewing({ list: photos.filter((photo) => photo.poiId === focus.id), id })}
             onAddPhoto={(file) => addPlacePhoto(focus, file)}
           />
         ) : null}
@@ -2692,7 +2712,8 @@ function Detail({
   savedIds,
   onAddAlong,
   onClose,
-  placeThumbs = [],
+  placePhotos = [],
+  onOpenPhoto,
   onAddPhoto,
   solo = false,
 }: {
@@ -2707,7 +2728,8 @@ function Detail({
   savedIds: Set<string>;
   onAddAlong: (mark: Mark) => void;
   onClose: () => void;
-  placeThumbs?: string[];
+  placePhotos?: PhotoInfo[];
+  onOpenPhoto?: (id: string) => void;
   onAddPhoto?: (file: File) => Promise<void>;
   solo?: boolean;
 }) {
@@ -2827,6 +2849,26 @@ function Detail({
           {nextPoints > 0 ? `Visit again · ${nextPoints} pts` : "Visit again · 0 pts"}
         </button>
       ) : null}
+      {placePhotos.length ? (
+        <div className="mt-3">
+          <p className="text-xs text-muted">
+            {placePhotos.length} {placePhotos.length === 1 ? "photo" : "photos"} in your gallery
+          </p>
+          <div className="mt-1 flex gap-2 overflow-x-auto pb-1">
+            {placePhotos.map((photo) => (
+              <button
+                key={photo.id}
+                type="button"
+                aria-label="Open photo"
+                onClick={() => onOpenPhoto?.(photo.id)}
+                className="shrink-0 overflow-hidden rounded-md"
+              >
+                <img src={photo.thumb} alt="" className="size-20 object-cover" />
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {saved && current ? (
         <details className="mt-3 rounded-card border border-line bg-bg px-3 py-2">
           <summary className="cursor-pointer text-sm">Visit details, optional</summary>
@@ -2866,12 +2908,13 @@ function Detail({
               className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1 text-sm text-ink outline-none"
             />
           </label>
-          <label className="mt-2 block text-xs text-muted">
-            Photo
+          <p className="mt-2 text-xs text-muted">Photo for this visit</p>
+          <label className="mt-1 flex h-11 cursor-pointer items-center justify-center rounded-lg border border-line text-sm text-muted">
+            {current.photo ? "Change the visit photo" : "Choose a visit photo"}
             <input
               type="file"
               accept="image/*"
-              className="mt-1 block w-full text-xs"
+              className="sr-only"
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.target.value = "";
@@ -2887,13 +2930,6 @@ function Detail({
             <button type="button" onClick={() => patchVisit({ photo: "" })} className="mt-1 text-xs text-faint">
               Remove photo
             </button>
-          ) : null}
-          {placeThumbs.length ? (
-            <div className="mt-2 flex gap-2 overflow-x-auto">
-              {placeThumbs.map((thumb) => (
-                <img key={thumb.slice(-24)} src={thumb} alt="" className="size-14 shrink-0 rounded-md object-cover" />
-              ))}
-            </div>
           ) : null}
           {onAddPhoto ? (
             <label
