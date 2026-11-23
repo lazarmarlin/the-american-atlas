@@ -1,0 +1,11 @@
+{
+  "cemetery": [
+    {
+      "id": "p:cemetery:New York:westernnewyork",
+      "name": "Western New York National Cemetery",
+      "lat": 43.01717,
+      "lon": -78.4001,
+      "pts": 15
+    }
+  ]
+}

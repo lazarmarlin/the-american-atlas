@@ -3,10 +3,13 @@ import { matchPlace, readPhotoFile, tripFor, type RecordingTrip } from "@/lib/ph
 import { loadParkShapes, matchPark, choosePhotoPlace } from "@/lib/park-photo";
 import { deletePhoto, loadPhoto, savePhoto, setPhotoShared, type PhotoInfo } from "@/lib/photos";
 import { canScanLibrary, lastScanAt, loadLibraryPhoto, rememberAdded, scanAllowed, scanLibrary } from "@/lib/photo-scan";
+import { nativeApp } from "@/lib/native";
+import { deleteLocalPhoto, listLocalPhotos, markUploaded, saveLocalPhoto, type LocalPhoto } from "@/lib/photo-local";
+import { bindSheetBack } from "@/lib/sheet-back";
 
 /** A phone photo as a JPEG data URL under `limit` characters, trying lower quality if needed. */
 async function phonePhoto(uri: string, edge: number, limit: number) {
-  for (const quality of [72, 58, 45]) {
+  for (const quality of [78, 64, 50]) {
     const url = await loadLibraryPhoto(uri, edge, quality);
     if (url.length <= limit) return url;
   }
@@ -122,7 +125,7 @@ type Candidate = {
   matched: boolean;
   /** The place isn't on the atlas yet; adding the photo adds it too. */
   isNew?: boolean;
-  keep: boolean;
+  added: boolean;
 };
 
 export function PhotoFinder({
@@ -170,7 +173,7 @@ export function PhotoFinder({
         next.push({
           key: photo.uri,
           uri: photo.uri,
-          thumb: await phonePhoto(photo.uri, 96, 40000).catch(() => ""),
+          thumb: await phonePhoto(photo.uri, 280, 80000).catch(() => ""),
           image: "",
           lat: photo.lat,
           lon: photo.lon,
@@ -178,7 +181,7 @@ export function PhotoFinder({
           place,
           matched: true,
           isNew,
-          keep: true,
+          added: false,
         });
       }
       const shown = next.filter((row) => row.thumb);
@@ -234,7 +237,7 @@ export function PhotoFinder({
           takenAt: read.gps?.takenAt ?? (file.lastModified || null),
           place,
           matched: Boolean(place),
-          keep: Boolean(place),
+          added: false,
         });
       } catch {
         unreadable += 1;
@@ -252,8 +255,44 @@ export function PhotoFinder({
     setBusy(false);
   }
 
-  async function keep() {
-    const chosen = (rows ?? []).filter((row) => row.keep && row.place);
+  async function addOne(row: Candidate) {
+    if (!row.place || row.added) return;
+    setBusy(true);
+    try {
+      const id = `ph-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      const place = row.place;
+      const image = row.image || (row.uri ? await phonePhoto(row.uri, 720, 160000) : "");
+      if (!image) throw new Error("Couldn't read a photo.");
+      if (row.isNew && addPlace && !marks.some((mark) => mark.id === place.id)) await addPlace(place, row.takenAt);
+      const info: PhotoInfo = {
+        id,
+        poiId: place.id,
+        tripId: tripFor(trip, place.id),
+        caption: "",
+        takenAt: row.takenAt,
+        lat: place.lat ?? row.lat,
+        lon: place.lon ?? row.lon,
+        shared: false,
+        thumb: row.thumb,
+      };
+      if (nativeApp) {
+        await saveLocalPhoto({ ...info, image, uploaded: false, uri: row.uri });
+      } else {
+        await savePhoto({ data: { ...info, image } });
+      }
+      if (row.uri) rememberAdded([row.uri]);
+      setRows((list) => list?.map((item) => (item.key === row.key ? { ...item, added: true } : item)) ?? list);
+      onSaved([info]);
+      setNote(`Added${nativeApp ? " locally" : ""}.`);
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Couldn't add that photo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addAll() {
+    const chosen = (rows ?? []).filter((row) => row.place && !row.added);
     if (!chosen.length) {
       setNote("Pick a place for at least one photo.");
       return;
@@ -261,27 +300,13 @@ export function PhotoFinder({
     setBusy(true);
     const saved: PhotoInfo[] = [];
     for (const row of chosen) {
-      const id = `ph-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-      const place = row.place!;
       try {
+        const id = `ph-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+        const place = row.place!;
         const image = row.image || (row.uri ? await phonePhoto(row.uri, 720, 160000) : "");
         if (!image) throw new Error("Couldn't read a photo.");
         if (row.isNew && addPlace && !marks.some((mark) => mark.id === place.id)) await addPlace(place, row.takenAt);
-        await savePhoto({
-          data: {
-            id,
-            poiId: place.id,
-            tripId: tripFor(trip, place.id),
-            caption: "",
-            takenAt: row.takenAt,
-            lat: place.lat ?? row.lat,
-            lon: place.lon ?? row.lon,
-            thumb: row.thumb,
-            image,
-          },
-        });
-        if (row.uri) rememberAdded([row.uri]);
-        saved.push({
+        const info: PhotoInfo = {
           id,
           poiId: place.id,
           tripId: tripFor(trip, place.id),
@@ -291,15 +316,22 @@ export function PhotoFinder({
           lon: place.lon ?? row.lon,
           shared: false,
           thumb: row.thumb,
-        });
+        };
+        if (nativeApp) {
+          await saveLocalPhoto({ ...info, image, uploaded: false, uri: row.uri });
+        } else {
+          await savePhoto({ data: { ...info, image } });
+        }
+        if (row.uri) rememberAdded([row.uri]);
+        saved.push(info);
+        setRows((list) => list?.map((item) => (item.key === row.key ? { ...item, added: true } : item)) ?? list);
       } catch (err) {
-        setNote(err instanceof Error ? err.message : "Couldn't save a photo.");
+        setNote(err instanceof Error ? err.message : "Couldn't add a photo.");
         break;
       }
     }
     if (saved.length) onSaved(saved);
-    setRows(null);
-    setNote(saved.length ? `Added ${saved.length} ${saved.length === 1 ? "photo" : "photos"}.` : note);
+    setNote(saved.length ? `Added ${saved.length} ${saved.length === 1 ? "photo" : "photos"}${nativeApp ? " locally" : ""}.` : note);
     setBusy(false);
   }
 
@@ -370,7 +402,7 @@ export function PhotoFinder({
                     marks={marks}
                     onPick={(place) => {
                       setRows(
-                        (list) => list?.map((item) => (item.key === row.key ? { ...item, place, isNew: false, keep: true } : item)) ?? list,
+                        (list) => list?.map((item) => (item.key === row.key ? { ...item, place, isNew: false, added: false } : item)) ?? list,
                       );
                     }}
                   />
@@ -382,12 +414,14 @@ export function PhotoFinder({
                 </span>
                 <button
                   type="button"
-                  aria-pressed={row.keep}
-                  disabled={!row.place}
-                  onClick={() => setRows((list) => list?.map((item) => (item.key === row.key ? { ...item, keep: !item.keep } : item)) ?? list)}
-                  className={"h-11 shrink-0 rounded-lg border px-3 text-xs disabled:text-faint " + (row.keep ? "border-ink bg-elevated" : "border-line")}
+                  disabled={!row.place || row.added || busy}
+                  onClick={() => void addOne(row)}
+                  className={
+                    "h-11 shrink-0 rounded-lg border px-3 text-xs disabled:text-faint " +
+                    (row.added ? "border-accent bg-accent/20 text-accent" : "border-ink bg-elevated")
+                  }
                 >
-                  {row.place && row.keep ? "Keep" : "Skip"}
+                  {row.added ? "Added!" : "Add"}
                 </button>
               </li>
             ))}
@@ -395,11 +429,11 @@ export function PhotoFinder({
           <div className="mt-2 flex gap-2">
             <button
               type="button"
-              disabled={busy || !rows.some((row) => row.keep && row.place)}
-              onClick={() => void keep()}
+              disabled={busy || !rows.some((row) => row.place && !row.added)}
+              onClick={() => void addAll()}
               className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
             >
-              {busy ? "Adding…" : `Add ${rows.filter((row) => row.keep && row.place).length || ""} ${rows.filter((row) => row.keep && row.place).length === 1 ? "photo" : "photos"}`.replace("  ", " ")}
+              {busy ? "Adding…" : `Add all remaining`}
             </button>
             <button type="button" onClick={() => setRows(null)} className="h-11 flex-1 rounded-lg border border-line text-sm">
               Cancel
@@ -433,8 +467,30 @@ export function PhotosPanel({
   const [open, setOpen] = useState<PhotoInfo | null>(null);
   const [full, setFull] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [local, setLocal] = useState<LocalPhoto[]>([]);
+  const [menu, setMenu] = useState<PhotoInfo | null>(null);
   const names = new Map(marks.map((mark) => [mark.id, mark.name]));
   const tripNames = new Map(trips.map((trip) => [trip.id, trip.name]));
+
+  useEffect(() => {
+    if (!nativeApp) return;
+    listLocalPhotos().then(setLocal).catch(() => setLocal([]));
+  }, [photos.length]);
+
+  const allPhotos = useMemo(() => {
+    const byId = new Map(photos.map((p) => [p.id, p]));
+    for (const lp of local) if (!byId.has(lp.id)) byId.set(lp.id, lp);
+    return [...byId.values()];
+  }, [photos, local]);
+
+  useEffect(() => {
+    if (!open) return;
+    bindSheetBack(() => {
+      setOpen(null);
+      return true;
+    });
+    return () => bindSheetBack(null);
+  }, [open]);
 
   async function openPhoto(photo: PhotoInfo) {
     setOpen(photo);
@@ -442,11 +498,50 @@ export function PhotosPanel({
     setNote(null);
     setConfirmRemove(false);
     try {
+      if (nativeApp) {
+        const lp = local.find((p) => p.id === photo.id);
+        if (lp) {
+          setFull(lp.image);
+          return;
+        }
+      }
       const row = await loadPhoto({ data: photo.id });
       setFull(row.image);
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Couldn't open that photo.");
     }
+  }
+
+  function step(delta: number) {
+    if (!open) return;
+    const list = allPhotos;
+    const idx = list.findIndex((p) => p.id === open.id);
+    const next = list[(idx + delta + list.length) % list.length];
+    if (next) void openPhoto(next);
+  }
+
+  async function uploadOne(photo: PhotoInfo) {
+    const lp = local.find((p) => p.id === photo.id);
+    if (!lp) return;
+    try {
+      await savePhoto({ data: { ...lp, image: lp.image } });
+      await markUploaded(photo.id);
+      setLocal((prev) => prev.map((p) => (p.id === photo.id ? { ...p, uploaded: true } : p)));
+      setNote("Uploaded.");
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Couldn't upload.");
+    }
+  }
+
+  async function removeLocal(photo: PhotoInfo, fromServer = false) {
+    if (fromServer) {
+      try { await deletePhoto({ data: photo.id }); } catch {}
+    }
+    await deleteLocalPhoto(photo.id);
+    setLocal((prev) => prev.filter((p) => p.id !== photo.id));
+    onChange(photos.filter((p) => p.id !== photo.id));
+    setOpen(null);
+    setMenu(null);
   }
 
   async function share(photo: PhotoInfo) {
@@ -473,7 +568,7 @@ export function PhotosPanel({
   }
 
   const groups = new Map<string, PhotoInfo[]>();
-  for (const photo of photos) {
+  for (const photo of allPhotos) {
     const key =
       group === "trip"
         ? (photo.tripId && tripNames.get(photo.tripId)) || "Not on a trip"
@@ -491,6 +586,10 @@ export function PhotosPanel({
         <button type="button" onClick={() => setOpen(null)} className="h-11 px-2 text-sm text-muted">
           All photos
         </button>
+        <div className="mt-1 flex items-center justify-between px-2">
+          <button type="button" onClick={() => step(-1)} className="h-10 rounded-lg border border-line px-3 text-sm">Prev</button>
+          <button type="button" onClick={() => step(1)} className="h-10 rounded-lg border border-line px-3 text-sm">Next</button>
+        </div>
         {full ? (
           <img src={full} alt="" className="mt-1 max-h-[60dvh] w-full rounded-lg bg-bg object-contain" />
         ) : (
@@ -554,18 +653,42 @@ export function PhotosPanel({
         ))}
       </div>
       {photos.length === 0 ? <p className="mt-4 px-2 text-sm text-muted">No photos yet.</p> : null}
+      {menu ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 px-3 pb-6" onClick={() => setMenu(null)}>
+          <div className="w-full max-w-sm rounded-card border border-line bg-surface p-3" onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm font-medium">{names.get(menu.poiId) || "Photo"}</p>
+            {nativeApp && local.some((p) => p.id === menu.id && !p.uploaded) ? (
+              <button type="button" onClick={() => void uploadOne(menu)} className="mt-2 h-11 w-full rounded-lg border border-ink text-sm">Upload</button>
+            ) : null}
+            <button type="button" onClick={() => void removeLocal(menu, true)} className="mt-2 h-11 w-full rounded-lg border border-accent text-sm text-accent">Delete from atlas</button>
+            <button type="button" onClick={() => setMenu(null)} className="mt-2 h-11 w-full rounded-lg border border-line text-sm">Cancel</button>
+          </div>
+        </div>
+      ) : null}
       {[...groups.entries()].map(([label, items]) => (
         <section key={label} className="mt-4">
           <h3 className="px-2 font-serif text-lg">{label}</h3>
           <ul className="mt-2 grid grid-cols-3 gap-2 px-2">
-            {items.map((photo) => (
-              <li key={photo.id}>
-                <button type="button" onClick={() => void openPhoto(photo)} className="block w-full text-left">
-                  <img src={photo.thumb} alt="" className="aspect-square w-full rounded-md object-cover" />
-                  {photo.shared ? <span className="mt-1 block text-[10px] tracking-wide text-faint uppercase">Shared</span> : null}
-                </button>
-              </li>
-            ))}
+            {items.map((photo) => {
+              const lp = local.find((p) => p.id === photo.id);
+              const uploaded = !nativeApp || lp?.uploaded !== false;
+              return (
+                <li key={photo.id}>
+                  <button
+                    type="button"
+                    onClick={() => void openPhoto(photo)}
+                    onContextMenu={(e) => { e.preventDefault(); setMenu(photo); }}
+                    className="relative block w-full text-left"
+                  >
+                    <img src={photo.thumb} alt="" className="aspect-square w-full rounded-md object-cover" />
+                    {nativeApp && !uploaded ? (
+                      <span className="absolute right-1 top-1 rounded-full bg-black/60 px-1 text-[9px] text-white">local</span>
+                    ) : null}
+                    {photo.shared ? <span className="mt-1 block text-[10px] tracking-wide text-faint uppercase">Shared</span> : null}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </section>
       ))}

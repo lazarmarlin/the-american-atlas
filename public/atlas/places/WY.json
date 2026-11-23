@@ -1,1 +1,3150 @@
-{"airport":[{"id":"p:airport:WY:KCPR","name":"Casper-Natrona County International Airport (CPR)","lat":42.90738,"lon":-106.46161,"pts":25},{"id":"p:airport:WY:KRIW","name":"Central Wyoming Regional Airport (RIW)","lat":43.0642,"lon":-108.46,"pts":25},{"id":"p:airport:WY:KCYS","name":"Cheyenne Regional Jerry Olson Field (CYS)","lat":41.1557,"lon":-104.812,"pts":25},{"id":"p:airport:WY:KEVW","name":"Evanston-Uinta County Airport-Burns Field (EVW)","lat":41.2748,"lon":-111.035,"pts":25},{"id":"p:airport:WY:KLND","name":"Hunt Field (LND)","lat":42.8152,"lon":-108.73,"pts":25},{"id":"p:airport:WY:KJAC","name":"Jackson Hole Airport (JAC)","lat":43.6073,"lon":-110.738,"pts":25},{"id":"p:airport:WY:KLAR","name":"Laramie Regional Airport (LAR)","lat":41.3121,"lon":-105.675,"pts":25},{"id":"p:airport:WY:KBPI","name":"Miley Memorial Field (BPI)","lat":42.5851,"lon":-110.111,"pts":25},{"id":"p:airport:WY:KGCC","name":"Northeast Wyoming Regional Airport (GCC)","lat":44.3489,"lon":-105.539,"pts":25},{"id":"p:airport:WY:KPNA","name":"Ralph Wenz Field (PWY)","lat":42.7955,"lon":-109.807,"pts":25},{"id":"p:airport:WY:KRWL","name":"Rawlins Municipal Airport/Harvey Field (RWL)","lat":41.8056,"lon":-107.2,"pts":25},{"id":"p:airport:WY:KSHR","name":"Sheridan County Airport (SHR)","lat":44.7692,"lon":-106.98,"pts":25},{"id":"p:airport:WY:KRKS","name":"Southwest Wyoming Regional Airport (RKS)","lat":41.5942,"lon":-109.065,"pts":25},{"id":"p:airport:WY:KWRL","name":"Worland Municipal Airport (WRL)","lat":43.9657,"lon":-107.951,"pts":25},{"id":"p:airport:WY:KCOD","name":"Yellowstone Regional Airport (COD)","lat":44.5202,"lon":-109.024,"pts":25}],"amusement":[{"id":"p:amusement:WY:node13310377044","name":"Derby Lanes","lat":41.14689,"lon":-104.80329,"pts":40},{"id":"p:amusement:WY:way406691606","name":"Douglas Municipal Water Park","lat":42.75916,"lon":-105.37756,"pts":25},{"id":"p:amusement:WY:way245725680","name":"Star Plunge","lat":43.65196,"lon":-108.19532,"pts":25},{"id":"p:amusement:WY:way245725697","name":"TePee Pools and Spa","lat":43.65251,"lon":-108.19832,"pts":25},{"id":"p:amusement:WY:node9960189396","name":"Water Fountains","lat":44.40577,"lon":-104.37764,"pts":25}],"beach":[{"id":"p:beach:WY:way955868271","name":"Phelps Beach","lat":43.65289,"lon":-110.80138,"pts":20}],"brewery":[{"id":"p:brewery:WY:way238531845","name":"Altitude Chophouse & Brewery","lat":41.3104,"lon":-105.59538,"pts":15},{"id":"p:brewery:WY:way534056856","name":"Big Lost Meadery and Brewery","lat":44.29382,"lon":-105.5051,"pts":15},{"id":"p:brewery:WY:way952740471","name":"Bitter Creek Brewery","lat":41.58683,"lon":-109.21768,"pts":15},{"id":"p:brewery:WY:way948069369","name":"Black Tooth Brewery","lat":44.80102,"lon":-106.954,"pts":15},{"id":"p:brewery:WY:node13104479385","name":"Black Tooth Brewing Company","lat":41.13392,"lon":-104.82144,"pts":15},{"id":"p:brewery:WY:way372836632","name":"Coal Creek Tap","lat":41.31099,"lon":-105.5958,"pts":15},{"id":"p:brewery:WY:way335627746","name":"Lander Brewing Company","lat":42.83277,"lon":-108.72799,"pts":15},{"id":"p:brewery:WY:node10844665145","name":"Luminous Brewhouse","lat":44.80297,"lon":-106.95364,"pts":15},{"id":"p:brewery:WY:node8963969279","name":"Melvin Brewing - Alpine Brewery","lat":43.16497,"lon":-111.03853,"pts":15},{"id":"p:brewery:WY:way977882588","name":"Mountain Hops Brewhouse","lat":42.85605,"lon":-106.29795,"pts":15},{"id":"p:brewery:WY:way687165815","name":"Oil City Beer Company","lat":42.85122,"lon":-106.27546,"pts":15},{"id":"p:brewery:WY:way305495731","name":"One Eyed Buffalo Brewing Company","lat":43.64575,"lon":-108.21141,"pts":15},{"id":"p:brewery:WY:way1178603400","name":"Open Barrel Brewing Company","lat":42.06367,"lon":-104.18471,"pts":15},{"id":"p:brewery:WY:way952741689","name":"Square State Brewing","lat":41.58629,"lon":-109.22027,"pts":15},{"id":"p:brewery:WY:node14247000051","name":"StillWest Brewery & Grill","lat":43.47356,"lon":-110.76134,"pts":15},{"id":"p:brewery:WY:way156580699","name":"Sweetwater Brewery","lat":41.52881,"lon":-109.46876,"pts":15},{"id":"p:brewery:WY:way599489402","name":"Tensleep Brewing Company","lat":44.02983,"lon":-107.4694,"pts":15},{"id":"p:brewery:WY:node2487534416","name":"Thai Me Up","lat":43.47866,"lon":-110.76101,"pts":15},{"id":"p:brewery:WY:way238528917","name":"The Library","lat":41.30937,"lon":-105.59473,"pts":15},{"id":"p:brewery:WY:way1228671091","name":"Tongue River Brewing Co","lat":44.90864,"lon":-107.16637,"pts":15},{"id":"p:brewery:WY:way373355311","name":"Wind River Brewing Company","lat":42.86629,"lon":-109.8659,"pts":15},{"id":"p:brewery:WY:way405338476","name":"Wonder Bar","lat":42.84765,"lon":-106.3256,"pts":15}],"capitol":[{"id":"p:capitol:WY","name":"Wyoming State Capitol","lat":41.14,"lon":-104.8202,"pts":30}],"chain":[{"id":"p:chain:WY:node11911077023","name":"Carl's Jr.","lat":41.32902,"lon":-105.61105,"pts":20},{"id":"p:chain:WY:node11911077045","name":"Carl's Jr.","lat":41.56016,"lon":-109.53964,"pts":20},{"id":"p:chain:WY:way317610306","name":"Carl's Jr.","lat":41.13407,"lon":-104.81275,"pts":20},{"id":"p:chain:WY:node14255717891","name":"Chick-fil-A","lat":41.31244,"lon":-105.57911,"pts":20},{"id":"p:chain:WY:way511653829","name":"Chick-fil-A","lat":41.15961,"lon":-104.77923,"pts":20},{"id":"p:chain:WY:way1014894331","name":"Costa Vida","lat":41.2636,"lon":-110.95642,"pts":20},{"id":"p:chain:WY:node11911077031","name":"Culver's","lat":41.13803,"lon":-104.79051,"pts":20},{"id":"p:chain:WY:way900013272","name":"Culver's","lat":41.15886,"lon":-104.80982,"pts":20},{"id":"p:chain:WY:way261042095","name":"Dickey's Barbecue Pit","lat":44.29255,"lon":-105.49304,"pts":20},{"id":"p:chain:WY:way526615862","name":"Dickey's Barbecue Pit","lat":41.57736,"lon":-109.24843,"pts":20},{"id":"p:chain:WY:way1085921055","name":"Dickey's Barbecue Pit","lat":41.16176,"lon":-104.80607,"pts":20},{"id":"p:chain:WY:node12656785201","name":"Firehouse Subs","lat":41.31767,"lon":-105.5945,"pts":20},{"id":"p:chain:WY:node14281956502","name":"Firehouse Subs","lat":41.1453,"lon":-104.76279,"pts":20},{"id":"p:chain:WY:node11911077034","name":"Five Guys","lat":42.84792,"lon":-106.2563,"pts":20},{"id":"p:chain:WY:way1085921050","name":"Five Guys","lat":41.16178,"lon":-104.8059,"pts":20},{"id":"p:chain:WY:way490250763","name":"Good Times / Taco Johns","lat":44.27589,"lon":-105.49642,"pts":20},{"id":"p:chain:WY:way1158328577","name":"Hardee's","lat":44.35444,"lon":-106.69431,"pts":20},{"id":"p:chain:WY:node4876840228","name":"Jersey Mike's Subs","lat":44.2821,"lon":-105.49358,"pts":20},{"id":"p:chain:WY:node13318674428","name":"Jersey Mike's Subs","lat":41.1648,"lon":-104.80293,"pts":20},{"id":"p:chain:WY:node13477502087","name":"Jersey Mike's Subs","lat":41.30903,"lon":-105.55374,"pts":20},{"id":"p:chain:WY:way233279126","name":"Kum & Go","lat":41.45228,"lon":-106.80791,"pts":15},{"id":"p:chain:WY:way1236777698","name":"Kum & Go","lat":41.79852,"lon":-107.2163,"pts":15},{"id":"p:chain:WY:node1183478009","name":"Maverik","lat":41.61775,"lon":-109.23162,"pts":15},{"id":"p:chain:WY:node3786968518","name":"Maverik","lat":41.13911,"lon":-104.76911,"pts":15},{"id":"p:chain:WY:node3786985246","name":"Maverik","lat":41.15942,"lon":-104.76769,"pts":15},{"id":"p:chain:WY:node4221664505","name":"Maverik","lat":44.49475,"lon":-108.05558,"pts":15},{"id":"p:chain:WY:node8198413020","name":"Maverik","lat":42.72569,"lon":-110.93312,"pts":15},{"id":"p:chain:WY:node8777957019","name":"Maverik","lat":42.91761,"lon":-111.002,"pts":15},{"id":"p:chain:WY:node9222665168","name":"Maverik","lat":41.30118,"lon":-105.5939,"pts":15},{"id":"p:chain:WY:node11606987095","name":"Maverik","lat":41.1018,"lon":-104.80097,"pts":15},{"id":"p:chain:WY:way164987576","name":"Maverik","lat":44.77336,"lon":-106.93796,"pts":15},{"id":"p:chain:WY:way236797518","name":"Maverik","lat":43.46616,"lon":-110.79399,"pts":15},{"id":"p:chain:WY:way377936442","name":"Maverik","lat":41.59773,"lon":-109.20491,"pts":15},{"id":"p:chain:WY:way459792771","name":"Maverik","lat":41.78942,"lon":-110.53867,"pts":15},{"id":"p:chain:WY:way501095714","name":"Maverik","lat":44.25538,"lon":-105.48878,"pts":15},{"id":"p:chain:WY:way501095715","name":"Maverik","lat":44.25494,"lon":-105.48822,"pts":15},{"id":"p:chain:WY:way516761353","name":"Maverik","lat":42.05193,"lon":-104.96349,"pts":15},{"id":"p:chain:WY:way530156051","name":"Maverik","lat":44.29148,"lon":-105.53191,"pts":15},{"id":"p:chain:WY:way533056620","name":"Maverik","lat":44.30064,"lon":-105.53036,"pts":15},{"id":"p:chain:WY:way537058384","name":"Maverik","lat":41.10264,"lon":-104.80089,"pts":15},{"id":"p:chain:WY:way549380148","name":"Maverik","lat":41.14606,"lon":-104.76058,"pts":15},{"id":"p:chain:WY:way560399250","name":"Maverik","lat":41.32497,"lon":-110.29345,"pts":15},{"id":"p:chain:WY:way733293187","name":"Maverik","lat":41.26376,"lon":-110.95815,"pts":15},{"id":"p:chain:WY:way1312140617","name":"Maverik","lat":44.2932,"lon":-105.44921,"pts":15},{"id":"p:chain:WY:way1449478678","name":"Maverik","lat":41.13828,"lon":-104.70627,"pts":15},{"id":"p:chain:WY:way520181748","name":"Maverik Adventure's First Stop","lat":41.18236,"lon":-104.82789,"pts":15},{"id":"p:chain:WY:node1436027641","name":"McAlister's Deli","lat":41.30956,"lon":-105.5628,"pts":20},{"id":"p:chain:WY:node4725064592","name":"Schlotzsky's","lat":42.847,"lon":-106.21521,"pts":20},{"id":"p:chain:WY:node955302136","name":"Taco John's","lat":41.11657,"lon":-104.80278,"pts":20},{"id":"p:chain:WY:node2456778949","name":"Taco John's","lat":41.1604,"lon":-104.76872,"pts":20},{"id":"p:chain:WY:node4052142192","name":"Taco John's","lat":41.30935,"lon":-105.56671,"pts":20},{"id":"p:chain:WY:node5964805777","name":"Taco John's","lat":42.76328,"lon":-105.40376,"pts":20},{"id":"p:chain:WY:node14065176506","name":"Taco John's","lat":42.83586,"lon":-108.74294,"pts":20},{"id":"p:chain:WY:way86096812","name":"Taco John's","lat":41.79248,"lon":-107.21666,"pts":20},{"id":"p:chain:WY:way240742391","name":"Taco John's","lat":41.13828,"lon":-104.82058,"pts":20},{"id":"p:chain:WY:way259219058","name":"Taco John's","lat":41.59012,"lon":-109.22433,"pts":20},{"id":"p:chain:WY:way331772025","name":"Taco John's","lat":44.51457,"lon":-109.05282,"pts":20},{"id":"p:chain:WY:way608487673","name":"Taco John's","lat":42.05134,"lon":-104.96146,"pts":20},{"id":"p:chain:WY:way878463694","name":"Taco John's","lat":41.1693,"lon":-104.82819,"pts":20},{"id":"p:chain:WY:way991047559","name":"Taco John's","lat":41.14522,"lon":-104.76799,"pts":20},{"id":"p:chain:WY:way1075462018","name":"Taco John's","lat":42.8575,"lon":-106.32598,"pts":20},{"id":"p:chain:WY:way1178627855","name":"Taco John's","lat":42.06421,"lon":-104.1869,"pts":20},{"id":"p:chain:WY:node5954422376","name":"Taco Time","lat":41.26421,"lon":-110.95748,"pts":20},{"id":"p:chain:WY:way328148918","name":"Taco Time","lat":41.58084,"lon":-109.25927,"pts":20},{"id":"p:chain:WY:way555873367","name":"Taco Time","lat":41.6117,"lon":-109.23101,"pts":20},{"id":"p:chain:WY:way560399266","name":"Taco Time","lat":41.32781,"lon":-110.2926,"pts":20},{"id":"p:chain:WY:way886438866","name":"Taco Time","lat":42.72773,"lon":-110.93295,"pts":20},{"id":"p:chain:WY:way1065989970","name":"Taco Time","lat":41.79108,"lon":-110.53631,"pts":20}],"drive":[{"id":"p:drive:MT:beartoothhighway","name":"Beartooth Highway","lat":45.02,"lon":-109.41,"pts":40,"paths":[[[-109.41,45.02],[-109.8,45],[-109.9,44.95],[-109.63,45.03]]]}],"food":[{"id":"p:food:WY:rockymountainoystersbison","name":"Rocky Mountain Oysters / Bison","lat":null,"lon":null,"pts":20}],"forest":[{"id":"p:forest:WY:relation3621676","name":"Bighorn National Forest","lat":44.51049,"lon":-107.36071,"pts":40},{"id":"p:forest:WY:relation6001390","name":"Bridger-Teton National Forest","lat":43.22562,"lon":-109.96359,"pts":40},{"id":"p:forest:WY:relation395821","name":"Medicine Bow-Routt National Forest","lat":41.30514,"lon":-106.38625,"pts":40},{"id":"p:forest:WY:relation6000994","name":"Shoshone National Forest","lat":43.74855,"lon":-109.43554,"pts":40}],"fort":[{"id":"p:fort:WY:fortlaramie","name":"Fort Laramie","lat":42.203,"lon":-104.543,"pts":25}],"garden":[{"id":"p:garden:WY:way1409379727","name":"Campbell County Arboretum","lat":44.28734,"lon":-105.45454,"pts":25},{"id":"p:garden:WY:way234563087","name":"Cheyenne Botanic Gardens","lat":41.15567,"lon":-104.83015,"pts":25}],"highpoint":[{"id":"p:highpoint:WY:gannettpeak","name":"Gannett Peak","lat":43.184,"lon":-109.654,"pts":40}],"historic":[{"id":"p:historic:WY:way948068217","name":"Abraham Lincoln Memorial Monument","lat":41.23695,"lon":-105.43624,"pts":40},{"id":"p:historic:WY:way103618201","name":"Ames Monument","lat":41.13107,"lon":-105.39818,"pts":40},{"id":"p:historic:WY:node9791372737","name":"Bear River City","lat":41.15791,"lon":-110.85088,"pts":40},{"id":"p:historic:WY:node5645130779","name":"Campbell County War Memorial","lat":44.29076,"lon":-105.50426,"pts":40},{"id":"p:historic:WY:way530133687","name":"Campbell County War Memorial","lat":44.2866,"lon":-105.49501,"pts":40},{"id":"p:historic:WY:node5070653716","name":"Cheyenne Deadwood Trail Historic Marker","lat":41.75582,"lon":-104.82299,"pts":40},{"id":"p:historic:WY:way491688112","name":"Children's Memorial Garden","lat":44.29934,"lon":-105.49675,"pts":40},{"id":"p:historic:WY:node13981115793","name":"Clayton Gulch Monument","lat":44.41185,"lon":-109.74122,"pts":40},{"id":"p:historic:WY:node13352371831","name":"Connie Burnside","lat":41.14599,"lon":-104.79876,"pts":40},{"id":"p:historic:WY:node12439841162","name":"Dan Birkholz Memorial","lat":41.00773,"lon":-105.97039,"pts":40},{"id":"p:historic:WY:node4261655689","name":"Devils Tower","lat":44.53888,"lon":-104.67908,"pts":40},{"id":"p:historic:WY:node3733891290","name":"Fairview Landmark","lat":42.69257,"lon":-110.98249,"pts":40},{"id":"p:historic:WY:way220594814","name":"Fetterman Fight","lat":44.57152,"lon":-106.84131,"pts":40},{"id":"p:historic:WY:node356501065","name":"Fetterman Monument","lat":44.57133,"lon":-106.8412,"pts":40},{"id":"p:historic:WY:node3392141717","name":"Fire Memorial","lat":44.45813,"lon":-109.74748,"pts":40},{"id":"p:historic:WY:node9625633283","name":"Fireman's Memorial","lat":42.76756,"lon":-104.45127,"pts":40},{"id":"p:historic:WY:way1545296246","name":"Fort Fetterman State Historic Site","lat":42.84365,"lon":-105.48511,"pts":40},{"id":"p:historic:WY:way220591110","name":"Fort Phil Kearny","lat":44.53149,"lon":-106.82523,"pts":40},{"id":"p:historic:WY:way390143699","name":"Fort Sanders Guardhouse","lat":41.27125,"lon":-105.59826,"pts":40},{"id":"p:historic:WY:node7606427444","name":"Fort Seminoe","lat":42.44095,"lon":-107.22111,"pts":40},{"id":"p:historic:WY:node7007320588","name":"Gen. John J. Pershing","lat":41.15638,"lon":-104.8692,"pts":40},{"id":"p:historic:WY:node356501520","name":"Grattan Massacre Historical Monument","lat":42.13232,"lon":-104.40568,"pts":40},{"id":"p:historic:WY:way1373490444","name":"Green Knoll Fire Memorial","lat":43.49833,"lon":-110.87488,"pts":40},{"id":"p:historic:WY:node9896241583","name":"Hanna Mine Memorial","lat":41.86165,"lon":-106.54934,"pts":40},{"id":"p:historic:WY:node672403833","name":"Heart Mountain Relocation Center Memorial","lat":44.67035,"lon":-108.94951,"pts":40},{"id":"p:historic:WY:node13399417754","name":"In Memory Of Alexander Frye","lat":41.13668,"lon":-104.79976,"pts":40},{"id":"p:historic:WY:node9971281191","name":"Jackson Hole Veteran Monument","lat":43.47997,"lon":-110.76182,"pts":40},{"id":"p:historic:WY:node13399417756","name":"Jeff Wiggins","lat":41.13641,"lon":-104.799,"pts":40},{"id":"p:historic:WY:way240714139","name":"Jim Bridger's Fort","lat":41.31867,"lon":-110.39352,"pts":40},{"id":"p:historic:WY:node9165818315","name":"Matthew Shepard Memorial","lat":41.31318,"lon":-105.58233,"pts":40},{"id":"p:historic:WY:node5229089779","name":"Memory of the 8","lat":44.28606,"lon":-105.51012,"pts":40},{"id":"p:historic:WY:node8840451139","name":"Memory of the 8","lat":44.29312,"lon":-105.50039,"pts":40},{"id":"p:historic:WY:node13000914180","name":"Memory of the 8","lat":44.26905,"lon":-105.51346,"pts":40},{"id":"p:historic:WY:node14052496727","name":"Memory of the 8","lat":44.26923,"lon":-105.49493,"pts":40},{"id":"p:historic:WY:node4967568746","name":"Mountain View Memorial Park","lat":41.21576,"lon":-104.82716,"pts":40},{"id":"p:historic:WY:node4690975393","name":"Nebraska/Wyoming Abandoned Gas Station","lat":41.18584,"lon":-104.0533,"pts":40},{"id":"p:historic:WY:node356502842","name":"Oregon Trail Historical Marker","lat":42.74108,"lon":-106.52476,"pts":40},{"id":"p:historic:WY:node4670564720","name":"Our Lady of Peace Shrine","lat":41.18229,"lon":-104.05384,"pts":40},{"id":"p:historic:WY:node7340625861","name":"Parting Of The Ways","lat":42.25758,"lon":-109.22804,"pts":40},{"id":"p:historic:WY:node2484270057","name":"Pony Express Monument","lat":41.31853,"lon":-110.38965,"pts":40},{"id":"p:historic:WY:node11463271740","name":"Powell Colorado River Expedition","lat":41.52387,"lon":-109.47236,"pts":40},{"id":"p:historic:WY:node4386294784","name":"Register Cliff","lat":42.2476,"lon":-104.71136,"pts":40},{"id":"p:historic:WY:node7606623395","name":"Rock Creek Hollow Monument","lat":42.43691,"lon":-108.62193,"pts":40},{"id":"p:historic:WY:node7606416236","name":"Sweetwater Monument","lat":42.44495,"lon":-107.24537,"pts":40},{"id":"p:historic:WY:node7007309059","name":"The Doll Houses","lat":41.15614,"lon":-104.86955,"pts":40},{"id":"p:historic:WY:node7616055015","name":"The Rise and Fall of the Union Pacific Railroad","lat":41.15638,"lon":-104.87078,"pts":40},{"id":"p:historic:WY:node4761162571","name":"Three Corners Monument","lat":41.00069,"lon":-109.05003,"pts":40},{"id":"p:historic:WY:way390700009","name":"Tri Territory Monument","lat":42,"lon":-108.91713,"pts":40},{"id":"p:historic:WY:node3030035514","name":"United Airlines Flight 409 Memorial Plaque","lat":41.34152,"lon":-106.30587,"pts":40},{"id":"p:historic:WY:node7715091085","name":"Upper Brooks Lake Trailhead","lat":43.75141,"lon":-110.00598,"pts":40},{"id":"p:historic:WY:node672571050","name":"Vietnam Memorial","lat":44.51279,"lon":-109.04015,"pts":40},{"id":"p:historic:WY:node4732604261","name":"Vietnam Memorial","lat":41.31171,"lon":-105.58465,"pts":40},{"id":"p:historic:WY:node356507153","name":"Wagon Box Battle Monument","lat":44.55888,"lon":-106.8981,"pts":40},{"id":"p:historic:WY:node8231109256","name":"Wagon Box Fight","lat":44.55528,"lon":-106.89456,"pts":40},{"id":"p:historic:WY:node4894647644","name":"Wheel of Time","lat":44.64985,"lon":-106.11282,"pts":40}],"mall":[{"id":"p:mall:WY:w534056778","name":"City Hall Mall","lat":44.29102,"lon":-105.50451,"pts":25},{"id":"p:mall:WY:w33299107","name":"Eastridge Mall","lat":42.84607,"lon":-106.2657,"pts":25},{"id":"p:mall:WY:w258701991","name":"Frontier Mall","lat":41.16242,"lon":-104.80511,"pts":25},{"id":"p:mall:WY:w194685715","name":"Spruce Street Mall","lat":41.79065,"lon":-107.24194,"pts":25},{"id":"p:mall:WY:w550015049","name":"The Village Square Mall","lat":44.29141,"lon":-105.50447,"pts":25},{"id":"p:mall:WY:w328010956","name":"White Mountain Mall","lat":41.58126,"lon":-109.26408,"pts":25}],"museum":[{"id":"p:museum:WY:node8292765921","name":"Afton Wyoming Family History Center","lat":42.72697,"lon":-110.92728,"pts":30},{"id":"p:museum:WY:node10958600340","name":"Big Horn Basin Geoscience Center","lat":44.48908,"lon":-108.05495,"pts":30},{"id":"p:museum:WY:node4154688711","name":"Bozeman Trail Museum","lat":44.67966,"lon":-106.99113,"pts":30},{"id":"p:museum:WY:way785123616","name":"Buffalo Bill Boyhood Home","lat":44.52418,"lon":-109.07372,"pts":30},{"id":"p:museum:WY:way53144807","name":"Buffalo Bill Center of the West","lat":44.525,"lon":-109.0736,"pts":30},{"id":"p:museum:WY:node10914707559","name":"Buffalo Bill Museum","lat":44.52434,"lon":-109.07343,"pts":30},{"id":"p:museum:WY:node8290573818","name":"Callair Museum","lat":42.73118,"lon":-110.93432,"pts":30},{"id":"p:museum:WY:way1450041730","name":"Campbell County Rockpile Museum","lat":44.29359,"lon":-105.51526,"pts":30},{"id":"p:museum:WY:way193302392","name":"Carbon County Museum","lat":41.79093,"lon":-107.24711,"pts":30},{"id":"p:museum:WY:node13309837133","name":"Cheyenne Children's Museum","lat":41.13148,"lon":-104.82074,"pts":30},{"id":"p:museum:WY:way232402672","name":"Cheyenne Depot Museum","lat":41.13178,"lon":-104.81441,"pts":30},{"id":"p:museum:WY:way547347998","name":"Cheyenne Frontier Days - Old West Museum","lat":41.15791,"lon":-104.834,"pts":30},{"id":"p:museum:WY:way520181757","name":"Chugwater Museum","lat":41.75802,"lon":-104.8199,"pts":30},{"id":"p:museum:WY:way968851077","name":"Cody Dug Up Gun Museum","lat":44.52647,"lon":-109.06373,"pts":30},{"id":"p:museum:WY:node10914707556","name":"Cody Firearms Museum","lat":44.52569,"lon":-109.0735,"pts":30},{"id":"p:museum:WY:way968791017","name":"Cody Heritage Museum","lat":44.52589,"lon":-109.06618,"pts":30},{"id":"p:museum:WY:way157936718","name":"Commissary Store House Museum","lat":42.2037,"lon":-104.55599,"pts":30},{"id":"p:museum:WY:node9938667389","name":"Cowgirls of the West Museum","lat":41.13341,"lon":-104.8161,"pts":30},{"id":"p:museum:WY:node4986004523","name":"Crook County Museum and Art Gallery","lat":44.40558,"lon":-104.37835,"pts":30},{"id":"p:museum:WY:node8911181648","name":"DAUGHTERS OF THE UTAH PIONEERS MUSEUM","lat":42.91763,"lon":-110.99825,"pts":30},{"id":"p:museum:WY:node10914707558","name":"Draper Natural History Museum","lat":44.52452,"lon":-109.07287,"pts":30},{"id":"p:museum:WY:way1010059432","name":"Dubois Museum","lat":43.53721,"lon":-109.6456,"pts":30},{"id":"p:museum:WY:way1196710534","name":"Elk Mountain Museum","lat":41.68725,"lon":-106.4135,"pts":30},{"id":"p:museum:WY:way240720857","name":"Fort Bridger Museum","lat":41.31774,"lon":-110.39309,"pts":30},{"id":"p:museum:WY:way978122935","name":"Fort Caspar Museum","lat":42.83632,"lon":-106.37078,"pts":30},{"id":"p:museum:WY:way220591113","name":"Fort Phil Kearny Visitor Center","lat":44.53325,"lon":-106.8288,"pts":30},{"id":"p:museum:WY:way491050845","name":"Frontier Auto Museum","lat":44.29282,"lon":-105.50655,"pts":30},{"id":"p:museum:WY:node10860538336","name":"Gertrude Krampert Center for Theatre and Dance at Casper College","lat":42.83176,"lon":-106.32358,"pts":30},{"id":"p:museum:WY:way1196720920","name":"Glenrock Deer Creek Museum","lat":42.86101,"lon":-105.88104,"pts":30},{"id":"p:museum:WY:way372540791","name":"Grand Encampment Museum;Grand Encampment Museum Doc Culleton Building","lat":41.20376,"lon":-106.78884,"pts":30},{"id":"p:museum:WY:way1190739571","name":"Green River Valley Museum","lat":42.53849,"lon":-110.10943,"pts":30},{"id":"p:museum:WY:way1390243384","name":"Hamsfork Museum","lat":41.79785,"lon":-110.54004,"pts":30},{"id":"p:museum:WY:way334798177","name":"Heart Mountain Interpretive Center","lat":44.67034,"lon":-108.9414,"pts":30},{"id":"p:museum:WY:node8948563445","name":"Historical Baker Cabin","lat":43.02961,"lon":-111.01252,"pts":30},{"id":"p:museum:WY:way901503317","name":"Homesteader Museum","lat":44.75253,"lon":-108.75561,"pts":30},{"id":"p:museum:WY:way346315778","name":"Homesteaders Museum","lat":42.04757,"lon":-104.18384,"pts":30},{"id":"p:museum:WY:way1158816156","name":"Hoofprints of the Past Museum","lat":43.71082,"lon":-106.63942,"pts":30},{"id":"p:museum:WY:way305798515","name":"Hot Springs County Museum","lat":43.64657,"lon":-108.21401,"pts":30},{"id":"p:museum:WY:way28498172","name":"Ida Goodstein Visual Arts Center","lat":42.83337,"lon":-106.32304,"pts":30},{"id":"p:museum:WY:way785374924","name":"Jim Gatchell Memorial Museum","lat":44.34791,"lon":-106.69999,"pts":30},{"id":"p:museum:WY:node8299561130","name":"Lander Trail Center","lat":42.73147,"lon":-110.93446,"pts":30},{"id":"p:museum:WY:way247239687","name":"Laramie Historic Railroad Depot and Museum","lat":41.30835,"lon":-105.59636,"pts":30},{"id":"p:museum:WY:way403120826","name":"Laramie Plains Museum","lat":41.31208,"lon":-105.58907,"pts":30},{"id":"p:museum:WY:way785145139","name":"Medicine Bow Museum","lat":41.89522,"lon":-106.20042,"pts":30},{"id":"p:museum:WY:way333741383","name":"Meeteetse Museums","lat":44.1575,"lon":-108.87189,"pts":30},{"id":"p:museum:WY:node8827181628","name":"Mower Family History Association","lat":42.88678,"lon":-110.93332,"pts":30},{"id":"p:museum:WY:way1289557346","name":"Museum of Flight and Aerial Firefighting","lat":44.51056,"lon":-108.08549,"pts":30},{"id":"p:museum:WY:way386547032","name":"Museum of the Mountain Man","lat":42.86891,"lon":-109.85229,"pts":30},{"id":"p:museum:WY:way363645476","name":"Museum of the National Park Ranger","lat":44.7378,"lon":-110.69693,"pts":30},{"id":"p:museum:WY:way28137548","name":"National Historic Trails Interpretive Center","lat":42.86633,"lon":-106.33715,"pts":30},{"id":"p:museum:WY:node9787328208","name":"National Museum of Military Vehicles","lat":43.47339,"lon":-109.4964,"pts":30},{"id":"p:museum:WY:way480373923","name":"National Museum of Wildlife Art of the United States","lat":43.51907,"lon":-110.74895,"pts":30},{"id":"p:museum:WY:way1084550502","name":"Nelson Museum of the West","lat":41.13362,"lon":-104.81771,"pts":30},{"id":"p:museum:WY:way317891025","name":"Nicolaysen Art Museum","lat":42.84803,"lon":-106.32014,"pts":30},{"id":"p:museum:WY:way316615033","name":"Norris Geyser Basin Museum","lat":44.72653,"lon":-110.70357,"pts":30},{"id":"p:museum:WY:node8948960142","name":"Old Rock Church Museum","lat":42.7916,"lon":-111.00161,"pts":30},{"id":"p:museum:WY:node10914707560","name":"Plains Indian Museum","lat":44.52464,"lon":-109.0745,"pts":30},{"id":"p:museum:WY:way1196717263","name":"Riverton Museum","lat":43.02704,"lon":-108.3818,"pts":30},{"id":"p:museum:WY:way1427346337","name":"Salt Creek Museum","lat":43.41325,"lon":-106.27689,"pts":30},{"id":"p:museum:WY:way445382573","name":"Saratoga Museum","lat":41.44494,"lon":-106.80683,"pts":30},{"id":"p:museum:WY:way164977081","name":"Sheridan County Museum","lat":44.8058,"lon":-106.93981,"pts":30},{"id":"p:museum:WY:node5210136265","name":"Sommers Homestead Living History Museum","lat":42.77912,"lon":-109.9628,"pts":30},{"id":"p:museum:WY:node4154262872","name":"Stagecoach Museum","lat":42.76175,"lon":-104.4524,"pts":30},{"id":"p:museum:WY:node8290573817","name":"Star Valley Historical Society","lat":42.73176,"lon":-110.93446,"pts":30},{"id":"p:museum:WY:way156580723","name":"Sweetwater County Historical Museum","lat":41.52924,"lon":-109.46707,"pts":30},{"id":"p:museum:WY:way28512868","name":"Tate Geological Museum","lat":42.82601,"lon":-106.32928,"pts":30},{"id":"p:museum:WY:way537018342","name":"Ten Sleep Pioneer Museum","lat":44.03349,"lon":-107.4453,"pts":30},{"id":"p:museum:WY:node1583892639","name":"Texas Trail Museum","lat":41.18215,"lon":-104.06994,"pts":30},{"id":"p:museum:WY:way1247575665","name":"The Brinton Museum","lat":44.64366,"lon":-107.00782,"pts":30},{"id":"p:museum:WY:way335650776","name":"The Lander Pioneer Museum","lat":42.84086,"lon":-108.74612,"pts":30},{"id":"p:museum:WY:way317891022","name":"The Science Zone","lat":42.84698,"lon":-106.32305,"pts":30},{"id":"p:museum:WY:way422210652","name":"Trail End State Historic Site","lat":44.80142,"lon":-106.9662,"pts":30},{"id":"p:museum:WY:way1014892555","name":"Uinta County Museum","lat":41.2687,"lon":-110.96521,"pts":30},{"id":"p:museum:WY:way978127605","name":"War Birds Museum","lat":42.8993,"lon":-106.46175,"pts":30},{"id":"p:museum:WY:way424015871","name":"Washakie County Museum","lat":44.01636,"lon":-107.94085,"pts":30},{"id":"p:museum:WY:way986630411","name":"Werner Wildlife Museum","lat":42.83517,"lon":-106.32061,"pts":30},{"id":"p:museum:WY:way618839128","name":"West Texas Trail Museum","lat":44.26467,"lon":-104.95124,"pts":30},{"id":"p:museum:WY:node10914707557","name":"Whitney Western Art Museum","lat":44.52538,"lon":-109.07404,"pts":30},{"id":"p:museum:WY:way1196716745","name":"Wind River Heritage Center","lat":43.01368,"lon":-108.37736,"pts":30},{"id":"p:museum:WY:way684811590","name":"Wright Centennial Museum","lat":43.7599,"lon":-105.48175,"pts":30},{"id":"p:museum:WY:relation4073392","name":"Wyoming Dinosaur Center","lat":43.64323,"lon":-108.2005,"pts":30},{"id":"p:museum:WY:way238152331","name":"Wyoming National Guard Museum","lat":41.14646,"lon":-104.81478,"pts":30},{"id":"p:museum:WY:way252362171","name":"Wyoming Pioneer Memorial Museum","lat":42.75994,"lon":-105.39048,"pts":30},{"id":"p:museum:WY:way230925450","name":"Wyoming State Museum","lat":41.13957,"lon":-104.81769,"pts":30},{"id":"p:museum:WY:way1161826526","name":"Wyoming Territorial Prison State Historic Site","lat":41.31151,"lon":-105.60968,"pts":30},{"id":"p:museum:WY:way978128310","name":"Wyoming Veterans Memorial Museum","lat":42.89977,"lon":-106.45561,"pts":30},{"id":"p:museum:WY:way519744022","name":"Yellowstone Tribal Heritage Center","lat":44.45873,"lon":-110.8273,"pts":30}],"park":[{"id":"p:park:WY:4991095763","name":"Ayres Natural Bridge State Park","lat":42.73374,"lon":-105.6114,"pts":25},{"id":"p:park:WY:wd:bearriverstatepark","name":"Bear River State Park","lat":41.266,"lon":-110.937,"pts":25},{"id":"p:park:WY:wd:boysenstatepark","name":"Boysen State Park","lat":43.41662,"lon":-108.17732,"pts":25},{"id":"p:park:WY:wd:buffalobillstatepark","name":"Buffalo Bill State Park","lat":44.5011,"lon":-109.184,"pts":25},{"id":"p:park:WY:444495600","name":"Connor Battlefield State Park","lat":44.90544,"lon":-107.16282,"pts":25},{"id":"p:park:WY:wd:curtgowdystatepark","name":"Curt Gowdy State Park","lat":41.1736,"lon":-105.227,"pts":25},{"id":"p:park:WY:3506764","name":"Devils Tower National Monument","lat":44.59002,"lon":-104.71515,"pts":50},{"id":"p:park:WY:wd:ednesskwilkinsstatepark","name":"Edness K. Wilkins State Park","lat":42.8564,"lon":-106.176,"pts":25},{"id":"p:park:WY:6006417","name":"Fort Laramie National Historic Site","lat":42.20243,"lon":-104.5456,"pts":50},{"id":"p:park:WY:6004500","name":"Fossil Butte National Monument","lat":41.86057,"lon":-110.76635,"pts":50},{"id":"p:park:WY:wd:glendostatepark","name":"Glendo State Park","lat":42.5561,"lon":-104.983,"pts":25},{"id":"p:park:WY:1492555","name":"Grand Teton National Park","lat":43.81096,"lon":-110.68557,"pts":50},{"id":"p:park:WY:wd:guernseystatepark","name":"Guernsey State Park","lat":42.3039,"lon":-104.769,"pts":25},{"id":"p:park:WY:wd:hotspringsstatepark","name":"Hot Springs State Park","lat":43.6547,"lon":-108.199,"pts":25},{"id":"p:park:WY:1453305","name":"John D. Rockefeller, Jr. Memorial Parkway","lat":44.088,"lon":-110.72505,"pts":50},{"id":"p:park:WY:wd:keyholestatepark","name":"Keyhole State Park","lat":44.3246,"lon":-104.77263,"pts":25},{"id":"p:park:WY:wd:seminoestatepark","name":"Seminoe State Park","lat":42.0586,"lon":-106.872,"pts":25},{"id":"p:park:WY:wd:sinkscanyonstatepark","name":"Sinks Canyon State Park","lat":42.75,"lon":-108.807,"pts":25},{"id":"p:park:WY:356504436","name":"State Park","lat":42.47941,"lon":-104.97025,"pts":25},{"id":"p:park:WY:1453306","name":"Yellowstone National Park","lat":44.62027,"lon":-110.49074,"pts":50}],"refuge":[{"id":"p:refuge:WY:relation6006375","name":"Bamforth National Wildlife Refuge","lat":41.38,"lon":-105.7348,"pts":30},{"id":"p:refuge:WY:relation6004464","name":"Cokeville Meadows National Wildlife Refuge","lat":41.96395,"lon":-110.97543,"pts":30},{"id":"p:refuge:WY:relation6006391","name":"Hutton Lake National Wildlife Refuge","lat":41.18301,"lon":-105.7168,"pts":30},{"id":"p:refuge:WY:relation6006373","name":"Mortenson Lake National Wildlife Refuge","lat":41.21184,"lon":-105.808,"pts":30},{"id":"p:refuge:WY:relation6001859","name":"National Elk Refuge","lat":43.55994,"lon":-110.67274,"pts":30},{"id":"p:refuge:WY:relation6006367","name":"Pathfinder National Wildlife Refuge","lat":42.39341,"lon":-106.98757,"pts":30},{"id":"p:refuge:WY:relation6004521","name":"Seedskadee National Wildlife Refuge","lat":41.84699,"lon":-109.86083,"pts":30}],"roadside":[{"id":"p:roadside:WY:w871676823","name":"World's Largest Elkhorn Arch","lat":42.7243,"lon":-110.93357,"pts":20}],"stadium":[{"id":"p:stadium:WY:way595672116","name":"Arena-Auditorium","lat":41.31327,"lon":-105.56929,"pts":25},{"id":"p:stadium:WY:way363661037","name":"Bill Bush Stadium","lat":42.84098,"lon":-108.75326,"pts":25},{"id":"p:stadium:WY:way1075461998","name":"Cheney Alumni Field","lat":42.84368,"lon":-106.32936,"pts":25},{"id":"p:stadium:WY:way53214213","name":"Cody Stampede","lat":44.51437,"lon":-109.11048,"pts":25},{"id":"p:stadium:WY:way1107122526","name":"Deti Stadium","lat":41.30148,"lon":-105.55182,"pts":25},{"id":"p:stadium:WY:node2394709319","name":"Frontier Days Arena","lat":41.15517,"lon":-104.83625,"pts":25},{"id":"p:stadium:WY:way361994922","name":"Frontier Days Rodeo Arena","lat":41.15532,"lon":-104.83531,"pts":25},{"id":"p:stadium:WY:way1066608474","name":"Harry Geldien Stadium","lat":42.84163,"lon":-106.27872,"pts":25},{"id":"p:stadium:WY:way589566003","name":"Okie Blanchard Stadium","lat":41.14823,"lon":-104.77507,"pts":25},{"id":"p:stadium:WY:way1327324692","name":"Ranger Stadium","lat":41.78438,"lon":-110.54761,"pts":25},{"id":"p:stadium:WY:way192527375","name":"Rodeo Park","lat":41.79468,"lon":-107.22874,"pts":25},{"id":"p:stadium:WY:way232389450","name":"South High School stadium","lat":41.10899,"lon":-104.82223,"pts":25},{"id":"p:stadium:WY:way1085179453","name":"Stadium & Track","lat":41.17231,"lon":-104.83706,"pts":25},{"id":"p:stadium:WY:node356504837","name":"Thorne Ridge Stadium","lat":44.81636,"lon":-106.95896,"pts":25},{"id":"p:stadium:WY:way625181001","name":"Tonkin Stadium","lat":43.02578,"lon":-108.39457,"pts":25},{"id":"p:stadium:WY:way1388631769","name":"War Memorial Stadium","lat":41.31162,"lon":-105.56824,"pts":25}],"town":[{"id":"p:town:WY:5600245","name":"Afton","lat":42.72634,"lon":-110.93203,"pts":10},{"id":"p:town:WY:5600825","name":"Albin","lat":41.41694,"lon":-104.10155,"pts":10},{"id":"p:town:WY:5601695","name":"Alpine","lat":43.16039,"lon":-111.01475,"pts":10},{"id":"p:town:WY:5604740","name":"Baggs","lat":41.03466,"lon":-107.65728,"pts":10},{"id":"p:town:WY:5604885","name":"Bairoil","lat":42.2372,"lon":-107.56105,"pts":10},{"id":"p:town:WY:5605245","name":"Bar Nunn","lat":42.92199,"lon":-106.34743,"pts":10},{"id":"p:town:WY:5605320","name":"Basin","lat":44.38056,"lon":-108.04709,"pts":10},{"id":"p:town:WY:5605625","name":"Bear River","lat":41.38551,"lon":-111.0282,"pts":10},{"id":"p:town:WY:5607060","name":"Big Piney","lat":42.54017,"lon":-110.11934,"pts":10},{"id":"p:town:WY:5610685","name":"Buffalo","lat":44.33855,"lon":-106.71534,"pts":10},{"id":"p:town:WY:5611120","name":"Burlington","lat":44.44707,"lon":-108.43202,"pts":10},{"id":"p:town:WY:5611265","name":"Burns","lat":41.19087,"lon":-104.35904,"pts":10},{"id":"p:town:WY:5611700","name":"Byron","lat":44.79674,"lon":-108.50846,"pts":10},{"id":"p:town:WY:5613150","name":"Casper","lat":42.84212,"lon":-106.32128,"pts":30},{"id":"p:town:WY:5613900","name":"Cheyenne","lat":41.1287,"lon":-104.79078,"pts":30},{"id":"p:town:WY:5614165","name":"Chugwater","lat":41.75575,"lon":-104.82294,"pts":10},{"id":"p:town:WY:5615325","name":"Clearmont","lat":44.63985,"lon":-106.3813,"pts":10},{"id":"p:town:WY:5615760","name":"Cody","lat":44.52124,"lon":-109.05747,"pts":20},{"id":"p:town:WY:5615905","name":"Cokeville","lat":42.07924,"lon":-110.9519,"pts":10},{"id":"p:town:WY:5617645","name":"Cowley","lat":44.88345,"lon":-108.46927,"pts":10},{"id":"p:town:WY:5619385","name":"Dayton","lat":44.87335,"lon":-107.26243,"pts":10},{"id":"p:town:WY:5619530","name":"Deaver","lat":44.88902,"lon":-108.59602,"pts":10},{"id":"p:town:WY:5620110","name":"Diamondville","lat":41.77782,"lon":-110.53651,"pts":10},{"id":"p:town:WY:5620690","name":"Dixon","lat":41.0349,"lon":-107.53614,"pts":10},{"id":"p:town:WY:5621125","name":"Douglas","lat":42.75477,"lon":-105.3978,"pts":20},{"id":"p:town:WY:5621415","name":"Dubois","lat":43.54596,"lon":-109.64763,"pts":10},{"id":"p:town:WY:5622720","name":"East Thermopolis","lat":43.64409,"lon":-108.19788,"pts":10},{"id":"p:town:WY:5623155","name":"Edgerton","lat":43.41339,"lon":-106.24736,"pts":10},{"id":"p:town:WY:5624025","name":"Elk Mountain","lat":41.6883,"lon":-106.4135,"pts":10},{"id":"p:town:WY:5624750","name":"Encampment","lat":41.20876,"lon":-106.79482,"pts":10},{"id":"p:town:WY:5625620","name":"Evanston","lat":41.26009,"lon":-110.96374,"pts":20},{"id":"p:town:WY:5625765","name":"Evansville","lat":42.87599,"lon":-106.26775,"pts":10},{"id":"p:town:WY:5628230","name":"Fort Laramie","lat":42.21308,"lon":-104.5174,"pts":10},{"id":"p:town:WY:5629825","name":"Frannie","lat":44.97103,"lon":-108.62054,"pts":10},{"id":"p:town:WY:5631855","name":"Gillette","lat":44.27258,"lon":-105.49894,"pts":30},{"id":"p:town:WY:5632290","name":"Glendo","lat":42.50486,"lon":-105.02499,"pts":10},{"id":"p:town:WY:5632435","name":"Glenrock","lat":42.85647,"lon":-105.86235,"pts":10},{"id":"p:town:WY:5632870","name":"Granger","lat":41.59793,"lon":-109.96523,"pts":10},{"id":"p:town:WY:5633740","name":"Green River","lat":41.51292,"lon":-109.4708,"pts":20},{"id":"p:town:WY:5633885","name":"Greybull","lat":44.48653,"lon":-108.05574,"pts":10},{"id":"p:town:WY:5634320","name":"Guernsey","lat":42.26479,"lon":-104.74289,"pts":10},{"id":"p:town:WY:5635335","name":"Hanna","lat":41.8698,"lon":-106.55964,"pts":10},{"id":"p:town:WY:5635625","name":"Hartville","lat":42.32763,"lon":-104.7245,"pts":10},{"id":"p:town:WY:5638960","name":"Hudson","lat":42.9027,"lon":-108.58199,"pts":10},{"id":"p:town:WY:5639105","name":"Hulett","lat":44.68324,"lon":-104.59818,"pts":10},{"id":"p:town:WY:5640120","name":"Jackson","lat":43.47194,"lon":-110.77527,"pts":20},{"id":"p:town:WY:5641353","name":"Kaycee","lat":43.71004,"lon":-106.63728,"pts":10},{"id":"p:town:WY:5642005","name":"Kemmerer","lat":41.77848,"lon":-110.55282,"pts":10},{"id":"p:town:WY:5642730","name":"Kirby","lat":43.80328,"lon":-108.18097,"pts":10},{"id":"p:town:WY:5643455","name":"La Barge","lat":42.26078,"lon":-110.1972,"pts":10},{"id":"p:town:WY:5643745","name":"LaGrange","lat":41.63857,"lon":-104.163,"pts":10},{"id":"p:town:WY:5644760","name":"Lander","lat":42.83096,"lon":-108.73056,"pts":20},{"id":"p:town:WY:5645050","name":"Laramie","lat":41.30595,"lon":-105.60864,"pts":30},{"id":"p:town:WY:5646790","name":"Lingle","lat":42.13867,"lon":-104.34604,"pts":10},{"id":"p:town:WY:5647805","name":"Lost Springs","lat":42.76517,"lon":-104.92549,"pts":10},{"id":"p:town:WY:5647950","name":"Lovell","lat":44.8358,"lon":-108.39189,"pts":10},{"id":"p:town:WY:5648530","name":"Lusk","lat":42.76126,"lon":-104.4584,"pts":10},{"id":"p:town:WY:5648675","name":"Lyman","lat":41.32754,"lon":-110.29745,"pts":10},{"id":"p:town:WY:5649980","name":"Manderson","lat":44.26976,"lon":-107.9642,"pts":10},{"id":"p:town:WY:5650270","name":"Manville","lat":42.77945,"lon":-104.61745,"pts":10},{"id":"p:town:WY:5650415","name":"Marbleton","lat":42.55741,"lon":-110.10046,"pts":10},{"id":"p:town:WY:5651575","name":"Medicine Bow","lat":41.89954,"lon":-106.20192,"pts":10},{"id":"p:town:WY:5651720","name":"Meeteetse","lat":44.14939,"lon":-108.86324,"pts":10},{"id":"p:town:WY:5652445","name":"Midwest","lat":43.41077,"lon":-106.27729,"pts":10},{"id":"p:town:WY:5653460","name":"Mills","lat":42.84988,"lon":-106.39083,"pts":10},{"id":"p:town:WY:5654185","name":"Moorcroft","lat":44.26448,"lon":-104.94756,"pts":10},{"id":"p:town:WY:5655345","name":"Mountain View","lat":41.27235,"lon":-110.33407,"pts":10},{"id":"p:town:WY:5656215","name":"Newcastle","lat":43.85027,"lon":-104.19649,"pts":10},{"id":"p:town:WY:5657810","name":"Opal","lat":41.76792,"lon":-110.32439,"pts":10},{"id":"p:town:WY:5660130","name":"Pavillion","lat":43.24401,"lon":-108.68902,"pts":10},{"id":"p:town:WY:5661435","name":"Pine Bluffs","lat":41.18021,"lon":-104.07478,"pts":10},{"id":"p:town:WY:5661610","name":"Pine Haven","lat":44.35339,"lon":-104.81045,"pts":10},{"id":"p:town:WY:5661580","name":"Pinedale","lat":42.86758,"lon":-109.87053,"pts":10},{"id":"p:town:WY:5662450","name":"Powell","lat":44.76178,"lon":-108.75758,"pts":20},{"id":"p:town:WY:5663755","name":"Ranchester","lat":44.9076,"lon":-107.16732,"pts":10},{"id":"p:town:WY:5663900","name":"Rawlins","lat":41.78513,"lon":-107.22465,"pts":20},{"id":"p:town:WY:5666075","name":"Riverside","lat":41.21541,"lon":-106.78134,"pts":10},{"id":"p:town:WY:5666220","name":"Riverton","lat":43.02626,"lon":-108.3813,"pts":20},{"id":"p:town:WY:5667090","name":"Rock River","lat":41.73174,"lon":-105.97515,"pts":10},{"id":"p:town:WY:5667235","name":"Rock Springs","lat":41.5947,"lon":-109.22092,"pts":20},{"id":"p:town:WY:5667440","name":"Rolling Hills","lat":42.90356,"lon":-105.84337,"pts":10},{"id":"p:town:WY:5668685","name":"Saratoga","lat":41.45239,"lon":-106.81173,"pts":10},{"id":"p:town:WY:5669845","name":"Sheridan","lat":44.79622,"lon":-106.96417,"pts":20},{"id":"p:town:WY:5670570","name":"Shoshoni","lat":43.23953,"lon":-108.10988,"pts":10},{"id":"p:town:WY:5671150","name":"Sinclair","lat":41.77608,"lon":-107.11994,"pts":10},{"id":"p:town:WY:5673180","name":"Star Valley Ranch","lat":42.97969,"lon":-110.96352,"pts":10},{"id":"p:town:WY:5674195","name":"Sundance","lat":44.40482,"lon":-104.36621,"pts":10},{"id":"p:town:WY:5674775","name":"Superior","lat":41.75951,"lon":-108.96424,"pts":10},{"id":"p:town:WY:5675790","name":"Ten Sleep","lat":44.03508,"lon":-107.44819,"pts":10},{"id":"p:town:WY:5676370","name":"Thayne","lat":42.91989,"lon":-110.99526,"pts":10},{"id":"p:town:WY:5676515","name":"Thermopolis","lat":43.64762,"lon":-108.21454,"pts":10},{"id":"p:town:WY:5677530","name":"Torrington","lat":42.06505,"lon":-104.17353,"pts":20},{"id":"p:town:WY:5679125","name":"Upton","lat":44.10402,"lon":-104.63654,"pts":10},{"id":"p:town:WY:5679705","name":"Van Tassell","lat":42.66428,"lon":-104.09133,"pts":10},{"id":"p:town:WY:5681300","name":"Wamsutter","lat":41.66798,"lon":-107.97914,"pts":10},{"id":"p:town:WY:5683040","name":"Wheatland","lat":42.05171,"lon":-104.95947,"pts":10},{"id":"p:town:WY:5684925","name":"Worland","lat":44.0204,"lon":-107.96165,"pts":10},{"id":"p:town:WY:5685015","name":"Wright","lat":43.74915,"lon":-105.49483,"pts":10},{"id":"p:town:WY:5686665","name":"Yoder","lat":41.91698,"lon":-104.29539,"pts":10}],"waterfall":[{"id":"p:waterfall:WY:yellowstonelowerfalls","name":"Yellowstone Lower Falls","lat":44.718,"lon":-110.496,"pts":25}],"county":[{"id":"county:56021","name":"Laramie County","lat":41.2983,"lon":-104.5921,"pts":10},{"id":"county:56005","name":"Campbell County","lat":44.4417,"lon":-105.6608,"pts":10},{"id":"county:56041","name":"Uinta County","lat":41.2627,"lon":-110.6662,"pts":10},{"id":"county:56015","name":"Goshen County","lat":42.0847,"lon":-104.2648,"pts":10},{"id":"county:56003","name":"Big Horn County","lat":44.6496,"lon":-107.9952,"pts":10},{"id":"county:56037","name":"Sweetwater County","lat":41.6438,"lon":-108.8285,"pts":10},{"id":"county:56019","name":"Johnson County","lat":44.1326,"lon":-106.7351,"pts":10},{"id":"county:56031","name":"Platte County","lat":42.2391,"lon":-105.0761,"pts":10},{"id":"county:56045","name":"Weston County","lat":43.8768,"lon":-104.4788,"pts":10},{"id":"county:56027","name":"Niobrara County","lat":43.0104,"lon":-104.4318,"pts":10},{"id":"county:56029","name":"Park County","lat":44.3817,"lon":-109.7938,"pts":10},{"id":"county:56013","name":"Fremont County","lat":43.3054,"lon":-108.9248,"pts":10},{"id":"county:56017","name":"Hot Springs County","lat":43.7432,"lon":-108.5021,"pts":10},{"id":"county:56033","name":"Sheridan County","lat":44.8032,"lon":-107.058,"pts":10},{"id":"county:56025","name":"Natrona County","lat":42.9949,"lon":-107.0226,"pts":10},{"id":"county:56001","name":"Albany County","lat":41.8138,"lon":-105.7602,"pts":10},{"id":"county:56023","name":"Lincoln County","lat":42.599,"lon":-110.7306,"pts":10},{"id":"county:56043","name":"Washakie County","lat":43.8774,"lon":-107.9382,"pts":10},{"id":"county:56009","name":"Converse County","lat":42.7973,"lon":-105.5682,"pts":10},{"id":"county:56035","name":"Sublette County","lat":42.9057,"lon":-109.942,"pts":10},{"id":"county:56007","name":"Carbon County","lat":41.6855,"lon":-107.0496,"pts":10},{"id":"county:56039","name":"Teton County","lat":44.0221,"lon":-110.5826,"pts":10},{"id":"county:56011","name":"Crook County","lat":44.6351,"lon":-104.587,"pts":10}],"reservation":[{"id":"p:reservation:MT:crowreservationandoffreservationtrustland","name":"Crow Reservation and Off-Reservation Trust Land","lat":44.9981,"lon":-107.31631,"pts":50},{"id":"p:reservation:WY:windriverreservationandoffreservationtrustland","name":"Wind River Reservation and Off-Reservation Trust Land","lat":43.23406,"lon":-108.81073,"pts":50}]}
+{
+  "airport": [
+    {
+      "id": "p:airport:WY:KCPR",
+      "name": "Casper-Natrona County International Airport (CPR)",
+      "lat": 42.90738,
+      "lon": -106.46161,
+      "pts": 25
+    },
+    {
+      "id": "p:airport:WY:KRIW",
+      "name": "Central Wyoming Regional Airport (RIW)",
+      "lat": 43.0642,
+      "lon": -108.46,
+      "pts": 25
+    },
+    {
+      "id": "p:airport:WY:KCYS",
+      "name": "Cheyenne Regional Jerry Olson Field (CYS)",
+      "lat": 41.1557,
+      "lon": -104.812,
+      "pts": 25
+    },
+    {
+      "id": "p:airport:WY:KEVW",
+      "name": "Evanston-Uinta County Airport-Burns Field (EVW)",
+      "lat": 41.2748,
+      "lon": -111.035,
+      "pts": 25
+    },
+    {
+      "id": "p:airport:WY:KLND",
+      "name": "Hunt Field (LND)",
+      "lat": 42.8152,
+      "lon": -108.73,
+      "pts": 25
+    },
+    {
+      "id": "p:airport:WY:KJAC",
+      "name": "Jackson Hole Airport (JAC)",
+      "lat": 43.6073,
+      "lon": -110.738,
+      "pts": 25
+    },
+    {
+      "id": "p:airport:WY:KLAR",
+      "name": "Laramie Regional Airport (LAR)",
+      "lat": 41.3121,
+      "lon": -105.675,
+      "pts": 25
+    },
+    {
+      "id": "p:airport:WY:KBPI",
+      "name": "Miley Memorial Field (BPI)",
+      "lat": 42.5851,
+      "lon": -110.111,
+      "pts": 25
+    },
+    {
+      "id": "p:airport:WY:KGCC",
+      "name": "Northeast Wyoming Regional Airport (GCC)",
+      "lat": 44.3489,
+      "lon": -105.539,
+      "pts": 25
+    },
+    {
+      "id": "p:airport:WY:KPNA",
+      "name": "Ralph Wenz Field (PWY)",
+      "lat": 42.7955,
+      "lon": -109.807,
+      "pts": 25
+    },
+    {
+      "id": "p:airport:WY:KRWL",
+      "name": "Rawlins Municipal Airport/Harvey Field (RWL)",
+      "lat": 41.8056,
+      "lon": -107.2,
+      "pts": 25
+    },
+    {
+      "id": "p:airport:WY:KSHR",
+      "name": "Sheridan County Airport (SHR)",
+      "lat": 44.7692,
+      "lon": -106.98,
+      "pts": 25
+    },
+    {
+      "id": "p:airport:WY:KRKS",
+      "name": "Southwest Wyoming Regional Airport (RKS)",
+      "lat": 41.5942,
+      "lon": -109.065,
+      "pts": 25
+    },
+    {
+      "id": "p:airport:WY:KWRL",
+      "name": "Worland Municipal Airport (WRL)",
+      "lat": 43.9657,
+      "lon": -107.951,
+      "pts": 25
+    },
+    {
+      "id": "p:airport:WY:KCOD",
+      "name": "Yellowstone Regional Airport (COD)",
+      "lat": 44.5202,
+      "lon": -109.024,
+      "pts": 25
+    }
+  ],
+  "amusement": [
+    {
+      "id": "p:amusement:WY:node13310377044",
+      "name": "Derby Lanes",
+      "lat": 41.14689,
+      "lon": -104.80329,
+      "pts": 40
+    },
+    {
+      "id": "p:amusement:WY:way406691606",
+      "name": "Douglas Municipal Water Park",
+      "lat": 42.75916,
+      "lon": -105.37756,
+      "pts": 25
+    },
+    {
+      "id": "p:amusement:WY:way245725680",
+      "name": "Star Plunge",
+      "lat": 43.65196,
+      "lon": -108.19532,
+      "pts": 25
+    },
+    {
+      "id": "p:amusement:WY:way245725697",
+      "name": "TePee Pools and Spa",
+      "lat": 43.65251,
+      "lon": -108.19832,
+      "pts": 25
+    },
+    {
+      "id": "p:amusement:WY:node9960189396",
+      "name": "Water Fountains",
+      "lat": 44.40577,
+      "lon": -104.37764,
+      "pts": 25
+    }
+  ],
+  "beach": [
+    {
+      "id": "p:beach:WY:way955868271",
+      "name": "Phelps Beach",
+      "lat": 43.65289,
+      "lon": -110.80138,
+      "pts": 20
+    }
+  ],
+  "brewery": [
+    {
+      "id": "p:brewery:WY:way238531845",
+      "name": "Altitude Chophouse & Brewery",
+      "lat": 41.3104,
+      "lon": -105.59538,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:way534056856",
+      "name": "Big Lost Meadery and Brewery",
+      "lat": 44.29382,
+      "lon": -105.5051,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:way952740471",
+      "name": "Bitter Creek Brewery",
+      "lat": 41.58683,
+      "lon": -109.21768,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:way948069369",
+      "name": "Black Tooth Brewery",
+      "lat": 44.80102,
+      "lon": -106.954,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:node13104479385",
+      "name": "Black Tooth Brewing Company",
+      "lat": 41.13392,
+      "lon": -104.82144,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:way372836632",
+      "name": "Coal Creek Tap",
+      "lat": 41.31099,
+      "lon": -105.5958,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:way335627746",
+      "name": "Lander Brewing Company",
+      "lat": 42.83277,
+      "lon": -108.72799,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:node10844665145",
+      "name": "Luminous Brewhouse",
+      "lat": 44.80297,
+      "lon": -106.95364,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:node8963969279",
+      "name": "Melvin Brewing - Alpine Brewery",
+      "lat": 43.16497,
+      "lon": -111.03853,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:way977882588",
+      "name": "Mountain Hops Brewhouse",
+      "lat": 42.85605,
+      "lon": -106.29795,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:way687165815",
+      "name": "Oil City Beer Company",
+      "lat": 42.85122,
+      "lon": -106.27546,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:way305495731",
+      "name": "One Eyed Buffalo Brewing Company",
+      "lat": 43.64575,
+      "lon": -108.21141,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:way1178603400",
+      "name": "Open Barrel Brewing Company",
+      "lat": 42.06367,
+      "lon": -104.18471,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:way952741689",
+      "name": "Square State Brewing",
+      "lat": 41.58629,
+      "lon": -109.22027,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:node14247000051",
+      "name": "StillWest Brewery & Grill",
+      "lat": 43.47356,
+      "lon": -110.76134,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:way156580699",
+      "name": "Sweetwater Brewery",
+      "lat": 41.52881,
+      "lon": -109.46876,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:way599489402",
+      "name": "Tensleep Brewing Company",
+      "lat": 44.02983,
+      "lon": -107.4694,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:node2487534416",
+      "name": "Thai Me Up",
+      "lat": 43.47866,
+      "lon": -110.76101,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:way238528917",
+      "name": "The Library",
+      "lat": 41.30937,
+      "lon": -105.59473,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:way1228671091",
+      "name": "Tongue River Brewing Co",
+      "lat": 44.90864,
+      "lon": -107.16637,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:way373355311",
+      "name": "Wind River Brewing Company",
+      "lat": 42.86629,
+      "lon": -109.8659,
+      "pts": 15
+    },
+    {
+      "id": "p:brewery:WY:way405338476",
+      "name": "Wonder Bar",
+      "lat": 42.84765,
+      "lon": -106.3256,
+      "pts": 15
+    }
+  ],
+  "capitol": [
+    {
+      "id": "p:capitol:WY",
+      "name": "Wyoming State Capitol",
+      "lat": 41.14,
+      "lon": -104.8202,
+      "pts": 30
+    }
+  ],
+  "chain": [
+    {
+      "id": "p:chain:WY:node11911077023",
+      "name": "Carl's Jr.",
+      "lat": 41.32902,
+      "lon": -105.61105,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:node11911077045",
+      "name": "Carl's Jr.",
+      "lat": 41.56016,
+      "lon": -109.53964,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way317610306",
+      "name": "Carl's Jr.",
+      "lat": 41.13407,
+      "lon": -104.81275,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:node14255717891",
+      "name": "Chick-fil-A",
+      "lat": 41.31244,
+      "lon": -105.57911,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way511653829",
+      "name": "Chick-fil-A",
+      "lat": 41.15961,
+      "lon": -104.77923,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way1014894331",
+      "name": "Costa Vida",
+      "lat": 41.2636,
+      "lon": -110.95642,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:node11911077031",
+      "name": "Culver's",
+      "lat": 41.13803,
+      "lon": -104.79051,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way900013272",
+      "name": "Culver's",
+      "lat": 41.15886,
+      "lon": -104.80982,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way261042095",
+      "name": "Dickey's Barbecue Pit",
+      "lat": 44.29255,
+      "lon": -105.49304,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way526615862",
+      "name": "Dickey's Barbecue Pit",
+      "lat": 41.57736,
+      "lon": -109.24843,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way1085921055",
+      "name": "Dickey's Barbecue Pit",
+      "lat": 41.16176,
+      "lon": -104.80607,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:node12656785201",
+      "name": "Firehouse Subs",
+      "lat": 41.31767,
+      "lon": -105.5945,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:node14281956502",
+      "name": "Firehouse Subs",
+      "lat": 41.1453,
+      "lon": -104.76279,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:node11911077034",
+      "name": "Five Guys",
+      "lat": 42.84792,
+      "lon": -106.2563,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way1085921050",
+      "name": "Five Guys",
+      "lat": 41.16178,
+      "lon": -104.8059,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way490250763",
+      "name": "Good Times / Taco Johns",
+      "lat": 44.27589,
+      "lon": -105.49642,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way1158328577",
+      "name": "Hardee's",
+      "lat": 44.35444,
+      "lon": -106.69431,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:node4876840228",
+      "name": "Jersey Mike's Subs",
+      "lat": 44.2821,
+      "lon": -105.49358,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:node13318674428",
+      "name": "Jersey Mike's Subs",
+      "lat": 41.1648,
+      "lon": -104.80293,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:node13477502087",
+      "name": "Jersey Mike's Subs",
+      "lat": 41.30903,
+      "lon": -105.55374,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way233279126",
+      "name": "Kum & Go",
+      "lat": 41.45228,
+      "lon": -106.80791,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:way1236777698",
+      "name": "Kum & Go",
+      "lat": 41.79852,
+      "lon": -107.2163,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:node1183478009",
+      "name": "Maverik",
+      "lat": 41.61775,
+      "lon": -109.23162,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:node3786968518",
+      "name": "Maverik",
+      "lat": 41.13911,
+      "lon": -104.76911,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:node3786985246",
+      "name": "Maverik",
+      "lat": 41.15942,
+      "lon": -104.76769,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:node4221664505",
+      "name": "Maverik",
+      "lat": 44.49475,
+      "lon": -108.05558,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:node8198413020",
+      "name": "Maverik",
+      "lat": 42.72569,
+      "lon": -110.93312,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:node8777957019",
+      "name": "Maverik",
+      "lat": 42.91761,
+      "lon": -111.002,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:node9222665168",
+      "name": "Maverik",
+      "lat": 41.30118,
+      "lon": -105.5939,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:node11606987095",
+      "name": "Maverik",
+      "lat": 41.1018,
+      "lon": -104.80097,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:way164987576",
+      "name": "Maverik",
+      "lat": 44.77336,
+      "lon": -106.93796,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:way236797518",
+      "name": "Maverik",
+      "lat": 43.46616,
+      "lon": -110.79399,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:way377936442",
+      "name": "Maverik",
+      "lat": 41.59773,
+      "lon": -109.20491,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:way459792771",
+      "name": "Maverik",
+      "lat": 41.78942,
+      "lon": -110.53867,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:way501095714",
+      "name": "Maverik",
+      "lat": 44.25538,
+      "lon": -105.48878,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:way501095715",
+      "name": "Maverik",
+      "lat": 44.25494,
+      "lon": -105.48822,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:way516761353",
+      "name": "Maverik",
+      "lat": 42.05193,
+      "lon": -104.96349,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:way530156051",
+      "name": "Maverik",
+      "lat": 44.29148,
+      "lon": -105.53191,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:way533056620",
+      "name": "Maverik",
+      "lat": 44.30064,
+      "lon": -105.53036,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:way537058384",
+      "name": "Maverik",
+      "lat": 41.10264,
+      "lon": -104.80089,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:way549380148",
+      "name": "Maverik",
+      "lat": 41.14606,
+      "lon": -104.76058,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:way560399250",
+      "name": "Maverik",
+      "lat": 41.32497,
+      "lon": -110.29345,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:way733293187",
+      "name": "Maverik",
+      "lat": 41.26376,
+      "lon": -110.95815,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:way1312140617",
+      "name": "Maverik",
+      "lat": 44.2932,
+      "lon": -105.44921,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:way1449478678",
+      "name": "Maverik",
+      "lat": 41.13828,
+      "lon": -104.70627,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:way520181748",
+      "name": "Maverik Adventure's First Stop",
+      "lat": 41.18236,
+      "lon": -104.82789,
+      "pts": 15
+    },
+    {
+      "id": "p:chain:WY:node1436027641",
+      "name": "McAlister's Deli",
+      "lat": 41.30956,
+      "lon": -105.5628,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:node4725064592",
+      "name": "Schlotzsky's",
+      "lat": 42.847,
+      "lon": -106.21521,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:node955302136",
+      "name": "Taco John's",
+      "lat": 41.11657,
+      "lon": -104.80278,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:node2456778949",
+      "name": "Taco John's",
+      "lat": 41.1604,
+      "lon": -104.76872,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:node4052142192",
+      "name": "Taco John's",
+      "lat": 41.30935,
+      "lon": -105.56671,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:node5964805777",
+      "name": "Taco John's",
+      "lat": 42.76328,
+      "lon": -105.40376,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:node14065176506",
+      "name": "Taco John's",
+      "lat": 42.83586,
+      "lon": -108.74294,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way86096812",
+      "name": "Taco John's",
+      "lat": 41.79248,
+      "lon": -107.21666,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way240742391",
+      "name": "Taco John's",
+      "lat": 41.13828,
+      "lon": -104.82058,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way259219058",
+      "name": "Taco John's",
+      "lat": 41.59012,
+      "lon": -109.22433,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way331772025",
+      "name": "Taco John's",
+      "lat": 44.51457,
+      "lon": -109.05282,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way608487673",
+      "name": "Taco John's",
+      "lat": 42.05134,
+      "lon": -104.96146,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way878463694",
+      "name": "Taco John's",
+      "lat": 41.1693,
+      "lon": -104.82819,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way991047559",
+      "name": "Taco John's",
+      "lat": 41.14522,
+      "lon": -104.76799,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way1075462018",
+      "name": "Taco John's",
+      "lat": 42.8575,
+      "lon": -106.32598,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way1178627855",
+      "name": "Taco John's",
+      "lat": 42.06421,
+      "lon": -104.1869,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:node5954422376",
+      "name": "Taco Time",
+      "lat": 41.26421,
+      "lon": -110.95748,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way328148918",
+      "name": "Taco Time",
+      "lat": 41.58084,
+      "lon": -109.25927,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way555873367",
+      "name": "Taco Time",
+      "lat": 41.6117,
+      "lon": -109.23101,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way560399266",
+      "name": "Taco Time",
+      "lat": 41.32781,
+      "lon": -110.2926,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way886438866",
+      "name": "Taco Time",
+      "lat": 42.72773,
+      "lon": -110.93295,
+      "pts": 20
+    },
+    {
+      "id": "p:chain:WY:way1065989970",
+      "name": "Taco Time",
+      "lat": 41.79108,
+      "lon": -110.53631,
+      "pts": 20
+    }
+  ],
+  "drive": [
+    {
+      "id": "p:drive:MT:beartoothhighway",
+      "name": "Beartooth Highway",
+      "lat": 45.02,
+      "lon": -109.41,
+      "pts": 40,
+      "paths": [
+        [
+          [
+            -109.41,
+            45.02
+          ],
+          [
+            -109.8,
+            45
+          ],
+          [
+            -109.9,
+            44.95
+          ],
+          [
+            -109.63,
+            45.03
+          ]
+        ]
+      ]
+    }
+  ],
+  "food": [
+    {
+      "id": "p:food:WY:rockymountainoystersbison",
+      "name": "Rocky Mountain Oysters / Bison",
+      "lat": null,
+      "lon": null,
+      "pts": 20
+    }
+  ],
+  "forest": [
+    {
+      "id": "p:forest:WY:relation3621676",
+      "name": "Bighorn National Forest",
+      "lat": 44.51049,
+      "lon": -107.36071,
+      "pts": 40
+    },
+    {
+      "id": "p:forest:WY:relation6001390",
+      "name": "Bridger-Teton National Forest",
+      "lat": 43.22562,
+      "lon": -109.96359,
+      "pts": 40
+    },
+    {
+      "id": "p:forest:WY:relation395821",
+      "name": "Medicine Bow-Routt National Forest",
+      "lat": 41.30514,
+      "lon": -106.38625,
+      "pts": 40
+    },
+    {
+      "id": "p:forest:WY:relation6000994",
+      "name": "Shoshone National Forest",
+      "lat": 43.74855,
+      "lon": -109.43554,
+      "pts": 40
+    }
+  ],
+  "fort": [
+    {
+      "id": "p:fort:WY:fortlaramie",
+      "name": "Fort Laramie",
+      "lat": 42.203,
+      "lon": -104.543,
+      "pts": 25
+    }
+  ],
+  "garden": [
+    {
+      "id": "p:garden:WY:way1409379727",
+      "name": "Campbell County Arboretum",
+      "lat": 44.28734,
+      "lon": -105.45454,
+      "pts": 25
+    },
+    {
+      "id": "p:garden:WY:way234563087",
+      "name": "Cheyenne Botanic Gardens",
+      "lat": 41.15567,
+      "lon": -104.83015,
+      "pts": 25
+    }
+  ],
+  "highpoint": [
+    {
+      "id": "p:highpoint:WY:gannettpeak",
+      "name": "Gannett Peak",
+      "lat": 43.184,
+      "lon": -109.654,
+      "pts": 40
+    }
+  ],
+  "historic": [
+    {
+      "id": "p:historic:WY:way948068217",
+      "name": "Abraham Lincoln Memorial Monument",
+      "lat": 41.23695,
+      "lon": -105.43624,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:way103618201",
+      "name": "Ames Monument",
+      "lat": 41.13107,
+      "lon": -105.39818,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node9791372737",
+      "name": "Bear River City",
+      "lat": 41.15791,
+      "lon": -110.85088,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node5645130779",
+      "name": "Campbell County War Memorial",
+      "lat": 44.29076,
+      "lon": -105.50426,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:way530133687",
+      "name": "Campbell County War Memorial",
+      "lat": 44.2866,
+      "lon": -105.49501,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node5070653716",
+      "name": "Cheyenne Deadwood Trail Historic Marker",
+      "lat": 41.75582,
+      "lon": -104.82299,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:way491688112",
+      "name": "Children's Memorial Garden",
+      "lat": 44.29934,
+      "lon": -105.49675,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node13981115793",
+      "name": "Clayton Gulch Monument",
+      "lat": 44.41185,
+      "lon": -109.74122,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node13352371831",
+      "name": "Connie Burnside",
+      "lat": 41.14599,
+      "lon": -104.79876,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node12439841162",
+      "name": "Dan Birkholz Memorial",
+      "lat": 41.00773,
+      "lon": -105.97039,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node4261655689",
+      "name": "Devils Tower",
+      "lat": 44.53888,
+      "lon": -104.67908,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node3733891290",
+      "name": "Fairview Landmark",
+      "lat": 42.69257,
+      "lon": -110.98249,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:way220594814",
+      "name": "Fetterman Fight",
+      "lat": 44.57152,
+      "lon": -106.84131,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node356501065",
+      "name": "Fetterman Monument",
+      "lat": 44.57133,
+      "lon": -106.8412,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node3392141717",
+      "name": "Fire Memorial",
+      "lat": 44.45813,
+      "lon": -109.74748,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node9625633283",
+      "name": "Fireman's Memorial",
+      "lat": 42.76756,
+      "lon": -104.45127,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:way1545296246",
+      "name": "Fort Fetterman State Historic Site",
+      "lat": 42.84365,
+      "lon": -105.48511,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:way220591110",
+      "name": "Fort Phil Kearny",
+      "lat": 44.53149,
+      "lon": -106.82523,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:way390143699",
+      "name": "Fort Sanders Guardhouse",
+      "lat": 41.27125,
+      "lon": -105.59826,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node7606427444",
+      "name": "Fort Seminoe",
+      "lat": 42.44095,
+      "lon": -107.22111,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node7007320588",
+      "name": "Gen. John J. Pershing",
+      "lat": 41.15638,
+      "lon": -104.8692,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node356501520",
+      "name": "Grattan Massacre Historical Monument",
+      "lat": 42.13232,
+      "lon": -104.40568,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:way1373490444",
+      "name": "Green Knoll Fire Memorial",
+      "lat": 43.49833,
+      "lon": -110.87488,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node9896241583",
+      "name": "Hanna Mine Memorial",
+      "lat": 41.86165,
+      "lon": -106.54934,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node672403833",
+      "name": "Heart Mountain Relocation Center Memorial",
+      "lat": 44.67035,
+      "lon": -108.94951,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node13399417754",
+      "name": "In Memory Of Alexander Frye",
+      "lat": 41.13668,
+      "lon": -104.79976,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node9971281191",
+      "name": "Jackson Hole Veteran Monument",
+      "lat": 43.47997,
+      "lon": -110.76182,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node13399417756",
+      "name": "Jeff Wiggins",
+      "lat": 41.13641,
+      "lon": -104.799,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:way240714139",
+      "name": "Jim Bridger's Fort",
+      "lat": 41.31867,
+      "lon": -110.39352,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node9165818315",
+      "name": "Matthew Shepard Memorial",
+      "lat": 41.31318,
+      "lon": -105.58233,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node5229089779",
+      "name": "Memory of the 8",
+      "lat": 44.28606,
+      "lon": -105.51012,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node8840451139",
+      "name": "Memory of the 8",
+      "lat": 44.29312,
+      "lon": -105.50039,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node13000914180",
+      "name": "Memory of the 8",
+      "lat": 44.26905,
+      "lon": -105.51346,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node14052496727",
+      "name": "Memory of the 8",
+      "lat": 44.26923,
+      "lon": -105.49493,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node4967568746",
+      "name": "Mountain View Memorial Park",
+      "lat": 41.21576,
+      "lon": -104.82716,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node4690975393",
+      "name": "Nebraska/Wyoming Abandoned Gas Station",
+      "lat": 41.18584,
+      "lon": -104.0533,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node356502842",
+      "name": "Oregon Trail Historical Marker",
+      "lat": 42.74108,
+      "lon": -106.52476,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node4670564720",
+      "name": "Our Lady of Peace Shrine",
+      "lat": 41.18229,
+      "lon": -104.05384,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node7340625861",
+      "name": "Parting Of The Ways",
+      "lat": 42.25758,
+      "lon": -109.22804,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node2484270057",
+      "name": "Pony Express Monument",
+      "lat": 41.31853,
+      "lon": -110.38965,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node11463271740",
+      "name": "Powell Colorado River Expedition",
+      "lat": 41.52387,
+      "lon": -109.47236,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node4386294784",
+      "name": "Register Cliff",
+      "lat": 42.2476,
+      "lon": -104.71136,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node7606623395",
+      "name": "Rock Creek Hollow Monument",
+      "lat": 42.43691,
+      "lon": -108.62193,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node7606416236",
+      "name": "Sweetwater Monument",
+      "lat": 42.44495,
+      "lon": -107.24537,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node7007309059",
+      "name": "The Doll Houses",
+      "lat": 41.15614,
+      "lon": -104.86955,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node7616055015",
+      "name": "The Rise and Fall of the Union Pacific Railroad",
+      "lat": 41.15638,
+      "lon": -104.87078,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node4761162571",
+      "name": "Three Corners Monument",
+      "lat": 41.00069,
+      "lon": -109.05003,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:way390700009",
+      "name": "Tri Territory Monument",
+      "lat": 42,
+      "lon": -108.91713,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node3030035514",
+      "name": "United Airlines Flight 409 Memorial Plaque",
+      "lat": 41.34152,
+      "lon": -106.30587,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node7715091085",
+      "name": "Upper Brooks Lake Trailhead",
+      "lat": 43.75141,
+      "lon": -110.00598,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node672571050",
+      "name": "Vietnam Memorial",
+      "lat": 44.51279,
+      "lon": -109.04015,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node4732604261",
+      "name": "Vietnam Memorial",
+      "lat": 41.31171,
+      "lon": -105.58465,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node356507153",
+      "name": "Wagon Box Battle Monument",
+      "lat": 44.55888,
+      "lon": -106.8981,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node8231109256",
+      "name": "Wagon Box Fight",
+      "lat": 44.55528,
+      "lon": -106.89456,
+      "pts": 40
+    },
+    {
+      "id": "p:historic:WY:node4894647644",
+      "name": "Wheel of Time",
+      "lat": 44.64985,
+      "lon": -106.11282,
+      "pts": 40
+    }
+  ],
+  "mall": [
+    {
+      "id": "p:mall:WY:w534056778",
+      "name": "City Hall Mall",
+      "lat": 44.29102,
+      "lon": -105.50451,
+      "pts": 25
+    },
+    {
+      "id": "p:mall:WY:w33299107",
+      "name": "Eastridge Mall",
+      "lat": 42.84607,
+      "lon": -106.2657,
+      "pts": 25
+    },
+    {
+      "id": "p:mall:WY:w258701991",
+      "name": "Frontier Mall",
+      "lat": 41.16242,
+      "lon": -104.80511,
+      "pts": 25
+    },
+    {
+      "id": "p:mall:WY:w194685715",
+      "name": "Spruce Street Mall",
+      "lat": 41.79065,
+      "lon": -107.24194,
+      "pts": 25
+    },
+    {
+      "id": "p:mall:WY:w550015049",
+      "name": "The Village Square Mall",
+      "lat": 44.29141,
+      "lon": -105.50447,
+      "pts": 25
+    },
+    {
+      "id": "p:mall:WY:w328010956",
+      "name": "White Mountain Mall",
+      "lat": 41.58126,
+      "lon": -109.26408,
+      "pts": 25
+    }
+  ],
+  "museum": [
+    {
+      "id": "p:museum:WY:node8292765921",
+      "name": "Afton Wyoming Family History Center",
+      "lat": 42.72697,
+      "lon": -110.92728,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node10958600340",
+      "name": "Big Horn Basin Geoscience Center",
+      "lat": 44.48908,
+      "lon": -108.05495,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node4154688711",
+      "name": "Bozeman Trail Museum",
+      "lat": 44.67966,
+      "lon": -106.99113,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way785123616",
+      "name": "Buffalo Bill Boyhood Home",
+      "lat": 44.52418,
+      "lon": -109.07372,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way53144807",
+      "name": "Buffalo Bill Center of the West",
+      "lat": 44.525,
+      "lon": -109.0736,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node10914707559",
+      "name": "Buffalo Bill Museum",
+      "lat": 44.52434,
+      "lon": -109.07343,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node8290573818",
+      "name": "Callair Museum",
+      "lat": 42.73118,
+      "lon": -110.93432,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way1450041730",
+      "name": "Campbell County Rockpile Museum",
+      "lat": 44.29359,
+      "lon": -105.51526,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way193302392",
+      "name": "Carbon County Museum",
+      "lat": 41.79093,
+      "lon": -107.24711,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node13309837133",
+      "name": "Cheyenne Children's Museum",
+      "lat": 41.13148,
+      "lon": -104.82074,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way232402672",
+      "name": "Cheyenne Depot Museum",
+      "lat": 41.13178,
+      "lon": -104.81441,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way547347998",
+      "name": "Cheyenne Frontier Days - Old West Museum",
+      "lat": 41.15791,
+      "lon": -104.834,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way520181757",
+      "name": "Chugwater Museum",
+      "lat": 41.75802,
+      "lon": -104.8199,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way968851077",
+      "name": "Cody Dug Up Gun Museum",
+      "lat": 44.52647,
+      "lon": -109.06373,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node10914707556",
+      "name": "Cody Firearms Museum",
+      "lat": 44.52569,
+      "lon": -109.0735,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way968791017",
+      "name": "Cody Heritage Museum",
+      "lat": 44.52589,
+      "lon": -109.06618,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way157936718",
+      "name": "Commissary Store House Museum",
+      "lat": 42.2037,
+      "lon": -104.55599,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node9938667389",
+      "name": "Cowgirls of the West Museum",
+      "lat": 41.13341,
+      "lon": -104.8161,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node4986004523",
+      "name": "Crook County Museum and Art Gallery",
+      "lat": 44.40558,
+      "lon": -104.37835,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node8911181648",
+      "name": "DAUGHTERS OF THE UTAH PIONEERS MUSEUM",
+      "lat": 42.91763,
+      "lon": -110.99825,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node10914707558",
+      "name": "Draper Natural History Museum",
+      "lat": 44.52452,
+      "lon": -109.07287,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way1010059432",
+      "name": "Dubois Museum",
+      "lat": 43.53721,
+      "lon": -109.6456,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way1196710534",
+      "name": "Elk Mountain Museum",
+      "lat": 41.68725,
+      "lon": -106.4135,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way240720857",
+      "name": "Fort Bridger Museum",
+      "lat": 41.31774,
+      "lon": -110.39309,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way978122935",
+      "name": "Fort Caspar Museum",
+      "lat": 42.83632,
+      "lon": -106.37078,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way220591113",
+      "name": "Fort Phil Kearny Visitor Center",
+      "lat": 44.53325,
+      "lon": -106.8288,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way491050845",
+      "name": "Frontier Auto Museum",
+      "lat": 44.29282,
+      "lon": -105.50655,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node10860538336",
+      "name": "Gertrude Krampert Center for Theatre and Dance at Casper College",
+      "lat": 42.83176,
+      "lon": -106.32358,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way1196720920",
+      "name": "Glenrock Deer Creek Museum",
+      "lat": 42.86101,
+      "lon": -105.88104,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way372540791",
+      "name": "Grand Encampment Museum;Grand Encampment Museum Doc Culleton Building",
+      "lat": 41.20376,
+      "lon": -106.78884,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way1190739571",
+      "name": "Green River Valley Museum",
+      "lat": 42.53849,
+      "lon": -110.10943,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way1390243384",
+      "name": "Hamsfork Museum",
+      "lat": 41.79785,
+      "lon": -110.54004,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way334798177",
+      "name": "Heart Mountain Interpretive Center",
+      "lat": 44.67034,
+      "lon": -108.9414,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node8948563445",
+      "name": "Historical Baker Cabin",
+      "lat": 43.02961,
+      "lon": -111.01252,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way901503317",
+      "name": "Homesteader Museum",
+      "lat": 44.75253,
+      "lon": -108.75561,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way346315778",
+      "name": "Homesteaders Museum",
+      "lat": 42.04757,
+      "lon": -104.18384,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way1158816156",
+      "name": "Hoofprints of the Past Museum",
+      "lat": 43.71082,
+      "lon": -106.63942,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way305798515",
+      "name": "Hot Springs County Museum",
+      "lat": 43.64657,
+      "lon": -108.21401,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way28498172",
+      "name": "Ida Goodstein Visual Arts Center",
+      "lat": 42.83337,
+      "lon": -106.32304,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way785374924",
+      "name": "Jim Gatchell Memorial Museum",
+      "lat": 44.34791,
+      "lon": -106.69999,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node8299561130",
+      "name": "Lander Trail Center",
+      "lat": 42.73147,
+      "lon": -110.93446,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way247239687",
+      "name": "Laramie Historic Railroad Depot and Museum",
+      "lat": 41.30835,
+      "lon": -105.59636,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way403120826",
+      "name": "Laramie Plains Museum",
+      "lat": 41.31208,
+      "lon": -105.58907,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way785145139",
+      "name": "Medicine Bow Museum",
+      "lat": 41.89522,
+      "lon": -106.20042,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way333741383",
+      "name": "Meeteetse Museums",
+      "lat": 44.1575,
+      "lon": -108.87189,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node8827181628",
+      "name": "Mower Family History Association",
+      "lat": 42.88678,
+      "lon": -110.93332,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way1289557346",
+      "name": "Museum of Flight and Aerial Firefighting",
+      "lat": 44.51056,
+      "lon": -108.08549,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way386547032",
+      "name": "Museum of the Mountain Man",
+      "lat": 42.86891,
+      "lon": -109.85229,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way363645476",
+      "name": "Museum of the National Park Ranger",
+      "lat": 44.7378,
+      "lon": -110.69693,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way28137548",
+      "name": "National Historic Trails Interpretive Center",
+      "lat": 42.86633,
+      "lon": -106.33715,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node9787328208",
+      "name": "National Museum of Military Vehicles",
+      "lat": 43.47339,
+      "lon": -109.4964,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way480373923",
+      "name": "National Museum of Wildlife Art of the United States",
+      "lat": 43.51907,
+      "lon": -110.74895,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way1084550502",
+      "name": "Nelson Museum of the West",
+      "lat": 41.13362,
+      "lon": -104.81771,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way317891025",
+      "name": "Nicolaysen Art Museum",
+      "lat": 42.84803,
+      "lon": -106.32014,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way316615033",
+      "name": "Norris Geyser Basin Museum",
+      "lat": 44.72653,
+      "lon": -110.70357,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node8948960142",
+      "name": "Old Rock Church Museum",
+      "lat": 42.7916,
+      "lon": -111.00161,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node10914707560",
+      "name": "Plains Indian Museum",
+      "lat": 44.52464,
+      "lon": -109.0745,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way1196717263",
+      "name": "Riverton Museum",
+      "lat": 43.02704,
+      "lon": -108.3818,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way1427346337",
+      "name": "Salt Creek Museum",
+      "lat": 43.41325,
+      "lon": -106.27689,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way445382573",
+      "name": "Saratoga Museum",
+      "lat": 41.44494,
+      "lon": -106.80683,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way164977081",
+      "name": "Sheridan County Museum",
+      "lat": 44.8058,
+      "lon": -106.93981,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node5210136265",
+      "name": "Sommers Homestead Living History Museum",
+      "lat": 42.77912,
+      "lon": -109.9628,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node4154262872",
+      "name": "Stagecoach Museum",
+      "lat": 42.76175,
+      "lon": -104.4524,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node8290573817",
+      "name": "Star Valley Historical Society",
+      "lat": 42.73176,
+      "lon": -110.93446,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way156580723",
+      "name": "Sweetwater County Historical Museum",
+      "lat": 41.52924,
+      "lon": -109.46707,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way28512868",
+      "name": "Tate Geological Museum",
+      "lat": 42.82601,
+      "lon": -106.32928,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way537018342",
+      "name": "Ten Sleep Pioneer Museum",
+      "lat": 44.03349,
+      "lon": -107.4453,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node1583892639",
+      "name": "Texas Trail Museum",
+      "lat": 41.18215,
+      "lon": -104.06994,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way1247575665",
+      "name": "The Brinton Museum",
+      "lat": 44.64366,
+      "lon": -107.00782,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way335650776",
+      "name": "The Lander Pioneer Museum",
+      "lat": 42.84086,
+      "lon": -108.74612,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way317891022",
+      "name": "The Science Zone",
+      "lat": 42.84698,
+      "lon": -106.32305,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way422210652",
+      "name": "Trail End State Historic Site",
+      "lat": 44.80142,
+      "lon": -106.9662,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way1014892555",
+      "name": "Uinta County Museum",
+      "lat": 41.2687,
+      "lon": -110.96521,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way978127605",
+      "name": "War Birds Museum",
+      "lat": 42.8993,
+      "lon": -106.46175,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way424015871",
+      "name": "Washakie County Museum",
+      "lat": 44.01636,
+      "lon": -107.94085,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way986630411",
+      "name": "Werner Wildlife Museum",
+      "lat": 42.83517,
+      "lon": -106.32061,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way618839128",
+      "name": "West Texas Trail Museum",
+      "lat": 44.26467,
+      "lon": -104.95124,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:node10914707557",
+      "name": "Whitney Western Art Museum",
+      "lat": 44.52538,
+      "lon": -109.07404,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way1196716745",
+      "name": "Wind River Heritage Center",
+      "lat": 43.01368,
+      "lon": -108.37736,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way684811590",
+      "name": "Wright Centennial Museum",
+      "lat": 43.7599,
+      "lon": -105.48175,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:relation4073392",
+      "name": "Wyoming Dinosaur Center",
+      "lat": 43.64323,
+      "lon": -108.2005,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way238152331",
+      "name": "Wyoming National Guard Museum",
+      "lat": 41.14646,
+      "lon": -104.81478,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way252362171",
+      "name": "Wyoming Pioneer Memorial Museum",
+      "lat": 42.75994,
+      "lon": -105.39048,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way230925450",
+      "name": "Wyoming State Museum",
+      "lat": 41.13957,
+      "lon": -104.81769,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way1161826526",
+      "name": "Wyoming Territorial Prison State Historic Site",
+      "lat": 41.31151,
+      "lon": -105.60968,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way978128310",
+      "name": "Wyoming Veterans Memorial Museum",
+      "lat": 42.89977,
+      "lon": -106.45561,
+      "pts": 30
+    },
+    {
+      "id": "p:museum:WY:way519744022",
+      "name": "Yellowstone Tribal Heritage Center",
+      "lat": 44.45873,
+      "lon": -110.8273,
+      "pts": 30
+    }
+  ],
+  "park": [
+    {
+      "id": "p:park:WY:4991095763",
+      "name": "Ayres Natural Bridge State Park",
+      "lat": 42.73374,
+      "lon": -105.6114,
+      "pts": 25
+    },
+    {
+      "id": "p:park:WY:wd:bearriverstatepark",
+      "name": "Bear River State Park",
+      "lat": 41.266,
+      "lon": -110.937,
+      "pts": 25
+    },
+    {
+      "id": "p:park:WY:wd:boysenstatepark",
+      "name": "Boysen State Park",
+      "lat": 43.41662,
+      "lon": -108.17732,
+      "pts": 25
+    },
+    {
+      "id": "p:park:WY:wd:buffalobillstatepark",
+      "name": "Buffalo Bill State Park",
+      "lat": 44.5011,
+      "lon": -109.184,
+      "pts": 25
+    },
+    {
+      "id": "p:park:WY:444495600",
+      "name": "Connor Battlefield State Park",
+      "lat": 44.90544,
+      "lon": -107.16282,
+      "pts": 25
+    },
+    {
+      "id": "p:park:WY:wd:curtgowdystatepark",
+      "name": "Curt Gowdy State Park",
+      "lat": 41.1736,
+      "lon": -105.227,
+      "pts": 25
+    },
+    {
+      "id": "p:park:WY:3506764",
+      "name": "Devils Tower National Monument",
+      "lat": 44.59002,
+      "lon": -104.71515,
+      "pts": 50
+    },
+    {
+      "id": "p:park:WY:wd:ednesskwilkinsstatepark",
+      "name": "Edness K. Wilkins State Park",
+      "lat": 42.8564,
+      "lon": -106.176,
+      "pts": 25
+    },
+    {
+      "id": "p:park:WY:6006417",
+      "name": "Fort Laramie National Historic Site",
+      "lat": 42.20243,
+      "lon": -104.5456,
+      "pts": 50
+    },
+    {
+      "id": "p:park:WY:6004500",
+      "name": "Fossil Butte National Monument",
+      "lat": 41.86057,
+      "lon": -110.76635,
+      "pts": 50
+    },
+    {
+      "id": "p:park:WY:wd:glendostatepark",
+      "name": "Glendo State Park",
+      "lat": 42.5561,
+      "lon": -104.983,
+      "pts": 25
+    },
+    {
+      "id": "p:park:WY:1492555",
+      "name": "Grand Teton National Park",
+      "lat": 43.81096,
+      "lon": -110.68557,
+      "pts": 50
+    },
+    {
+      "id": "p:park:WY:wd:guernseystatepark",
+      "name": "Guernsey State Park",
+      "lat": 42.3039,
+      "lon": -104.769,
+      "pts": 25
+    },
+    {
+      "id": "p:park:WY:wd:hotspringsstatepark",
+      "name": "Hot Springs State Park",
+      "lat": 43.6547,
+      "lon": -108.199,
+      "pts": 25
+    },
+    {
+      "id": "p:park:WY:1453305",
+      "name": "John D. Rockefeller, Jr. Memorial Parkway",
+      "lat": 44.088,
+      "lon": -110.72505,
+      "pts": 50
+    },
+    {
+      "id": "p:park:WY:wd:keyholestatepark",
+      "name": "Keyhole State Park",
+      "lat": 44.3246,
+      "lon": -104.77263,
+      "pts": 25
+    },
+    {
+      "id": "p:park:WY:wd:seminoestatepark",
+      "name": "Seminoe State Park",
+      "lat": 42.0586,
+      "lon": -106.872,
+      "pts": 25
+    },
+    {
+      "id": "p:park:WY:wd:sinkscanyonstatepark",
+      "name": "Sinks Canyon State Park",
+      "lat": 42.75,
+      "lon": -108.807,
+      "pts": 25
+    },
+    {
+      "id": "p:park:WY:356504436",
+      "name": "State Park",
+      "lat": 42.47941,
+      "lon": -104.97025,
+      "pts": 25
+    },
+    {
+      "id": "p:park:WY:1453306",
+      "name": "Yellowstone National Park",
+      "lat": 44.62027,
+      "lon": -110.49074,
+      "pts": 50
+    }
+  ],
+  "refuge": [
+    {
+      "id": "p:refuge:WY:relation6006375",
+      "name": "Bamforth National Wildlife Refuge",
+      "lat": 41.38,
+      "lon": -105.7348,
+      "pts": 30
+    },
+    {
+      "id": "p:refuge:WY:relation6004464",
+      "name": "Cokeville Meadows National Wildlife Refuge",
+      "lat": 41.96395,
+      "lon": -110.97543,
+      "pts": 30
+    },
+    {
+      "id": "p:refuge:WY:relation6006391",
+      "name": "Hutton Lake National Wildlife Refuge",
+      "lat": 41.18301,
+      "lon": -105.7168,
+      "pts": 30
+    },
+    {
+      "id": "p:refuge:WY:relation6006373",
+      "name": "Mortenson Lake National Wildlife Refuge",
+      "lat": 41.21184,
+      "lon": -105.808,
+      "pts": 30
+    },
+    {
+      "id": "p:refuge:WY:relation6001859",
+      "name": "National Elk Refuge",
+      "lat": 43.55994,
+      "lon": -110.67274,
+      "pts": 30
+    },
+    {
+      "id": "p:refuge:WY:relation6006367",
+      "name": "Pathfinder National Wildlife Refuge",
+      "lat": 42.39341,
+      "lon": -106.98757,
+      "pts": 30
+    },
+    {
+      "id": "p:refuge:WY:relation6004521",
+      "name": "Seedskadee National Wildlife Refuge",
+      "lat": 41.84699,
+      "lon": -109.86083,
+      "pts": 30
+    }
+  ],
+  "roadside": [
+    {
+      "id": "p:roadside:WY:w871676823",
+      "name": "World's Largest Elkhorn Arch",
+      "lat": 42.7243,
+      "lon": -110.93357,
+      "pts": 20
+    }
+  ],
+  "stadium": [
+    {
+      "id": "p:stadium:WY:way595672116",
+      "name": "Arena-Auditorium",
+      "lat": 41.31327,
+      "lon": -105.56929,
+      "pts": 25
+    },
+    {
+      "id": "p:stadium:WY:way363661037",
+      "name": "Bill Bush Stadium",
+      "lat": 42.84098,
+      "lon": -108.75326,
+      "pts": 25
+    },
+    {
+      "id": "p:stadium:WY:way1075461998",
+      "name": "Cheney Alumni Field",
+      "lat": 42.84368,
+      "lon": -106.32936,
+      "pts": 25
+    },
+    {
+      "id": "p:stadium:WY:way53214213",
+      "name": "Cody Stampede",
+      "lat": 44.51437,
+      "lon": -109.11048,
+      "pts": 25
+    },
+    {
+      "id": "p:stadium:WY:way1107122526",
+      "name": "Deti Stadium",
+      "lat": 41.30148,
+      "lon": -105.55182,
+      "pts": 25
+    },
+    {
+      "id": "p:stadium:WY:node2394709319",
+      "name": "Frontier Days Arena",
+      "lat": 41.15517,
+      "lon": -104.83625,
+      "pts": 25
+    },
+    {
+      "id": "p:stadium:WY:way361994922",
+      "name": "Frontier Days Rodeo Arena",
+      "lat": 41.15532,
+      "lon": -104.83531,
+      "pts": 25
+    },
+    {
+      "id": "p:stadium:WY:way1066608474",
+      "name": "Harry Geldien Stadium",
+      "lat": 42.84163,
+      "lon": -106.27872,
+      "pts": 25
+    },
+    {
+      "id": "p:stadium:WY:way589566003",
+      "name": "Okie Blanchard Stadium",
+      "lat": 41.14823,
+      "lon": -104.77507,
+      "pts": 25
+    },
+    {
+      "id": "p:stadium:WY:way1327324692",
+      "name": "Ranger Stadium",
+      "lat": 41.78438,
+      "lon": -110.54761,
+      "pts": 25
+    },
+    {
+      "id": "p:stadium:WY:way192527375",
+      "name": "Rodeo Park",
+      "lat": 41.79468,
+      "lon": -107.22874,
+      "pts": 25
+    },
+    {
+      "id": "p:stadium:WY:way232389450",
+      "name": "South High School stadium",
+      "lat": 41.10899,
+      "lon": -104.82223,
+      "pts": 25
+    },
+    {
+      "id": "p:stadium:WY:way1085179453",
+      "name": "Stadium & Track",
+      "lat": 41.17231,
+      "lon": -104.83706,
+      "pts": 25
+    },
+    {
+      "id": "p:stadium:WY:node356504837",
+      "name": "Thorne Ridge Stadium",
+      "lat": 44.81636,
+      "lon": -106.95896,
+      "pts": 25
+    },
+    {
+      "id": "p:stadium:WY:way625181001",
+      "name": "Tonkin Stadium",
+      "lat": 43.02578,
+      "lon": -108.39457,
+      "pts": 25
+    },
+    {
+      "id": "p:stadium:WY:way1388631769",
+      "name": "War Memorial Stadium",
+      "lat": 41.31162,
+      "lon": -105.56824,
+      "pts": 25
+    }
+  ],
+  "town": [
+    {
+      "id": "p:town:WY:5600245",
+      "name": "Afton",
+      "lat": 42.72634,
+      "lon": -110.93203,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5600825",
+      "name": "Albin",
+      "lat": 41.41694,
+      "lon": -104.10155,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5601695",
+      "name": "Alpine",
+      "lat": 43.16039,
+      "lon": -111.01475,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5604740",
+      "name": "Baggs",
+      "lat": 41.03466,
+      "lon": -107.65728,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5604885",
+      "name": "Bairoil",
+      "lat": 42.2372,
+      "lon": -107.56105,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5605245",
+      "name": "Bar Nunn",
+      "lat": 42.92199,
+      "lon": -106.34743,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5605320",
+      "name": "Basin",
+      "lat": 44.38056,
+      "lon": -108.04709,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5605625",
+      "name": "Bear River",
+      "lat": 41.38551,
+      "lon": -111.0282,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5607060",
+      "name": "Big Piney",
+      "lat": 42.54017,
+      "lon": -110.11934,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5610685",
+      "name": "Buffalo",
+      "lat": 44.33855,
+      "lon": -106.71534,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5611120",
+      "name": "Burlington",
+      "lat": 44.44707,
+      "lon": -108.43202,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5611265",
+      "name": "Burns",
+      "lat": 41.19087,
+      "lon": -104.35904,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5611700",
+      "name": "Byron",
+      "lat": 44.79674,
+      "lon": -108.50846,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5613150",
+      "name": "Casper",
+      "lat": 42.84212,
+      "lon": -106.32128,
+      "pts": 30
+    },
+    {
+      "id": "p:town:WY:5613900",
+      "name": "Cheyenne",
+      "lat": 41.1287,
+      "lon": -104.79078,
+      "pts": 30
+    },
+    {
+      "id": "p:town:WY:5614165",
+      "name": "Chugwater",
+      "lat": 41.75575,
+      "lon": -104.82294,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5615325",
+      "name": "Clearmont",
+      "lat": 44.63985,
+      "lon": -106.3813,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5615760",
+      "name": "Cody",
+      "lat": 44.52124,
+      "lon": -109.05747,
+      "pts": 20
+    },
+    {
+      "id": "p:town:WY:5615905",
+      "name": "Cokeville",
+      "lat": 42.07924,
+      "lon": -110.9519,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5617645",
+      "name": "Cowley",
+      "lat": 44.88345,
+      "lon": -108.46927,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5619385",
+      "name": "Dayton",
+      "lat": 44.87335,
+      "lon": -107.26243,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5619530",
+      "name": "Deaver",
+      "lat": 44.88902,
+      "lon": -108.59602,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5620110",
+      "name": "Diamondville",
+      "lat": 41.77782,
+      "lon": -110.53651,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5620690",
+      "name": "Dixon",
+      "lat": 41.0349,
+      "lon": -107.53614,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5621125",
+      "name": "Douglas",
+      "lat": 42.75477,
+      "lon": -105.3978,
+      "pts": 20
+    },
+    {
+      "id": "p:town:WY:5621415",
+      "name": "Dubois",
+      "lat": 43.54596,
+      "lon": -109.64763,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5622720",
+      "name": "East Thermopolis",
+      "lat": 43.64409,
+      "lon": -108.19788,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5623155",
+      "name": "Edgerton",
+      "lat": 43.41339,
+      "lon": -106.24736,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5624025",
+      "name": "Elk Mountain",
+      "lat": 41.6883,
+      "lon": -106.4135,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5624750",
+      "name": "Encampment",
+      "lat": 41.20876,
+      "lon": -106.79482,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5625620",
+      "name": "Evanston",
+      "lat": 41.26009,
+      "lon": -110.96374,
+      "pts": 20
+    },
+    {
+      "id": "p:town:WY:5625765",
+      "name": "Evansville",
+      "lat": 42.87599,
+      "lon": -106.26775,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5628230",
+      "name": "Fort Laramie",
+      "lat": 42.21308,
+      "lon": -104.5174,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5629825",
+      "name": "Frannie",
+      "lat": 44.97103,
+      "lon": -108.62054,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5631855",
+      "name": "Gillette",
+      "lat": 44.27258,
+      "lon": -105.49894,
+      "pts": 30
+    },
+    {
+      "id": "p:town:WY:5632290",
+      "name": "Glendo",
+      "lat": 42.50486,
+      "lon": -105.02499,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5632435",
+      "name": "Glenrock",
+      "lat": 42.85647,
+      "lon": -105.86235,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5632870",
+      "name": "Granger",
+      "lat": 41.59793,
+      "lon": -109.96523,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5633740",
+      "name": "Green River",
+      "lat": 41.51292,
+      "lon": -109.4708,
+      "pts": 20
+    },
+    {
+      "id": "p:town:WY:5633885",
+      "name": "Greybull",
+      "lat": 44.48653,
+      "lon": -108.05574,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5634320",
+      "name": "Guernsey",
+      "lat": 42.26479,
+      "lon": -104.74289,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5635335",
+      "name": "Hanna",
+      "lat": 41.8698,
+      "lon": -106.55964,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5635625",
+      "name": "Hartville",
+      "lat": 42.32763,
+      "lon": -104.7245,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5638960",
+      "name": "Hudson",
+      "lat": 42.9027,
+      "lon": -108.58199,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5639105",
+      "name": "Hulett",
+      "lat": 44.68324,
+      "lon": -104.59818,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5640120",
+      "name": "Jackson",
+      "lat": 43.47194,
+      "lon": -110.77527,
+      "pts": 20
+    },
+    {
+      "id": "p:town:WY:5641353",
+      "name": "Kaycee",
+      "lat": 43.71004,
+      "lon": -106.63728,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5642005",
+      "name": "Kemmerer",
+      "lat": 41.77848,
+      "lon": -110.55282,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5642730",
+      "name": "Kirby",
+      "lat": 43.80328,
+      "lon": -108.18097,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5643455",
+      "name": "La Barge",
+      "lat": 42.26078,
+      "lon": -110.1972,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5643745",
+      "name": "LaGrange",
+      "lat": 41.63857,
+      "lon": -104.163,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5644760",
+      "name": "Lander",
+      "lat": 42.83096,
+      "lon": -108.73056,
+      "pts": 20
+    },
+    {
+      "id": "p:town:WY:5645050",
+      "name": "Laramie",
+      "lat": 41.30595,
+      "lon": -105.60864,
+      "pts": 30
+    },
+    {
+      "id": "p:town:WY:5646790",
+      "name": "Lingle",
+      "lat": 42.13867,
+      "lon": -104.34604,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5647805",
+      "name": "Lost Springs",
+      "lat": 42.76517,
+      "lon": -104.92549,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5647950",
+      "name": "Lovell",
+      "lat": 44.8358,
+      "lon": -108.39189,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5648530",
+      "name": "Lusk",
+      "lat": 42.76126,
+      "lon": -104.4584,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5648675",
+      "name": "Lyman",
+      "lat": 41.32754,
+      "lon": -110.29745,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5649980",
+      "name": "Manderson",
+      "lat": 44.26976,
+      "lon": -107.9642,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5650270",
+      "name": "Manville",
+      "lat": 42.77945,
+      "lon": -104.61745,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5650415",
+      "name": "Marbleton",
+      "lat": 42.55741,
+      "lon": -110.10046,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5651575",
+      "name": "Medicine Bow",
+      "lat": 41.89954,
+      "lon": -106.20192,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5651720",
+      "name": "Meeteetse",
+      "lat": 44.14939,
+      "lon": -108.86324,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5652445",
+      "name": "Midwest",
+      "lat": 43.41077,
+      "lon": -106.27729,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5653460",
+      "name": "Mills",
+      "lat": 42.84988,
+      "lon": -106.39083,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5654185",
+      "name": "Moorcroft",
+      "lat": 44.26448,
+      "lon": -104.94756,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5655345",
+      "name": "Mountain View",
+      "lat": 41.27235,
+      "lon": -110.33407,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5656215",
+      "name": "Newcastle",
+      "lat": 43.85027,
+      "lon": -104.19649,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5657810",
+      "name": "Opal",
+      "lat": 41.76792,
+      "lon": -110.32439,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5660130",
+      "name": "Pavillion",
+      "lat": 43.24401,
+      "lon": -108.68902,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5661435",
+      "name": "Pine Bluffs",
+      "lat": 41.18021,
+      "lon": -104.07478,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5661610",
+      "name": "Pine Haven",
+      "lat": 44.35339,
+      "lon": -104.81045,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5661580",
+      "name": "Pinedale",
+      "lat": 42.86758,
+      "lon": -109.87053,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5662450",
+      "name": "Powell",
+      "lat": 44.76178,
+      "lon": -108.75758,
+      "pts": 20
+    },
+    {
+      "id": "p:town:WY:5663755",
+      "name": "Ranchester",
+      "lat": 44.9076,
+      "lon": -107.16732,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5663900",
+      "name": "Rawlins",
+      "lat": 41.78513,
+      "lon": -107.22465,
+      "pts": 20
+    },
+    {
+      "id": "p:town:WY:5666075",
+      "name": "Riverside",
+      "lat": 41.21541,
+      "lon": -106.78134,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5666220",
+      "name": "Riverton",
+      "lat": 43.02626,
+      "lon": -108.3813,
+      "pts": 20
+    },
+    {
+      "id": "p:town:WY:5667090",
+      "name": "Rock River",
+      "lat": 41.73174,
+      "lon": -105.97515,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5667235",
+      "name": "Rock Springs",
+      "lat": 41.5947,
+      "lon": -109.22092,
+      "pts": 20
+    },
+    {
+      "id": "p:town:WY:5667440",
+      "name": "Rolling Hills",
+      "lat": 42.90356,
+      "lon": -105.84337,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5668685",
+      "name": "Saratoga",
+      "lat": 41.45239,
+      "lon": -106.81173,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5669845",
+      "name": "Sheridan",
+      "lat": 44.79622,
+      "lon": -106.96417,
+      "pts": 20
+    },
+    {
+      "id": "p:town:WY:5670570",
+      "name": "Shoshoni",
+      "lat": 43.23953,
+      "lon": -108.10988,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5671150",
+      "name": "Sinclair",
+      "lat": 41.77608,
+      "lon": -107.11994,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5673180",
+      "name": "Star Valley Ranch",
+      "lat": 42.97969,
+      "lon": -110.96352,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5674195",
+      "name": "Sundance",
+      "lat": 44.40482,
+      "lon": -104.36621,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5674775",
+      "name": "Superior",
+      "lat": 41.75951,
+      "lon": -108.96424,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5675790",
+      "name": "Ten Sleep",
+      "lat": 44.03508,
+      "lon": -107.44819,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5676370",
+      "name": "Thayne",
+      "lat": 42.91989,
+      "lon": -110.99526,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5676515",
+      "name": "Thermopolis",
+      "lat": 43.64762,
+      "lon": -108.21454,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5677530",
+      "name": "Torrington",
+      "lat": 42.06505,
+      "lon": -104.17353,
+      "pts": 20
+    },
+    {
+      "id": "p:town:WY:5679125",
+      "name": "Upton",
+      "lat": 44.10402,
+      "lon": -104.63654,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5679705",
+      "name": "Van Tassell",
+      "lat": 42.66428,
+      "lon": -104.09133,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5681300",
+      "name": "Wamsutter",
+      "lat": 41.66798,
+      "lon": -107.97914,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5683040",
+      "name": "Wheatland",
+      "lat": 42.05171,
+      "lon": -104.95947,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5684925",
+      "name": "Worland",
+      "lat": 44.0204,
+      "lon": -107.96165,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5685015",
+      "name": "Wright",
+      "lat": 43.74915,
+      "lon": -105.49483,
+      "pts": 10
+    },
+    {
+      "id": "p:town:WY:5686665",
+      "name": "Yoder",
+      "lat": 41.91698,
+      "lon": -104.29539,
+      "pts": 10
+    }
+  ],
+  "waterfall": [
+    {
+      "id": "p:waterfall:WY:yellowstonelowerfalls",
+      "name": "Yellowstone Lower Falls",
+      "lat": 44.718,
+      "lon": -110.496,
+      "pts": 25
+    }
+  ],
+  "county": [
+    {
+      "id": "county:56021",
+      "name": "Laramie County",
+      "lat": 41.2983,
+      "lon": -104.5921,
+      "pts": 10
+    },
+    {
+      "id": "county:56005",
+      "name": "Campbell County",
+      "lat": 44.4417,
+      "lon": -105.6608,
+      "pts": 10
+    },
+    {
+      "id": "county:56041",
+      "name": "Uinta County",
+      "lat": 41.2627,
+      "lon": -110.6662,
+      "pts": 10
+    },
+    {
+      "id": "county:56015",
+      "name": "Goshen County",
+      "lat": 42.0847,
+      "lon": -104.2648,
+      "pts": 10
+    },
+    {
+      "id": "county:56003",
+      "name": "Big Horn County",
+      "lat": 44.6496,
+      "lon": -107.9952,
+      "pts": 10
+    },
+    {
+      "id": "county:56037",
+      "name": "Sweetwater County",
+      "lat": 41.6438,
+      "lon": -108.8285,
+      "pts": 10
+    },
+    {
+      "id": "county:56019",
+      "name": "Johnson County",
+      "lat": 44.1326,
+      "lon": -106.7351,
+      "pts": 10
+    },
+    {
+      "id": "county:56031",
+      "name": "Platte County",
+      "lat": 42.2391,
+      "lon": -105.0761,
+      "pts": 10
+    },
+    {
+      "id": "county:56045",
+      "name": "Weston County",
+      "lat": 43.8768,
+      "lon": -104.4788,
+      "pts": 10
+    },
+    {
+      "id": "county:56027",
+      "name": "Niobrara County",
+      "lat": 43.0104,
+      "lon": -104.4318,
+      "pts": 10
+    },
+    {
+      "id": "county:56029",
+      "name": "Park County",
+      "lat": 44.3817,
+      "lon": -109.7938,
+      "pts": 10
+    },
+    {
+      "id": "county:56013",
+      "name": "Fremont County",
+      "lat": 43.3054,
+      "lon": -108.9248,
+      "pts": 10
+    },
+    {
+      "id": "county:56017",
+      "name": "Hot Springs County",
+      "lat": 43.7432,
+      "lon": -108.5021,
+      "pts": 10
+    },
+    {
+      "id": "county:56033",
+      "name": "Sheridan County",
+      "lat": 44.8032,
+      "lon": -107.058,
+      "pts": 10
+    },
+    {
+      "id": "county:56025",
+      "name": "Natrona County",
+      "lat": 42.9949,
+      "lon": -107.0226,
+      "pts": 10
+    },
+    {
+      "id": "county:56001",
+      "name": "Albany County",
+      "lat": 41.8138,
+      "lon": -105.7602,
+      "pts": 10
+    },
+    {
+      "id": "county:56023",
+      "name": "Lincoln County",
+      "lat": 42.599,
+      "lon": -110.7306,
+      "pts": 10
+    },
+    {
+      "id": "county:56043",
+      "name": "Washakie County",
+      "lat": 43.8774,
+      "lon": -107.9382,
+      "pts": 10
+    },
+    {
+      "id": "county:56009",
+      "name": "Converse County",
+      "lat": 42.7973,
+      "lon": -105.5682,
+      "pts": 10
+    },
+    {
+      "id": "county:56035",
+      "name": "Sublette County",
+      "lat": 42.9057,
+      "lon": -109.942,
+      "pts": 10
+    },
+    {
+      "id": "county:56007",
+      "name": "Carbon County",
+      "lat": 41.6855,
+      "lon": -107.0496,
+      "pts": 10
+    },
+    {
+      "id": "county:56039",
+      "name": "Teton County",
+      "lat": 44.0221,
+      "lon": -110.5826,
+      "pts": 10
+    },
+    {
+      "id": "county:56011",
+      "name": "Crook County",
+      "lat": 44.6351,
+      "lon": -104.587,
+      "pts": 10
+    }
+  ],
+  "reservation": [
+    {
+      "id": "p:reservation:MT:crowreservationandoffreservationtrustland",
+      "name": "Crow Reservation and Off-Reservation Trust Land",
+      "lat": 44.9981,
+      "lon": -107.31631,
+      "pts": 50
+    },
+    {
+      "id": "p:reservation:WY:windriverreservationandoffreservationtrustland",
+      "name": "Wind River Reservation and Off-Reservation Trust Land",
+      "lat": 43.23406,
+      "lon": -108.81073,
+      "pts": 50
+    }
+  ],
+  "cemetery": [
+    {
+      "id": "p:cemetery:WY:cheyenne",
+      "name": "Cheyenne National Cemetery",
+      "lat": 41.17958,
+      "lon": -104.90429,
+      "pts": 15
+    }
+  ]
+}
