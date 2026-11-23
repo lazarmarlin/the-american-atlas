@@ -72,6 +72,11 @@ export async function loadLibraryPhoto(uri: string, max: number, quality: number
   return dataUrl;
 }
 
+export function forgetAdded(uri: string) {
+  const state = read();
+  write({ ...state, added: state.added.filter((item) => item !== uri) });
+}
+
 export function rememberAdded(uris: string[]) {
   if (!uris.length) return;
   const state = read();

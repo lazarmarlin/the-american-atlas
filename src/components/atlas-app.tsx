@@ -1324,6 +1324,7 @@ function AtlasShell() {
         marks={marks}
         trip={recordingTrip}
         onPhotosSaved={(rows) => setPhotos((prev) => [...rows, ...prev])}
+        onPhotoRemoved={(id) => setPhotos((prev) => prev.filter((photo) => photo.id !== id))}
       />
     );
   }

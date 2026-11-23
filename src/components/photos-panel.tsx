@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { matchPlace, readPhotoFile, tripFor, type RecordingTrip } from "@/lib/photo-file";
 import { loadParkShapes, matchPark, choosePhotoPlace } from "@/lib/park-photo";
 import { deletePhoto, loadPhoto, savePhoto, setPhotoShared, type PhotoInfo } from "@/lib/photos";
-import { canScanLibrary, lastScanAt, loadLibraryPhoto, rememberAdded, scanAllowed, scanLibrary } from "@/lib/photo-scan";
+import { canScanLibrary, forgetAdded, lastScanAt, loadLibraryPhoto, rememberAdded, scanAllowed, scanLibrary } from "@/lib/photo-scan";
 import { nativeApp } from "@/lib/native";
 import { deleteLocalPhoto, listLocalPhotos, markUploaded, saveLocalPhoto, setLocalShared, type LocalPhoto } from "@/lib/photo-local";
 import { bindSheetBack } from "@/lib/sheet-back";
@@ -37,11 +37,16 @@ function PlacePick({
   empty,
   marks,
   onPick,
+  label,
+  className,
 }: {
   place: Place | null;
   empty: string;
   marks: Place[];
   onPick: (place: Place) => void;
+  /** Button text instead of the place name. */
+  label?: string;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -58,9 +63,9 @@ function PlacePick({
           setQuery("");
           setOpen(true);
         }}
-        className="block h-9 w-full truncate rounded-md border border-line bg-bg px-2 text-left text-sm text-ink"
+        className={className ?? "block h-9 w-full max-w-full min-w-0 truncate rounded-md border border-line bg-bg px-2 text-left text-sm text-ink"}
       >
-        {place ? placeLabel(place) : empty}
+        {label ?? (place ? placeLabel(place) : empty)}
       </button>
       {open ? (
         <div
@@ -125,19 +130,250 @@ type Candidate = {
   matched: boolean;
   /** The place isn't on the atlas yet; adding the photo adds it too. */
   isNew?: boolean;
+  /** The saved photo's id once added, so it can be taken back out. */
+  savedId?: string;
   added: boolean;
 };
+
+const PAGE = 36;
+
+/** One photo in the review grid. Its thumbnail loads when it scrolls into view. */
+function ReviewTile({
+  row,
+  busy,
+  marks,
+  onThumb,
+  onToggle,
+  onPick,
+}: {
+  row: Candidate;
+  busy: boolean;
+  marks: Place[];
+  onThumb: (row: Candidate, thumb: string) => void;
+  onToggle: (row: Candidate) => void;
+  onPick: (row: Candidate, place: Place) => void;
+}) {
+  const ref = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    if (row.thumb || !row.uri || !ref.current) return;
+    const uri = row.uri;
+    const watch = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        watch.disconnect();
+        void phonePhoto(uri, 280, 80000)
+          .then((thumb) => onThumb(row, thumb))
+          .catch(() => undefined);
+      },
+      { rootMargin: "300px" },
+    );
+    watch.observe(ref.current);
+    return () => watch.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [row.key, row.thumb]);
+
+  return (
+    <li ref={ref} className="min-w-0">
+      <button
+        type="button"
+        aria-pressed={row.added}
+        aria-label={row.added ? "Added. Tap to take it back out" : row.place ? "Add this photo" : "Pick a place first"}
+        disabled={busy || !row.place}
+        onClick={() => onToggle(row)}
+        className={
+          "relative block aspect-square w-full overflow-hidden rounded-md border-2 bg-elevated disabled:opacity-60 " +
+          (row.added ? "border-accent" : "border-transparent")
+        }
+      >
+        {row.thumb ? <img src={row.thumb} alt="" className="size-full object-cover" /> : null}
+        <span
+          className={
+            "absolute right-1 bottom-1 rounded-full px-2 py-0.5 text-[11px] " +
+            (row.added ? "bg-accent text-bg" : "bg-black/60 text-white")
+          }
+        >
+          {row.added ? "Added ✓" : "Add"}
+        </span>
+      </button>
+      <span className="mt-0.5 flex min-w-0 items-center justify-between gap-1">
+        <span className="truncate text-[11px] text-faint">
+          {row.takenAt ? new Date(row.takenAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "No date"}
+        </span>
+        {!row.added ? (
+          <PlacePick
+            place={row.place}
+            empty=""
+            label="Move"
+            marks={marks}
+            onPick={(place) => onPick(row, place)}
+            className="shrink-0 px-1 text-[11px] text-muted underline"
+          />
+        ) : null}
+      </span>
+    </li>
+  );
+}
+
+/**
+ * The photos a scan found, on their own screen: grouped by place, a grid of
+ * thumbnails, more loading as you scroll. Tap a photo to add it, tap again to
+ * take it back out.
+ */
+function PhotoReview({
+  rows,
+  marks,
+  busy,
+  note,
+  onClose,
+  onPick,
+  onThumb,
+  onToggle,
+  onAddMany,
+}: {
+  rows: Candidate[];
+  marks: Place[];
+  busy: boolean;
+  note: string | null;
+  onClose: () => void;
+  onPick: (row: Candidate, place: Place) => void;
+  onThumb: (row: Candidate, thumb: string) => void;
+  onToggle: (row: Candidate) => void;
+  onAddMany: (rows: Candidate[]) => void;
+}) {
+  const [limit, setLimit] = useState(PAGE);
+  const body = useRef<HTMLDivElement>(null);
+  const end = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bindSheetBack(() => {
+      onClose();
+      return true;
+    });
+    return () => bindSheetBack(null);
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!end.current || limit >= rows.length) return;
+    const watch = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setLimit((n) => n + PAGE);
+      },
+      { root: body.current, rootMargin: "400px" },
+    );
+    watch.observe(end.current);
+    return () => watch.disconnect();
+  }, [limit, rows.length]);
+
+  // Group by place, in the order places first appear (newest photos first).
+  const groups: { key: string; place: Place | null; isNew: boolean; rows: Candidate[] }[] = [];
+  const byKey = new Map<string, (typeof groups)[number]>();
+  for (const row of rows) {
+    const key = row.place?.id ?? "none";
+    let group = byKey.get(key);
+    if (!group) {
+      group = { key, place: row.place, isNew: Boolean(row.isNew), rows: [] };
+      byKey.set(key, group);
+      groups.push(group);
+    }
+    group.rows.push(row);
+  }
+  let budget = limit;
+  const added = rows.filter((row) => row.added).length;
+  const remaining = rows.filter((row) => row.place && !row.added);
+
+  return (
+    <div role="dialog" aria-label="Review photos" className="fixed inset-0 z-50 flex flex-col bg-bg safe-top">
+      <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
+        <button type="button" onClick={onClose} className="h-11 px-2 text-sm text-muted">
+          ‹ Photos
+        </button>
+        <div className="min-w-0 flex-1 text-right">
+          <p className="font-serif text-lg leading-tight">Review photos</p>
+          <p className="text-xs text-muted">
+            {added} of {rows.length} added
+          </p>
+        </div>
+      </div>
+      {note ? <p className="shrink-0 px-4 pt-2 text-xs text-muted">{note}</p> : null}
+      <div ref={body} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-4">
+        {groups.map((group) => {
+          // Counts and "Add N" cover the whole group; only the first `limit` photos overall are drawn.
+          const open = group.rows.filter((row) => row.place && !row.added);
+          const drawn = group.rows.slice(0, Math.max(0, budget));
+          budget -= drawn.length;
+          if (!drawn.length) return null;
+          return (
+            <section key={group.key} className="mt-4 min-w-0">
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  {group.isNew ? <p className="text-[11px] tracking-widest text-accent uppercase">New place</p> : null}
+                  <p className="truncate text-sm">{group.place ? placeLabel(group.place) : "No place yet"}</p>
+                  <p className="text-xs text-faint">
+                    {group.rows.length} {group.rows.length === 1 ? "photo" : "photos"}
+                  </p>
+                </div>
+                <PlacePick
+                  place={group.place}
+                  empty=""
+                  label={group.place ? "Change" : "Pick a place"}
+                  marks={marks}
+                  onPick={(place) => group.rows.filter((row) => !row.added).forEach((row) => onPick(row, place))}
+                  className="h-9 shrink-0 rounded-lg border border-line px-3 text-xs"
+                />
+                {group.place && open.length ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onAddMany(open)}
+                    className="h-9 shrink-0 rounded-lg border border-ink bg-elevated px-3 text-xs disabled:text-faint"
+                  >
+                    Add {open.length}
+                  </button>
+                ) : null}
+              </div>
+              <ul className="mt-2 grid grid-cols-3 gap-2">
+                {drawn.map((row) => (
+                  <ReviewTile key={row.key} row={row} busy={busy} marks={marks} onThumb={onThumb} onToggle={onToggle} onPick={onPick} />
+                ))}
+              </ul>
+            </section>
+          );
+        })}
+        {limit < rows.length ? (
+          <div ref={end} className="py-6 text-center text-xs text-faint">
+            Loading more…
+          </div>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 gap-2 border-t border-line px-3 pt-2 safe-bottom">
+        <button
+          type="button"
+          disabled={busy || !remaining.length}
+          onClick={() => onAddMany(remaining)}
+          className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
+        >
+          {busy ? "Adding…" : remaining.length ? `Add all ${remaining.length}` : "All added"}
+        </button>
+        <button type="button" onClick={onClose} className="h-11 flex-1 rounded-lg border border-line text-sm">
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export function PhotoFinder({
   marks,
   trip,
   onSaved,
+  onRemoved,
   suggest,
   addPlace,
 }: {
   marks: Place[];
   trip: RecordingTrip;
   onSaved: (rows: PhotoInfo[]) => void;
+  onRemoved?: (id: string) => void;
   /** An atlas place, not yet added, where a photo was taken. */
   suggest?: (lat: number, lon: number) => Promise<Place | null>;
   addPlace?: (place: Place, takenAt: number | null) => Promise<void>;
@@ -147,6 +383,8 @@ export function PhotoFinder({
   const [note, setNote] = useState<string | null>(null);
   const [rows, setRows] = useState<Candidate[] | null>(null);
   const autoRan = useRef(false);
+  const [reviewing, setReviewing] = useState(false);
+  const suggestCache = useRef(new Map<string, Promise<Place | null>>());
 
   /** Phone only: read recent photos with their locations and offer the ones taken at places on the atlas. */
   async function scanPhone(quiet = false) {
@@ -161,19 +399,27 @@ export function PhotoFinder({
         const park = shapes ? matchPark(photo.lat, photo.lon, marks, shapes) : null;
         let place = choosePhotoPlace(photo.lat, photo.lon, byPoint, park);
         let isNew = false;
-        if (!place && suggest && next.length < 40) {
-          place = await suggest(photo.lat, photo.lon).catch(() => null);
+        if (!place && suggest) {
+          // Photos taken together share a lookup (about half a mile apart).
+          const cell = `${photo.lat.toFixed(2)},${photo.lon.toFixed(2)}`;
+          let pending = suggestCache.current.get(cell);
+          if (!pending) {
+            pending = suggest(photo.lat, photo.lon).catch(() => null);
+            suggestCache.current.set(cell, pending);
+          }
+          place = await pending;
           isNew = Boolean(place);
         }
         if (!place) {
           elsewhere += 1;
           continue;
         }
-        if (next.length >= 40) continue;
+        if (next.length >= 500) continue;
         next.push({
           key: photo.uri,
           uri: photo.uri,
-          thumb: await phonePhoto(photo.uri, 280, 80000).catch(() => ""),
+          // Thumbnails load as rows scroll into view.
+          thumb: "",
           image: "",
           lat: photo.lat,
           lon: photo.lon,
@@ -184,9 +430,10 @@ export function PhotoFinder({
           added: false,
         });
       }
-      const shown = next.filter((row) => row.thumb);
+      const shown = next;
       if (quiet && !shown.length) return;
       setRows(shown.length ? shown : null);
+      if (shown.length && !quiet) setReviewing(true);
       const parts = [
         shown.length
           ? `Found ${shown.length} ${shown.length === 1 ? "photo" : "photos"} taken at atlas places.${
@@ -252,38 +499,43 @@ export function PhotoFinder({
       unreadable ? `${unreadable} couldn't be read.` : "",
     ].filter(Boolean);
     setNote(next.length ? `${parts.join(" ")} Nothing is saved until you add them.` : "Those couldn't be read.");
+    if (next.length) setReviewing(true);
     setBusy(false);
+  }
+
+  /** Save one candidate's photo (and its place, if new). */
+  async function saveRow(row: Candidate): Promise<PhotoInfo> {
+    const id = `ph-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const place = row.place!;
+    const image = row.image || (row.uri ? await phonePhoto(row.uri, 720, 160000) : "");
+    if (!image) throw new Error("Couldn't read a photo.");
+    const thumb = row.thumb || (row.uri ? await phonePhoto(row.uri, 280, 80000) : "");
+    if (row.isNew && addPlace && !marks.some((mark) => mark.id === place.id)) await addPlace(place, row.takenAt);
+    const info: PhotoInfo = {
+      id,
+      poiId: place.id,
+      tripId: tripFor(trip, place.id),
+      caption: "",
+      takenAt: row.takenAt,
+      lat: place.lat ?? row.lat,
+      lon: place.lon ?? row.lon,
+      shared: false,
+      thumb,
+    };
+    if (nativeApp) await saveLocalPhoto({ ...info, image, uploaded: false, uri: row.uri });
+    else await savePhoto({ data: { ...info, image } });
+    if (row.uri) rememberAdded([row.uri]);
+    setRows((list) => list?.map((item) => (item.key === row.key ? { ...item, added: true, savedId: id } : item)) ?? list);
+    return info;
   }
 
   async function addOne(row: Candidate) {
     if (!row.place || row.added) return;
     setBusy(true);
     try {
-      const id = `ph-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-      const place = row.place;
-      const image = row.image || (row.uri ? await phonePhoto(row.uri, 720, 160000) : "");
-      if (!image) throw new Error("Couldn't read a photo.");
-      if (row.isNew && addPlace && !marks.some((mark) => mark.id === place.id)) await addPlace(place, row.takenAt);
-      const info: PhotoInfo = {
-        id,
-        poiId: place.id,
-        tripId: tripFor(trip, place.id),
-        caption: "",
-        takenAt: row.takenAt,
-        lat: place.lat ?? row.lat,
-        lon: place.lon ?? row.lon,
-        shared: false,
-        thumb: row.thumb,
-      };
-      if (nativeApp) {
-        await saveLocalPhoto({ ...info, image, uploaded: false, uri: row.uri });
-      } else {
-        await savePhoto({ data: { ...info, image } });
-      }
-      if (row.uri) rememberAdded([row.uri]);
-      setRows((list) => list?.map((item) => (item.key === row.key ? { ...item, added: true } : item)) ?? list);
+      const info = await saveRow(row);
       onSaved([info]);
-      setNote(`Added${nativeApp ? " locally" : ""}.`);
+      setNote(nativeApp ? "Added. It's on this phone until you upload it." : "Added.");
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Couldn't add that photo.");
     } finally {
@@ -291,8 +543,26 @@ export function PhotoFinder({
     }
   }
 
-  async function addAll() {
-    const chosen = (rows ?? []).filter((row) => row.place && !row.added);
+  /** Tapping "Added" again takes the photo back out. A place it added stays. */
+  async function undoRow(row: Candidate) {
+    if (!row.savedId) return;
+    setBusy(true);
+    try {
+      if (nativeApp) await deleteLocalPhoto(row.savedId);
+      await deletePhoto({ data: row.savedId }).catch(() => undefined);
+      if (row.uri) forgetAdded(row.uri);
+      setRows((list) => list?.map((item) => (item.key === row.key ? { ...item, added: false, savedId: undefined } : item)) ?? list);
+      onRemoved?.(row.savedId);
+      setNote("Taken back out.");
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Couldn't remove that photo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addMany(list: Candidate[]) {
+    const chosen = list.filter((row) => row.place && !row.added);
     if (!chosen.length) {
       setNote("Pick a place for at least one photo.");
       return;
@@ -301,37 +571,14 @@ export function PhotoFinder({
     const saved: PhotoInfo[] = [];
     for (const row of chosen) {
       try {
-        const id = `ph-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-        const place = row.place!;
-        const image = row.image || (row.uri ? await phonePhoto(row.uri, 720, 160000) : "");
-        if (!image) throw new Error("Couldn't read a photo.");
-        if (row.isNew && addPlace && !marks.some((mark) => mark.id === place.id)) await addPlace(place, row.takenAt);
-        const info: PhotoInfo = {
-          id,
-          poiId: place.id,
-          tripId: tripFor(trip, place.id),
-          caption: "",
-          takenAt: row.takenAt,
-          lat: place.lat ?? row.lat,
-          lon: place.lon ?? row.lon,
-          shared: false,
-          thumb: row.thumb,
-        };
-        if (nativeApp) {
-          await saveLocalPhoto({ ...info, image, uploaded: false, uri: row.uri });
-        } else {
-          await savePhoto({ data: { ...info, image } });
-        }
-        if (row.uri) rememberAdded([row.uri]);
-        saved.push(info);
-        setRows((list) => list?.map((item) => (item.key === row.key ? { ...item, added: true } : item)) ?? list);
+        saved.push(await saveRow(row));
       } catch (err) {
         setNote(err instanceof Error ? err.message : "Couldn't add a photo.");
         break;
       }
     }
     if (saved.length) onSaved(saved);
-    setNote(saved.length ? `Added ${saved.length} ${saved.length === 1 ? "photo" : "photos"}${nativeApp ? " locally" : ""}.` : note);
+    if (saved.length) setNote(`Added ${saved.length} ${saved.length === 1 ? "photo" : "photos"}${nativeApp ? " to this phone" : ""}.`);
     setBusy(false);
   }
 
@@ -391,57 +638,40 @@ export function PhotoFinder({
       )}
       {note ? <p className="mt-2 text-sm text-muted">{note}</p> : null}
       {rows?.length ? (
-        <div className="mt-3">
-          <ul className="grid gap-2">
-            {rows.map((row) => (
-              <li key={row.key} className="flex items-center gap-2 rounded-lg border border-line px-2 py-2">
-                <img src={row.thumb} alt="" className="size-12 shrink-0 rounded-md object-cover" />
-                <span className="min-w-0 flex-1">
-                  {row.isNew ? <span className="block text-xs tracking-widest text-accent uppercase">New place</span> : null}
-                  <PlacePick
-                    place={row.place}
-                    empty={row.lat == null ? "No location. Pick a place" : "Nothing close. Pick a place"}
-                    marks={marks}
-                    onPick={(place) => {
-                      setRows(
-                        (list) => list?.map((item) => (item.key === row.key ? { ...item, place, isNew: false, added: false } : item)) ?? list,
-                      );
-                    }}
-                  />
-                  <span className="mt-0.5 block text-xs text-faint">
-                    {row.takenAt
-                      ? new Date(row.takenAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-                      : "No date"}
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  disabled={!row.place || row.added || busy}
-                  onClick={() => void addOne(row)}
-                  className={
-                    "h-11 shrink-0 rounded-lg border px-3 text-xs disabled:text-faint " +
-                    (row.added ? "border-accent bg-accent/20 text-accent" : "border-ink bg-elevated")
-                  }
-                >
-                  {row.added ? "Added!" : "Add"}
-                </button>
-              </li>
-            ))}
-          </ul>
+        <div className="mt-3 rounded-lg border border-line px-3 py-3">
+          <p className="text-sm">
+            {rows.filter((row) => row.added).length
+              ? `${rows.filter((row) => row.added).length} of ${rows.length} photos added.`
+              : `${rows.length} ${rows.length === 1 ? "photo" : "photos"} ready to review.`}
+          </p>
           <div className="mt-2 flex gap-2">
             <button
               type="button"
-              disabled={busy || !rows.some((row) => row.place && !row.added)}
-              onClick={() => void addAll()}
-              className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
+              onClick={() => setReviewing(true)}
+              className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm"
             >
-              {busy ? "Adding…" : `Add all remaining`}
+              Review photos
             </button>
             <button type="button" onClick={() => setRows(null)} className="h-11 flex-1 rounded-lg border border-line text-sm">
-              Cancel
+              {rows.some((row) => row.added) ? "Done" : "Not now"}
             </button>
           </div>
         </div>
+      ) : null}
+      {reviewing && rows?.length ? (
+        <PhotoReview
+          rows={rows}
+          marks={marks}
+          busy={busy}
+          note={note}
+          onClose={() => setReviewing(false)}
+          onPick={(row, place) =>
+            setRows((list) => list?.map((item) => (item.key === row.key ? { ...item, place, isNew: false } : item)) ?? list)
+          }
+          onThumb={(row, thumb) => setRows((list) => list?.map((item) => (item.key === row.key ? { ...item, thumb } : item)) ?? list)}
+          onToggle={(row) => void (row.added ? undoRow(row) : addOne(row))}
+          onAddMany={(list) => void addMany(list)}
+        />
       ) : null}
     </div>
   );
@@ -682,6 +912,7 @@ export function PhotosPanel({
           suggest={suggest}
           addPlace={addPlace}
           onSaved={(rows) => onChange([...rows, ...photos])}
+          onRemoved={(id) => onChange(photos.filter((photo) => photo.id !== id))}
         />
       </div>
       <div className="mt-4 flex gap-2 px-2">

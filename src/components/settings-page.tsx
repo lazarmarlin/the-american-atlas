@@ -31,6 +31,7 @@ export function SettingsPage({
   marks,
   trip,
   onPhotosSaved,
+  onPhotoRemoved,
 }: {
   profile: Profile;
   email: string | null;
@@ -43,6 +44,7 @@ export function SettingsPage({
   marks: { id: string; name: string; lat: number | null; lon: number | null; category: string }[];
   trip: RecordingTrip;
   onPhotosSaved: (rows: PhotoInfo[]) => void;
+  onPhotoRemoved?: (id: string) => void;
 }) {
   const icons = useSettings((s) => s.icons);
   const stateBorder = useSettings((s) => s.stateBorder);
@@ -479,7 +481,7 @@ export function SettingsPage({
             On the phone, choose the pictures to check. The website can only see the ones you pick. A match needs a location on the photo and a place you have already added.
           </p>
           <div className="mt-3">
-            <PhotoFinder marks={marks} trip={trip} onSaved={onPhotosSaved} />
+            <PhotoFinder marks={marks} trip={trip} onSaved={onPhotosSaved} onRemoved={onPhotoRemoved} />
           </div>
           <button
             type="button"
