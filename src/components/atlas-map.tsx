@@ -501,9 +501,20 @@ export function AtlasMap({
           source: "ghost-saved",
           paint: {
             "line-color": "#d5e2ea",
-            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1, 10, 1.6, 14, 2.2],
+            // The selected trail is wider and stronger, in any color.
+            "line-width": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              4,
+              ["case", savedFocus, 1.8, 1],
+              10,
+              ["case", savedFocus, 2.6, 1.6],
+              14,
+              ["case", savedFocus, 3.4, 2.2],
+            ],
             "line-blur": 0.5,
-            "line-opacity": ["case", savedFocus, 0.8, 0.4],
+            "line-opacity": ["case", savedFocus, 0.95, 0.35],
           },
           layout: { "line-cap": "round", "line-join": "round" },
         });
@@ -571,6 +582,8 @@ export function AtlasMap({
             "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1.4, 10, 2, 14, 2.6],
             "line-blur": 0.4,
             "line-opacity": 0.9,
+            // Dashed, so a friend's trail never looks like your own in any color.
+            "line-dasharray": [2, 1.5],
           },
           layout: { "line-cap": "round", "line-join": "round" },
         });
@@ -967,6 +980,11 @@ export function AtlasMap({
     }
     for (const id of ["ghost-saved-haze", "ghost-saved-line"]) {
       if (map.getLayer(id)) map.setPaintProperty(id, "line-color", ghostColor);
+    }
+    // A friend's trail is gold, unless your own trail is gold: then teal.
+    const friendColor = ghostColor === "#e2b15a" ? "#3dbebf" : "#e2b15a";
+    for (const id of ["friend-haze", "friend-line"]) {
+      if (map.getLayer(id)) map.setPaintProperty(id, "line-color", friendColor);
     }
   }, [ghostColor, ready]);
 

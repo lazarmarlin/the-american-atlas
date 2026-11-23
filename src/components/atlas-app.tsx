@@ -26,6 +26,8 @@ import { AtlasSplash, LoginScreen } from "@/components/login-screen";
 import { SettingsPage } from "@/components/settings-page";
 import { GhostPanel } from "@/components/ghost-panel";
 import { FriendsPanel } from "@/components/friends-panel";
+import { RecapPanel } from "@/components/recap-panel";
+import { flushDriveLog, logDrive, switchDriveLog } from "@/lib/drive-log";
 import { acceptFriend } from "@/lib/friends";
 import { useSettingsRoute } from "@/lib/settings-route";
 import { Tour } from "@/components/tour";
@@ -64,6 +66,7 @@ const TABS = [
   ["near", "Near"],
   ["trips", "Trips"],
   ["badges", "Badges"],
+  ["recap", "Recap"],
   ["friends", "Friends"],
 ] as const;
 
@@ -515,6 +518,7 @@ function AtlasShell() {
       const latest = fixes[fixes.length - 1];
       if (latest) paintTracker(latest, forceDot);
       useGhost.getState().record(fixes);
+      logDrive(fixes);
       pending.push(...fixes);
       void pump();
     }
@@ -567,6 +571,7 @@ function AtlasShell() {
           if (dead) return;
           paintTracker(fix, true);
           useGhost.getState().record([fix]);
+          logDrive([fix]);
         })
         .catch(() => {});
     };
@@ -809,11 +814,14 @@ function AtlasShell() {
   const ghostUserId = user?.id ?? null;
   useEffect(() => {
     loadGhost(ghostUserId);
+    switchDriveLog(ghostUserId);
   }, [ghostUserId]);
   useEffect(() => {
     const prune = window.setInterval(() => useGhost.getState().prune(GHOST_KEEP_HOURS), 30_000);
     const sync = () => {
       if (document.visibilityState === "visible") void syncGhost();
+      // Going to the background: send today's miles so other devices see them.
+      else void flushDriveLog();
     };
     window.addEventListener("online", sync);
     document.addEventListener("visibilitychange", sync);
@@ -1331,7 +1339,7 @@ function AtlasShell() {
           </div>
         </header>
 
-        {tab !== "badges" && tab !== "trips" && tab !== "friends" ? (
+        {tab !== "badges" && tab !== "trips" && tab !== "recap" && tab !== "friends" ? (
           <div className="shrink-0 px-4 pb-3">
             <label className="flex items-center gap-2 rounded-card border border-line bg-bg px-3">
               <Search className="size-4 shrink-0 text-faint" aria-hidden="true" />
@@ -1413,6 +1421,7 @@ function AtlasShell() {
               onToggle={(group) => setOpenGroup(openGroup === group ? null : group)}
             />
           ) : null}
+          {tab === "recap" ? <RecapPanel name={profile.name || user?.displayName || ""} /> : null}
           {tab === "friends" ? (
             <FriendsPanel
               openId={friendId}

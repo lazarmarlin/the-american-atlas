@@ -1,5 +1,14 @@
 import { create } from "zustand";
-import { deleteGhostTrail, listGhostTrails, MAX_TRAILS, saveGhostTrail, setGhostTrailHidden, type PackedPoint, type SyncedTrail } from "@/lib/ghost-sync";
+import {
+  deleteGhostTrail,
+  listGhostTrails,
+  MAX_TRAILS,
+  saveGhostTrail,
+  setGhostTrailHidden,
+  setGhostTrailShared,
+  type PackedPoint,
+  type SyncedTrail,
+} from "@/lib/ghost-sync";
 import { milesBetween, type Fix } from "@/lib/nearby";
 
 /** One sample of where you were. `brk` starts a new wisp so a long jump is not a line across the map. */
@@ -28,14 +37,16 @@ const LEGACY_KEY = "ghost-trails";
 const keyFor = (userId: string) => `ghost-trails:${userId}`;
 
 /** Saved-trail changes not yet on the server. */
-type Pending = { upsert: string[]; remove: string[]; hide: string[] };
-const noPending = (): Pending => ({ upsert: [], remove: [], hide: [] });
+type Pending = { upsert: string[]; remove: string[]; hide: string[]; share: string[] };
+const noPending = (): Pending => ({ upsert: [], remove: [], hide: [], share: [] });
 
 type Stored = {
   v: 2;
   live: GhostPoint[];
   saved: SavedGhost[];
   hidden: string[];
+  /** Saved trails friends can see. Separate from hidden, which is about your own map. */
+  shared?: string[];
   pending: Pending;
   /** True once this account's local trails have been merged with the server at least once. */
   synced: boolean;
@@ -61,6 +72,9 @@ type GhostState = {
   saveLive: (name: string, hours: number) => "short" | "full" | SavedGhost;
   removeSaved: (id: string) => void;
   toggleHidden: (id: string) => void;
+  /** Saved trails your friends can see (off until you turn it on). */
+  shared: string[];
+  toggleShared: (id: string) => void;
   lookAt: (id: string | null) => void;
 };
 
@@ -263,9 +277,9 @@ function scheduleSave() {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     saveTimer = null;
-    const { live, saved, hidden, pending, synced, userId } = useGhost.getState();
+    const { live, saved, hidden, shared, pending, synced, userId } = useGhost.getState();
     if (!userId) return; // signed out: nothing is kept on the device
-    const payload: Stored = { v: 2, live, saved, hidden, pending, synced };
+    const payload: Stored = { v: 2, live, saved, hidden, shared, pending, synced };
     void writeKey(keyFor(userId), payload);
   }, 400);
 }
@@ -277,6 +291,7 @@ export const useGhost = create<GhostState>((set, get) => ({
   live: [],
   saved: [],
   hidden: [],
+  shared: [],
   focusId: null,
   look: 0,
   dirty: false,
@@ -329,11 +344,13 @@ export const useGhost = create<GhostState>((set, get) => ({
     set((state) => ({
       saved: state.saved.filter((item) => item.id !== id),
       hidden: state.hidden.filter((item) => item !== id),
+      shared: state.shared.filter((item) => item !== id),
       focusId: state.focusId === id ? null : state.focusId,
       dirty: true,
       pending: {
         upsert: dropFrom(state.pending.upsert, id),
         hide: dropFrom(state.pending.hide, id),
+        share: dropFrom(state.pending.share, id),
         remove: addTo(state.pending.remove, id),
       },
     }));
@@ -345,6 +362,15 @@ export const useGhost = create<GhostState>((set, get) => ({
       hidden: state.hidden.includes(id) ? state.hidden.filter((item) => item !== id) : [...state.hidden, id],
       dirty: true,
       pending: { ...state.pending, hide: addTo(state.pending.hide, id) },
+    }));
+    scheduleSave();
+    scheduleSync();
+  },
+  toggleShared: (id) => {
+    set((state) => ({
+      shared: state.shared.includes(id) ? state.shared.filter((item) => item !== id) : [...state.shared, id],
+      dirty: true,
+      pending: { ...state.pending, share: addTo(state.pending.share, id) },
     }));
     scheduleSave();
     scheduleSync();
@@ -365,7 +391,7 @@ export function loadGhost(userId: string | null) {
   if (userId === loadingFor && (state.ready || userId === null)) return;
   if (state.userId !== userId) {
     // Another account's trails never stay on screen.
-    useGhost.setState({ live: [], saved: [], hidden: [], focusId: null, dirty: false, ready: false, userId, pending: noPending(), synced: false });
+    useGhost.setState({ live: [], saved: [], hidden: [], shared: [], focusId: null, dirty: false, ready: false, userId, pending: noPending(), synced: false });
   }
   loadingFor = userId;
   if (!userId) {
@@ -389,19 +415,31 @@ export function loadGhost(userId: string | null) {
         upsert: (data.pending?.upsert ?? []).filter((id) => typeof id === "string"),
         remove: (data.pending?.remove ?? []).filter((id) => typeof id === "string"),
         hide: (data.pending?.hide ?? []).filter((id) => typeof id === "string"),
+        share: (data.pending?.share ?? []).filter((id) => typeof id === "string"),
       };
+      const diskShared = (Array.isArray(data.shared) ? data.shared : []).filter((id) => typeof id === "string");
       if (!cur.dirty) {
-        return { live: diskLive, saved: diskSaved, hidden: diskHidden, pending: diskPending, synced: Boolean(data.synced), ready: true };
+        return {
+          live: diskLive,
+          saved: diskSaved,
+          hidden: diskHidden,
+          shared: diskShared,
+          pending: diskPending,
+          synced: Boolean(data.synced),
+          ready: true,
+        };
       }
       const known = new Set(cur.saved.map((item) => item.id));
       return {
         live: joinTrail(diskLive, cur.live),
         saved: [...cur.saved, ...diskSaved.filter((item) => !known.has(item.id))],
         hidden: cur.hidden.length ? cur.hidden : diskHidden,
+        shared: cur.shared.length ? cur.shared : diskShared,
         pending: {
           upsert: [...new Set([...diskPending.upsert, ...cur.pending.upsert])],
           remove: [...new Set([...diskPending.remove, ...cur.pending.remove])],
           hide: [...new Set([...diskPending.hide, ...cur.pending.hide])],
+          share: [...new Set([...diskPending.share, ...cur.pending.share])],
         },
         synced: Boolean(data.synced),
         ready: true,
@@ -469,6 +507,7 @@ async function runSync() {
               startedAt: trail.startedAt,
               savedAt: trail.savedAt,
               hidden: cur.hidden.includes(trail.id),
+              shared: cur.shared.includes(trail.id),
               points: pack(trail.points),
             },
           });
@@ -486,6 +525,11 @@ async function runSync() {
       if (!still()) return;
       useGhost.setState((s) => ({ pending: { ...s.pending, hide: dropFrom(s.pending.hide, id) } }));
     }
+    for (const id of [...useGhost.getState().pending.share]) {
+      await setGhostTrailShared({ data: { id, shared: useGhost.getState().shared.includes(id) } });
+      if (!still()) return;
+      useGhost.setState((s) => ({ pending: { ...s.pending, share: dropFrom(s.pending.share, id) } }));
+    }
 
     const remote: SyncedTrail[] = await listGhostTrails();
     if (!still()) return;
@@ -500,6 +544,7 @@ async function runSync() {
       const saved = [...localOnly, ...fromServer].sort((a, b) => b.savedAt - a.savedAt).slice(0, MAX_SAVED);
       const ids = new Set(saved.map((t) => t.id));
       const hidePending = new Set(s.pending.hide);
+      const sharePending = new Set(s.pending.share);
       const hidden = [
         ...remote.filter((t) => t.hidden && ids.has(t.id) && !hidePending.has(t.id)).map((t) => t.id),
         ...s.hidden.filter((id) => ids.has(id) && (hidePending.has(id) || queued.has(id))),
@@ -507,6 +552,12 @@ async function runSync() {
       return {
         saved,
         hidden: [...new Set(hidden)],
+        shared: [
+          ...new Set([
+            ...remote.filter((t) => t.shared && ids.has(t.id) && !sharePending.has(t.id)).map((t) => t.id),
+            ...s.shared.filter((id) => ids.has(id) && (sharePending.has(id) || queued.has(id))),
+          ]),
+        ],
         focusId: s.focusId && s.focusId !== "live" && !ids.has(s.focusId) ? null : s.focusId,
         synced: true,
       };
@@ -528,7 +579,7 @@ export async function clearGhostLocal(): Promise<void> {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = null;
   loadingFor = null;
-  useGhost.setState({ live: [], saved: [], hidden: [], focusId: null, dirty: false, ready: true, userId: null, pending: noPending(), synced: false });
+  useGhost.setState({ live: [], saved: [], hidden: [], shared: [], focusId: null, dirty: false, ready: true, userId: null, pending: noPending(), synced: false });
   if (userId) await writeKey(keyFor(userId), undefined);
 }
 
