@@ -1,7 +1,17 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { matchPlace, readPhotoFile, tripFor, type RecordingTrip } from "@/lib/photo-file";
 import { loadParkShapes, matchPark, choosePhotoPlace } from "@/lib/park-photo";
 import { deletePhoto, loadPhoto, savePhoto, setPhotoShared, type PhotoInfo } from "@/lib/photos";
+import { canScanLibrary, lastScanAt, loadLibraryPhoto, rememberAdded, scanAllowed, scanLibrary } from "@/lib/photo-scan";
+
+/** A phone photo as a JPEG data URL under `limit` characters, trying lower quality if needed. */
+async function phonePhoto(uri: string, edge: number, limit: number) {
+  for (const quality of [72, 58, 45]) {
+    const url = await loadLibraryPhoto(uri, edge, quality);
+    if (url.length <= limit) return url;
+  }
+  throw new Error("That photo is too large to add.");
+}
 
 type Place = { id: string; name: string; lat: number | null; lon: number | null; category: string; state?: string };
 
@@ -101,13 +111,17 @@ function PlacePick({
 type Candidate = {
   key: string;
   thumb: string;
+  /** Empty for a camera-roll photo until it's added; read from `uri` then. */
   image: string;
+  uri?: string;
   lat: number | null;
   lon: number | null;
   takenAt: number | null;
   place: Place | null;
   /** Matched from the photo's location, not picked by hand. */
   matched: boolean;
+  /** The place isn't on the atlas yet; adding the photo adds it too. */
+  isNew?: boolean;
   keep: boolean;
 };
 
@@ -115,15 +129,86 @@ export function PhotoFinder({
   marks,
   trip,
   onSaved,
+  suggest,
+  addPlace,
 }: {
   marks: Place[];
   trip: RecordingTrip;
   onSaved: (rows: PhotoInfo[]) => void;
+  /** An atlas place, not yet added, where a photo was taken. */
+  suggest?: (lat: number, lon: number) => Promise<Place | null>;
+  addPlace?: (place: Place, takenAt: number | null) => Promise<void>;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [rows, setRows] = useState<Candidate[] | null>(null);
+  const autoRan = useRef(false);
+
+  /** Phone only: read recent photos with their locations and offer the ones taken at places on the atlas. */
+  async function scanPhone(quiet = false) {
+    setBusy(true);
+    if (!quiet) setNote(null);
+    try {
+      const [found, shapes] = await Promise.all([scanLibrary(), loadParkShapes().catch(() => null)]);
+      const next: Candidate[] = [];
+      let elsewhere = 0;
+      for (const photo of found.photos) {
+        const byPoint = matchPlace(photo.lat, photo.lon, marks);
+        const park = shapes ? matchPark(photo.lat, photo.lon, marks, shapes) : null;
+        let place = choosePhotoPlace(photo.lat, photo.lon, byPoint, park);
+        let isNew = false;
+        if (!place && suggest && next.length < 40) {
+          place = await suggest(photo.lat, photo.lon).catch(() => null);
+          isNew = Boolean(place);
+        }
+        if (!place) {
+          elsewhere += 1;
+          continue;
+        }
+        if (next.length >= 40) continue;
+        next.push({
+          key: photo.uri,
+          uri: photo.uri,
+          thumb: await phonePhoto(photo.uri, 96, 40000).catch(() => ""),
+          image: "",
+          lat: photo.lat,
+          lon: photo.lon,
+          takenAt: photo.takenAt || null,
+          place,
+          matched: true,
+          isNew,
+          keep: true,
+        });
+      }
+      const shown = next.filter((row) => row.thumb);
+      if (quiet && !shown.length) return;
+      setRows(shown.length ? shown : null);
+      const parts = [
+        shown.length
+          ? `Found ${shown.length} ${shown.length === 1 ? "photo" : "photos"} taken at atlas places.${
+              shown.some((row) => row.isNew) ? " Ones marked New add that place too." : ""
+            }`
+          : "No new photos from the last 90 days were taken at atlas places.",
+        elsewhere ? `${elsewhere} ${elsewhere === 1 ? "was" : "were"} taken away from any atlas place.` : "",
+        found.noLocation ? `${found.noLocation} had no location saved.` : "",
+      ].filter(Boolean);
+      setNote(`${parts.join(" ")}${shown.length ? " Nothing is saved until you add them." : ""}`);
+    } catch (err) {
+      if (!quiet) setNote(err instanceof Error ? err.message : "Couldn't read your photos.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Once the app may read photos, look for new ones each time the gallery opens (at most hourly).
+  useEffect(() => {
+    if (autoRan.current || !canScanLibrary() || !scanAllowed() || !marks.length) return;
+    if (Date.now() - lastScanAt() < 3_600_000) return;
+    autoRan.current = true;
+    void scanPhone(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marks.length]);
 
   async function scan(files: FileList | null) {
     if (!files?.length) return;
@@ -179,6 +264,9 @@ export function PhotoFinder({
       const id = `ph-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
       const place = row.place!;
       try {
+        const image = row.image || (row.uri ? await phonePhoto(row.uri, 720, 160000) : "");
+        if (!image) throw new Error("Couldn't read a photo.");
+        if (row.isNew && addPlace && !marks.some((mark) => mark.id === place.id)) await addPlace(place, row.takenAt);
         await savePhoto({
           data: {
             id,
@@ -189,9 +277,10 @@ export function PhotoFinder({
             lat: place.lat ?? row.lat,
             lon: place.lon ?? row.lon,
             thumb: row.thumb,
-            image: row.image,
+            image,
           },
         });
+        if (row.uri) rememberAdded([row.uri]);
         saved.push({
           id,
           poiId: place.id,
@@ -227,17 +316,45 @@ export function PhotoFinder({
           event.target.value = "";
         }}
       />
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => input.current?.click()}
-        className="h-11 w-full rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
-      >
-        {busy ? "Reading photos…" : "Find photos of places you've been"}
-      </button>
-      <p className="mt-2 text-xs text-muted">
-        Choose pictures from your camera roll. A picture with a location is matched to a place already on your atlas; for the rest, pick the place. Nothing is uploaded until you add it.
-      </p>
+      {canScanLibrary() ? (
+        <>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void scanPhone()}
+            className="h-11 w-full rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
+          >
+            {busy ? "Looking through your photos…" : "Scan my camera roll"}
+          </button>
+          <p className="mt-2 text-xs text-muted">
+            Looks at the last 90 days of photos and finds the ones taken at places on your atlas. Android asks once to let the
+            app see your photos and where they were taken. Nothing is uploaded until you add it.
+          </p>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => input.current?.click()}
+            className="mt-2 h-11 w-full rounded-lg border border-line text-sm text-muted disabled:text-faint"
+          >
+            Choose photos instead
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => input.current?.click()}
+            className="h-11 w-full rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
+          >
+            {busy ? "Reading photos…" : "Find photos of places you've been"}
+          </button>
+          <p className="mt-2 text-xs text-muted">
+            Choose pictures from your camera roll. A picture with a location is matched to a place already on your atlas; for
+            the rest, pick the place. Nothing is uploaded until you add it.
+          </p>
+        </>
+      )}
       {note ? <p className="mt-2 text-sm text-muted">{note}</p> : null}
       {rows?.length ? (
         <div className="mt-3">
@@ -246,12 +363,15 @@ export function PhotoFinder({
               <li key={row.key} className="flex items-center gap-2 rounded-lg border border-line px-2 py-2">
                 <img src={row.thumb} alt="" className="size-12 shrink-0 rounded-md object-cover" />
                 <span className="min-w-0 flex-1">
+                  {row.isNew ? <span className="block text-xs tracking-widest text-accent uppercase">New place</span> : null}
                   <PlacePick
                     place={row.place}
                     empty={row.lat == null ? "No location. Pick a place" : "Nothing close. Pick a place"}
                     marks={marks}
                     onPick={(place) => {
-                      setRows((list) => list?.map((item) => (item.key === row.key ? { ...item, place, keep: true } : item)) ?? list);
+                      setRows(
+                        (list) => list?.map((item) => (item.key === row.key ? { ...item, place, isNew: false, keep: true } : item)) ?? list,
+                      );
                     }}
                   />
                   <span className="mt-0.5 block text-xs text-faint">
@@ -297,12 +417,16 @@ export function PhotosPanel({
   trips,
   trip,
   onChange,
+  suggest,
+  addPlace,
 }: {
   photos: PhotoInfo[];
   marks: Place[];
   trips: { id: string; name: string }[];
   trip: RecordingTrip;
   onChange: (photos: PhotoInfo[]) => void;
+  suggest?: (lat: number, lon: number) => Promise<Place | null>;
+  addPlace?: (place: Place, takenAt: number | null) => Promise<void>;
 }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [group, setGroup] = useState<"place" | "trip" | "month">("place");
@@ -408,7 +532,13 @@ export function PhotosPanel({
       <h2 className="px-2 font-serif text-2xl">Photos</h2>
       <p className="mt-1 px-2 text-sm text-muted">Pictures stay with the place. Friends see one only after you share it.</p>
       <div className="mt-3 px-2">
-        <PhotoFinder marks={marks} trip={trip} onSaved={(rows) => onChange([...rows, ...photos])} />
+        <PhotoFinder
+          marks={marks}
+          trip={trip}
+          suggest={suggest}
+          addPlace={addPlace}
+          onSaved={(rows) => onChange([...rows, ...photos])}
+        />
       </div>
       <div className="mt-4 flex gap-2 px-2">
         {(["place", "trip", "month"] as const).map((id) => (

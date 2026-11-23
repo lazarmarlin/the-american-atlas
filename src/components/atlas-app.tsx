@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Check, ChevronDown, ChevronLeft, ChevronUp, GripVertical, Locate, Search, Settings } from "lucide-react";
 import { useCurrentUser, useCurrentUserState } from "@/lib/auth/use-current-user";
@@ -27,10 +27,11 @@ import { SettingsPage } from "@/components/settings-page";
 import { GhostPanel } from "@/components/ghost-panel";
 import { FriendsPanel } from "@/components/friends-panel";
 import { PhotosPanel } from "@/components/photos-panel";
-import { tripFor, type RecordingTrip } from "@/lib/photo-file";
+import { matchPlace, tripFor, type RecordingTrip } from "@/lib/photo-file";
+import { choosePhotoPlace, loadParkShapes, matchPark } from "@/lib/park-photo";
 import { UpdatePrompt } from "@/components/update-prompt";
 import { RecapPanel } from "@/components/recap-panel";
-import { deviceId, flushDriveLog, logDrive, switchDriveLog } from "@/lib/drive-log";
+import { deviceId, flushDriveLog, localDay, logDrive, switchDriveLog } from "@/lib/drive-log";
 import { acceptFriend } from "@/lib/friends";
 import { useSettingsRoute } from "@/lib/settings-route";
 import { Tour } from "@/components/tour";
@@ -491,7 +492,7 @@ function AtlasShell() {
     setAddedFlash(mark);
   }
 
-  async function add(mark: Mark, quiet = false) {
+  async function add(mark: Mark, quiet = false, visitedOn: string | null = null) {
     const clean: Mark = {
       id: mark.id,
       name: mark.name,
@@ -505,7 +506,7 @@ function AtlasShell() {
       visitedOn: null,
       note: "",
       photo: "",
-      visits: [freshVisit()],
+      visits: [{ ...freshVisit(), visitedOn }],
     };
     setMarks((prev) => (prev.some((item) => item.id === clean.id) ? prev : [clean, ...prev]));
     if (!quiet) choose(clean);
@@ -518,6 +519,31 @@ function AtlasShell() {
       setMarks((prev) => prev.filter((item) => item.id !== clean.id));
       setError("Couldn't save that place.");
     }
+  }
+
+  /**
+   * For a camera-roll photo taken somewhere not on the atlas yet: the atlas
+   * place it was taken at (a spot within a short walk, a park within 2 miles,
+   * a town within 5), or null.
+   */
+  const suggestPhotoPlace = useCallback(
+    async (lat: number, lon: number) => {
+      if (!meta) return null;
+      const rows = await placesNear({ lat, lon }, meta.states, 25);
+      const spots = rows.filter((row) => !AREA_KINDS.has(row.category));
+      // Inside a park's outline beats a nearer pin (a park's sub-area, a beach inside it).
+      const shapes = await loadParkShapes().catch(() => null);
+      const park = shapes ? matchPark(lat, lon, spots, shapes) : null;
+      return choosePhotoPlace(lat, lon, matchPlace(lat, lon, spots), park);
+    },
+    [meta],
+  );
+
+  async function addPhotoPlace(place: { id: string }, takenAt: number | null) {
+    const mark = place as Mark;
+    if (marksRef.current.some((item) => item.id === mark.id)) return;
+    const day = takenAt ? localDay(takenAt) : null;
+    await add(mark, true, day);
   }
 
   const addRef = useRef(add);
@@ -1841,6 +1867,8 @@ function AtlasShell() {
               trips={trips}
               trip={recordingTrip}
               onChange={setPhotos}
+              suggest={suggestPhotoPlace}
+              addPlace={addPhotoPlace}
             />
           ) : null}
         </div>

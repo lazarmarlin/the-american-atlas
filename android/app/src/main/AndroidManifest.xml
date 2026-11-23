@@ -48,6 +48,11 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Lets the app install its own updates (src/lib/app-update.ts). Android still asks first. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Camera-roll scan (src/lib/photo-scan.ts): read photos and where they were taken. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
     <!-- "Near me": the web view's geolocation, prompted by Capacitor at runtime. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
