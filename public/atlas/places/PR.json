@@ -1,11 +1,1 @@
-{
-  "cemetery": [
-    {
-      "id": "p:cemetery:PR:morovis",
-      "name": "Morovis National Cemetery",
-      "lat": 18.35305,
-      "lon": -66.42844,
-      "pts": 15
-    }
-  ]
-}
+{"cemetery":[{"id":"p:cemetery:PR:morovis","name":"Morovis National Cemetery","lat":18.35305,"lon":-66.42844,"pts":15}]}

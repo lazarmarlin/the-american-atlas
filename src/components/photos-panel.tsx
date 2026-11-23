@@ -4,7 +4,7 @@ import { loadParkShapes, matchPark, choosePhotoPlace } from "@/lib/park-photo";
 import { deletePhoto, loadPhoto, savePhoto, setPhotoShared, type PhotoInfo } from "@/lib/photos";
 import { canScanLibrary, lastScanAt, loadLibraryPhoto, rememberAdded, scanAllowed, scanLibrary } from "@/lib/photo-scan";
 import { nativeApp } from "@/lib/native";
-import { deleteLocalPhoto, listLocalPhotos, markUploaded, saveLocalPhoto, type LocalPhoto } from "@/lib/photo-local";
+import { deleteLocalPhoto, listLocalPhotos, markUploaded, saveLocalPhoto, setLocalShared, type LocalPhoto } from "@/lib/photo-local";
 import { bindSheetBack } from "@/lib/sheet-back";
 
 /** A phone photo as a JPEG data URL under `limit` characters, trying lower quality if needed. */
@@ -213,15 +213,15 @@ export function PhotoFinder({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [marks.length]);
 
-  async function scan(files: FileList | null) {
-    if (!files?.length) return;
+  async function scan(files: File[]) {
+    if (!files.length) return;
     setBusy(true);
     setNote(null);
     const shapes = await loadParkShapes().catch(() => null);
     const next: Candidate[] = [];
     let unreadable = 0;
     let noLocation = 0;
-    for (const file of Array.from(files).slice(0, 40)) {
+    for (const file of files.slice(0, 40)) {
       try {
         const read = await readPhotoFile(file);
         if (!read.gps) noLocation += 1;
@@ -344,8 +344,10 @@ export function PhotoFinder({
         multiple
         className="hidden"
         onChange={(event) => {
-          void scan(event.target.files);
+          // Copy the list first: clearing the input empties the FileList it gave us.
+          const files = Array.from(event.target.files ?? []);
           event.target.value = "";
+          void scan(files);
         }}
       />
       {canScanLibrary() ? (
@@ -524,8 +526,7 @@ export function PhotosPanel({
     const lp = local.find((p) => p.id === photo.id);
     if (!lp) return;
     try {
-      await savePhoto({ data: { ...lp, image: lp.image } });
-      await markUploaded(photo.id);
+      await upload(lp);
       setLocal((prev) => prev.map((p) => (p.id === photo.id ? { ...p, uploaded: true } : p)));
       setNote("Uploaded.");
     } catch (err) {
@@ -533,9 +534,29 @@ export function PhotosPanel({
     }
   }
 
+  /** Send a phone-only photo to the account (needed before friends can see it). */
+  async function upload(lp: LocalPhoto, shared = lp.shared) {
+    await savePhoto({
+      data: {
+        id: lp.id,
+        poiId: lp.poiId,
+        tripId: lp.tripId,
+        caption: lp.caption,
+        takenAt: lp.takenAt,
+        lat: lp.lat,
+        lon: lp.lon,
+        thumb: lp.thumb,
+        image: lp.image,
+      },
+    });
+    if (shared) await setPhotoShared({ data: { id: lp.id, shared: true } });
+    await markUploaded(lp.id);
+  }
+
   async function removeLocal(photo: PhotoInfo, fromServer = false) {
     if (fromServer) {
-      try { await deletePhoto({ data: photo.id }); } catch {}
+      // A phone-only photo isn't on the account; nothing to remove there.
+      await deletePhoto({ data: photo.id }).catch(() => undefined);
     }
     await deleteLocalPhoto(photo.id);
     setLocal((prev) => prev.filter((p) => p.id !== photo.id));
@@ -546,12 +567,24 @@ export function PhotosPanel({
 
   async function share(photo: PhotoInfo) {
     const shared = !photo.shared;
+    const lp = local.find((p) => p.id === photo.id);
     onChange(photos.map((item) => (item.id === photo.id ? { ...item, shared } : item)));
+    setLocal((prev) => prev.map((p) => (p.id === photo.id ? { ...p, shared } : p)));
     setOpen({ ...photo, shared });
     try {
-      await setPhotoShared({ data: { id: photo.id, shared } });
+      if (lp && !lp.uploaded && shared) {
+        // Friends can only see photos on the account, so sharing uploads it.
+        await upload(lp, true);
+        setLocal((prev) => prev.map((p) => (p.id === photo.id ? { ...p, uploaded: true } : p)));
+        setNote("Uploaded and shared with friends.");
+      } else if (!lp || lp.uploaded) {
+        await setPhotoShared({ data: { id: photo.id, shared } });
+      }
+      if (lp) await setLocalShared(photo.id, shared);
     } catch (err) {
       onChange(photos);
+      setLocal((prev) => prev.map((p) => (p.id === photo.id ? { ...p, shared: !shared } : p)));
+      setOpen({ ...photo, shared: !shared });
       setNote(err instanceof Error ? err.message : "Couldn't update sharing.");
     }
   }
@@ -560,6 +593,10 @@ export function PhotosPanel({
     onChange(photos.filter((item) => item.id !== photo.id));
     setOpen(null);
     try {
+      if (local.some((p) => p.id === photo.id)) {
+        await deleteLocalPhoto(photo.id);
+        setLocal((prev) => prev.filter((p) => p.id !== photo.id));
+      }
       await deletePhoto({ data: photo.id });
     } catch (err) {
       onChange(photos);
@@ -608,6 +645,14 @@ export function PhotosPanel({
         >
           {open.shared ? "Shared with friends" : "Share with friends"}
         </button>
+        {nativeApp && local.some((p) => p.id === open.id && !p.uploaded) ? (
+          <>
+            <p className="mt-2 px-2 text-xs text-faint">Only on this phone. Upload it to keep it with your account.</p>
+            <button type="button" onClick={() => void uploadOne(open)} className="mt-1 h-11 w-full rounded-lg border border-line text-sm">
+              Upload to my account
+            </button>
+          </>
+        ) : null}
         {confirmRemove ? (
           <div className="mt-2 flex gap-2">
             <button type="button" onClick={() => void remove(open)} className="h-11 flex-1 rounded-lg border border-accent text-sm text-accent">

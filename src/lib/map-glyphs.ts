@@ -324,6 +324,22 @@ function flag(g: CanvasRenderingContext2D) {
   g.fill();
 }
 
+/** A rounded headstone with a cross cut out. */
+function headstone(g: CanvasRenderingContext2D) {
+  g.beginPath();
+  g.moveTo(9, 26);
+  g.lineTo(9, 13);
+  g.arc(16, 13, 7, Math.PI, 0);
+  g.lineTo(23, 26);
+  g.closePath();
+  g.fill();
+  g.save();
+  g.globalCompositeOperation = "destination-out";
+  g.fillRect(15, 10, 2, 11);
+  g.fillRect(12, 13, 8, 2);
+  g.restore();
+}
+
 function falls(g: CanvasRenderingContext2D) {
   g.fillRect(8, 6, 16, 3);
   g.fillRect(11, 10, 2, 12);
@@ -373,6 +389,7 @@ function drawKind(g: CanvasRenderingContext2D, kind: string, color: string) {
   else if (kind === "distillery") barrel(g);
   else if (kind === "historic" || kind === "museum") column(g);
   else if (kind === "battlefield") flag(g);
+  else if (kind === "cemetery") headstone(g);
   else if (kind === "amusement") loop(g, color);
   else if (kind === "drivein") screen(g);
   else if (kind === "fort") fortWall(g);
