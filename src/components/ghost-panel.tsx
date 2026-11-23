@@ -1,5 +1,29 @@
 import { useEffect, useState } from "react";
+import { GHOST_COLORS } from "@/lib/atlas-settings";
 import { formatMiles, freshPoints, suggestTrailName, trailMiles, useGhost } from "@/lib/ghost-trail";
+
+export function GhostColors({ color, onChange }: { color: string; onChange: (color: string) => void }) {
+  const label = GHOST_COLORS.find((item) => item.id === color)?.label ?? "Mist";
+  return (
+    <div className="mt-3">
+      <p className="text-sm text-muted">Color · {label}. It stays faint either way.</p>
+      <div className="mt-2 grid grid-cols-5 gap-2">
+        {GHOST_COLORS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            aria-label={item.label}
+            aria-pressed={color === item.id}
+            onClick={() => onChange(item.id)}
+            className={"flex h-11 items-center justify-center rounded-lg border " + (color === item.id ? "border-ink bg-elevated" : "border-line")}
+          >
+            <span className="size-3 rounded-full" style={{ background: item.id }} />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function GhostHours({ hours, onChange }: { hours: number; onChange: (hours: number) => void }) {
   return (
@@ -25,14 +49,18 @@ export function GhostHours({ hours, onChange }: { hours: number; onChange: (hour
 export function GhostPanel({
   open,
   hours,
+  color,
   tracking,
   onHours,
+  onColor,
   onClose,
 }: {
   open: boolean;
   hours: number;
+  color: string;
   tracking: boolean;
   onHours: (hours: number) => void;
+  onColor: (color: string) => void;
   onClose: () => void;
 }) {
   const live = useGhost((s) => s.live);
@@ -106,9 +134,10 @@ export function GhostPanel({
             setNow(Date.now());
           }}
         />
+        <GhostColors color={color} onChange={onColor} />
         <div className="mt-4 rounded-lg border border-line px-3 py-3">
           <div className="flex items-center gap-2">
-            <span className={"ghost-dot size-2 rounded-full bg-ghost " + (tracking ? "" : "opacity-50")} />
+            <span className={"ghost-dot size-2 rounded-full " + (tracking ? "is-live" : "opacity-50")} style={{ background: color }} />
             <span className="text-xs tracking-widest text-faint uppercase">Right now</span>
           </div>
           {fresh.length >= 2 ? (

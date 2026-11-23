@@ -29,6 +29,7 @@ import { Tour } from "@/components/tour";
 import { BadgeIcon } from "@/components/badge-icon";
 import { useSettings } from "@/lib/atlas-settings";
 import { freshPoints, GHOST_KEEP_HOURS, loadGhost, syncGhost, trailLines, useGhost } from "@/lib/ghost-trail";
+import { bindSheetBack } from "@/lib/sheet-back";
 import { isMarkerColor, isMarkerIcon } from "@/lib/you-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
 import { nativeApp } from "@/lib/native";
@@ -155,6 +156,8 @@ function AtlasShell() {
   const setMarkerColor = useSettings((s) => s.setMarkerColor);
   const ghostHours = useSettings((s) => s.ghostHours);
   const setGhostHours = useSettings((s) => s.setGhostHours);
+  const ghostColor = useSettings((s) => s.ghostColor);
+  const setGhostColor = useSettings((s) => s.setGhostColor);
   const ghostLive = useGhost((s) => s.live);
   const ghostSaved = useGhost((s) => s.saved);
   const ghostHidden = useGhost((s) => s.hidden);
@@ -841,6 +844,29 @@ function AtlasShell() {
     return () => window.clearTimeout(timer);
   }, [pops]);
 
+  const sheetBack = useRef<() => boolean>(() => false);
+  sheetBack.current = () => {
+    if (mapCard || roadBack) {
+      closeCard();
+      return true;
+    }
+    if (sheet > 20) {
+      setSheetInstant(true);
+      setSheet(8);
+      window.setTimeout(() => setSheetInstant(false), 80);
+      return true;
+    }
+    if (ghostOpen) {
+      setGhostOpen(false);
+      return true;
+    }
+    return false;
+  };
+  useEffect(() => {
+    bindSheetBack(() => sheetBack.current());
+    return () => bindSheetBack(null);
+  }, []);
+
   if (settingsOpen) {
     return (
       <SettingsPage
@@ -917,6 +943,7 @@ function AtlasShell() {
               ghostSaved={ghostSavedLines}
               ghostFocus={ghostFocus}
               ghostLook={ghostLook}
+              ghostColor={ghostColor}
               you={you}
               dot={trackTravel ? (tracker ?? you) : you}
               onPress={() => {
@@ -978,14 +1005,16 @@ function AtlasShell() {
           onClick={() => setGhostOpen((open) => !open)}
           className="absolute bottom-3 left-3 z-10 flex h-11 items-center gap-2 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
         >
-          <span className={"ghost-dot size-2 rounded-full bg-ghost " + (trackTravel ? "is-live" : "opacity-60")} />
+          <span className={"ghost-dot size-2 rounded-full " + (trackTravel ? "is-live" : "opacity-60")} style={{ background: ghostColor }} />
           Ghost trail
         </button>
         <GhostPanel
           open={ghostOpen}
           hours={ghostHours}
+          color={ghostColor}
           tracking={trackTravel}
           onHours={setGhostHours}
+          onColor={setGhostColor}
           onClose={() => setGhostOpen(false)}
         />
         <div className="pointer-events-none absolute top-safe left-3 z-10 flex flex-col items-start gap-2">

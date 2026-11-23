@@ -4,6 +4,7 @@ import { AuthProvider } from "@/lib/auth/provider";
 import { restoreBearerToken } from "@/lib/auth/token";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import { nativeApp } from "@/lib/native";
+import { hideCoveringSheet } from "@/lib/sheet-back";
 import appCss from "../styles.css?url";
 
 const APP_NAME = "The American Atlas";
@@ -73,9 +74,9 @@ function OfflineHost() {
 
 /**
  * Android back button. Settings pages are history entries (see
- * src/lib/settings-route.ts): back steps out of them one at a time. On the map
- * it leaves the app, even if the web view still has older entries (from
- * signing in, say), which would otherwise make back reload the map.
+ * src/lib/settings-route.ts): back steps out of them one at a time. A raised
+ * bottom menu lowers instead of leaving. On the bare map it leaves the app,
+ * even if the web view still has older entries (from signing in, say).
  */
 function NativeHost() {
   const router = useRouter();
@@ -88,6 +89,7 @@ function NativeHost() {
         if (depth > 0) window.history.back();
         // Opened straight onto a settings page: nothing of ours to pop, so go up a level.
         else if (inSettings) void router.navigate({ to: "/", search: {}, replace: true });
+        else if (hideCoveringSheet()) return;
         else void App.minimizeApp();
       }).then((handle) => {
         remove = () => void handle.remove();

@@ -11,7 +11,7 @@ import { requestTrackingPermission } from "@/lib/background-location";
 import { type Profile } from "@/lib/profile";
 import { vaultSaveMarker, vaultSaveProfile } from "@/lib/vault";
 import { YouMarkerFace } from "@/components/you-marker-face";
-import { GhostHours } from "@/components/ghost-panel";
+import { GhostColors, GhostHours } from "@/components/ghost-panel";
 import { isMarkerColor, isMarkerIcon, MARKER_COLORS, MARKER_ICONS, markerLabel } from "@/lib/you-marker";
 
 export function SettingsPage({
@@ -59,6 +59,8 @@ export function SettingsPage({
   const setMarkerColor = useSettings((s) => s.setMarkerColor);
   const ghostHours = useSettings((s) => s.ghostHours);
   const setGhostHours = useSettings((s) => s.setGhostHours);
+  const ghostColor = useSettings((s) => s.ghostColor);
+  const setGhostColor = useSettings((s) => s.setGhostColor);
   const pack = useOfflinePack();
   const packPct = pack.total ? Math.min(100, Math.round((pack.done / pack.total) * 100)) : 0;
   const [name, setName] = useState(profile.name);
@@ -321,9 +323,10 @@ export function SettingsPage({
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Ghost trail</h2>
         <p className="mt-1 text-sm text-muted">
-          While tracking, a wispy path stays behind you, then fades. Pick how many hours of it to show, up to 24. The Ghost trail tab on the map is where you save one for good; saved trails stay on your account and show up on all your devices.
+          While tracking, a wispy path stays behind you, then fades. Pick how many hours of it to show, up to 24, and a color. The color stays faint. The Ghost trail tab on the map is where you save one for good; saved trails stay on your account and show up on all your devices.
         </p>
         <GhostHours hours={ghostHours} onChange={setGhostHours} />
+        <GhostColors color={ghostColor} onChange={setGhostColor} />
       </section>
 
       <section className="mt-8">

@@ -10,6 +10,24 @@ export const BORDER_COLORS = [
   { id: "#c4a484", label: "Tan" },
 ];
 
+/** Mist is the default wisp. The rest match the location marker, drawn faint on the map. */
+export const GHOST_COLORS = [
+  { id: "#d5e2ea", label: "Mist" },
+  { id: "#3d8fd4", label: "Blue" },
+  { id: "#e23d2b", label: "Red" },
+  { id: "#e2b15a", label: "Gold" },
+  { id: "#9ed68a", label: "Green" },
+  { id: "#f3f0e6", label: "Cream" },
+  { id: "#e58ab0", label: "Pink" },
+  { id: "#e07a3d", label: "Orange" },
+  { id: "#8b7ad6", label: "Purple" },
+  { id: "#3dbebf", label: "Teal" },
+];
+
+export function isGhostColor(value: unknown): value is string {
+  return typeof value === "string" && GHOST_COLORS.some((color) => color.id === value.toLowerCase());
+}
+
 type Saved = {
   icons: boolean;
   stateBorder: string;
@@ -24,6 +42,7 @@ type Saved = {
   markerIcon: string;
   markerColor: string;
   ghostHours: number;
+  ghostColor: string;
 };
 
 type Settings = Saved & {
@@ -40,6 +59,7 @@ type Settings = Saved & {
   setMarkerIcon: (markerIcon: string) => void;
   setMarkerColor: (markerColor: string) => void;
   setGhostHours: (ghostHours: number) => void;
+  setGhostColor: (ghostColor: string) => void;
 };
 
 const KEY = "trak-settings";
@@ -57,6 +77,7 @@ const DEFAULTS: Saved = {
   markerIcon: DEFAULT_MARKER_ICON,
   markerColor: DEFAULT_MARKER_COLOR,
   ghostHours: 6,
+  ghostColor: "#d5e2ea",
 };
 
 function clampHours(value: unknown) {
@@ -83,6 +104,7 @@ function readSaved(): Saved {
       markerIcon: isMarkerIcon(raw.markerIcon) ? raw.markerIcon : DEFAULTS.markerIcon,
       markerColor: isMarkerColor(raw.markerColor) ? raw.markerColor.toLowerCase() : DEFAULTS.markerColor,
       ghostHours: clampHours(raw.ghostHours),
+      ghostColor: isGhostColor(raw.ghostColor) ? raw.ghostColor.toLowerCase() : DEFAULTS.ghostColor,
     };
   } catch {
     return DEFAULTS;
@@ -147,5 +169,10 @@ export const useSettings = create<Settings>((set) => ({
     const hours = clampHours(ghostHours);
     write({ ghostHours: hours });
     set({ ghostHours: hours });
+  },
+  setGhostColor: (ghostColor) => {
+    const color = isGhostColor(ghostColor) ? ghostColor.toLowerCase() : DEFAULTS.ghostColor;
+    write({ ghostColor: color });
+    set({ ghostColor: color });
   },
 }));

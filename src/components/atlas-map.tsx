@@ -12,6 +12,18 @@ import { displayLine, type GhostLines } from "@/lib/ghost-trail";
 import { loadTowns } from "@/lib/towns-overlay";
 import { youMarkerImage } from "@/lib/you-marker";
 
+function rgba(hex: string, alpha: number) {
+  const n = Number.parseInt(hex.replace("#", ""), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+/** Same fade stops for every color, so a red trail is as faint as a mist one. */
+function ghostFade(hex: string, stops: [number, number][]): ExpressionSpecification {
+  const expr: unknown[] = ["interpolate", ["linear"], ["line-progress"]];
+  for (const [at, alpha] of stops) expr.push(at, rgba(hex, alpha));
+  return expr as ExpressionSpecification;
+}
+
 type Props = {
   states: StateInfo[];
   marks: Mark[];
@@ -38,6 +50,7 @@ type Props = {
   ghostSaved: { id: string; focus: boolean; lines: GhostLines }[];
   ghostFocus: string | null;
   ghostLook: number;
+  ghostColor: string;
   you: Fix | null;
   dot: Fix | null;
   onState: (abbr: string) => void;
@@ -135,6 +148,7 @@ export function AtlasMap({
   ghostSaved,
   ghostFocus,
   ghostLook,
+  ghostColor,
   you,
   dot,
   onState,
@@ -447,7 +461,7 @@ export function AtlasMap({
           type: "line",
           source: "ghost-saved",
           paint: {
-            "line-color": ["case", savedFocus, "#f3f0e6", "#d5e2ea"],
+            "line-color": "#d5e2ea",
             "line-width": ["interpolate", ["linear"], ["zoom"], 4, 4, 10, 7, 14, 10],
             "line-blur": ["interpolate", ["linear"], ["zoom"], 4, 3, 14, 6],
             "line-opacity": ["case", savedFocus, 0.3, 0.14],
@@ -459,7 +473,7 @@ export function AtlasMap({
           type: "line",
           source: "ghost-saved",
           paint: {
-            "line-color": ["case", savedFocus, "#f3f0e6", "#d5e2ea"],
+            "line-color": "#d5e2ea",
             "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1, 10, 1.6, 14, 2.2],
             "line-blur": 0.5,
             "line-opacity": ["case", savedFocus, 0.8, 0.4],
@@ -887,6 +901,21 @@ export function AtlasMap({
       { padding: 56, maxZoom: 12, duration: duration() },
     );
   }, [ghostFocus, ghostLive, ghostLook, ghostSaved, ready]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    // Color only. The fade stops stay put, so every color stays a wisp.
+    if (map.getLayer("ghost-haze")) {
+      map.setPaintProperty("ghost-haze", "line-gradient", ghostFade(ghostColor, [[0, 0], [0.4, 0.16], [1, 0.5]]));
+    }
+    if (map.getLayer("ghost-line")) {
+      map.setPaintProperty("ghost-line", "line-gradient", ghostFade(ghostColor, [[0, 0], [0.25, 0.3], [1, 0.95]]));
+    }
+    for (const id of ["ghost-saved-haze", "ghost-saved-line"]) {
+      if (map.getLayer(id)) map.setPaintProperty(id, "line-color", ghostColor);
+    }
+  }, [ghostColor, ready]);
 
   useEffect(() => {
     const map = mapRef.current;
