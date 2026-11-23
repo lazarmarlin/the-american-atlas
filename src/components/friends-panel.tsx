@@ -15,7 +15,7 @@ import {
 import { formatMiles, trailLines, type GhostLines } from "@/lib/ghost-trail";
 import type { PackedPoint } from "@/lib/ghost-sync";
 import { apiOrigin, nativeApp } from "@/lib/native";
-import { friendPhotos, type PhotoInfo } from "@/lib/photos";
+import { friendPhotos, loadFriendPhoto, type PhotoInfo } from "@/lib/photos";
 import { type LiveFriend } from "@/lib/live-share";
 import { friendsLeaderboard, periodRange, type LeaderRow } from "@/lib/recap";
 
@@ -76,6 +76,7 @@ export function FriendsPanel({
   const [drop, setDrop] = useState(false);
   const [shown, setShown] = useState<string | null>(null);
   const [shots, setShots] = useState<PhotoInfo[]>([]);
+  const [bigShot, setBigShot] = useState<{ id: string; image: string | null; thumb: string } | null>(null);
   const [board, setBoard] = useState<LeaderRow[] | null>(null);
   const month = periodRange("month");
 
@@ -114,11 +115,13 @@ export function FriendsPanel({
       setDrop(false);
       setShown(null);
       setShots([]);
+      setBigShot(null);
       return;
     }
     let dead = false;
     setPage(null);
     setShots([]);
+    setBigShot(null);
     setError(null);
     loadFriend({ data: { id: openId } })
       .then((next) => {
@@ -257,13 +260,35 @@ export function FriendsPanel({
               <ul className="mt-2 grid grid-cols-3 gap-2">
                 {shots.map((photo) => (
                   <li key={photo.id}>
-                    <img src={photo.thumb} alt={photo.caption || ""} className="aspect-square w-full rounded-md object-cover ring-1 ring-[#e2b15a]" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!openId) return;
+                        setBigShot({ id: photo.id, image: null, thumb: photo.thumb });
+                        loadFriendPhoto({ data: { friendId: openId, id: photo.id } })
+                          .then((row) => setBigShot((cur) => (cur?.id === photo.id ? { ...cur, image: row.image } : cur)))
+                          .catch(() => setBigShot(null));
+                      }}
+                      className="block w-full"
+                    >
+                      <img src={photo.thumb} alt={photo.caption || ""} className="aspect-square w-full rounded-md object-cover ring-1 ring-[#e2b15a]" />
+                    </button>
                   </li>
                 ))}
               </ul>
             ) : (
               <p className="mt-2 px-2 text-sm text-muted">No shared photos.</p>
             )}
+            {bigShot ? (
+              <button type="button" onClick={() => setBigShot(null)} className="mt-3 block w-full px-2 text-left">
+                <img
+                  src={bigShot.image ?? bigShot.thumb}
+                  alt=""
+                  className={"max-h-[60dvh] w-full rounded-lg bg-bg object-contain " + (bigShot.image ? "" : "opacity-60 blur-sm")}
+                />
+                <span className="mt-1 block text-xs text-faint">Tap to close</span>
+              </button>
+            ) : null}
 
             <h3 className="mt-5 px-2 font-serif text-xl">Ghost trails</h3>
             <p className="mt-1 px-2 text-sm text-muted">Saved trails they chose to share. The ends and the times are left off.</p>

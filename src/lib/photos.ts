@@ -199,6 +199,25 @@ export const friendPhotos = createServerFn({ method: "POST" })
     return rows.map(asInfo);
   });
 
+/** The larger image of a photo a friend shared. */
+export const loadFriendPhoto = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    const row = (input ?? {}) as Record<string, unknown>;
+    return { friendId: cleanPlace(row.friendId), id: cleanId(row.id) };
+  })
+  .handler(async ({ context, data }) => {
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    const rows = await sql<{ image: string }>`
+      select p.image from photos p
+      join friendships f on f.friend_id = p.user_id and f.user_id = ${context.userId}
+      where p.user_id = ${data.friendId} and p.id = ${data.id} and p.shared = true
+    `;
+    if (!rows[0]) throw new Error("That photo isn't shared.");
+    return { image: rows[0].image };
+  });
+
 export const friendPhotoPins = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }): Promise<FriendPhotoPin[]> => {

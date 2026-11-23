@@ -12,6 +12,11 @@ function milesBetween(lat1: number, lon1: number, lat2: number, lon2: number) {
   return 2 * r * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
+/** The trip being recorded and the places on it. A photo joins it only if its place is one of them. */
+export type RecordingTrip = { id: string; places: string[] } | null;
+
+export const tripFor = (trip: RecordingTrip, poiId: string) => (trip && trip.places.includes(poiId) ? trip.id : "");
+
 export type PhotoGps = { lat: number; lon: number; takenAt: number | null };
 
 const LIMITS: Record<string, number> = {
@@ -150,8 +155,9 @@ function readExifDate(view: DataView, tiff: number, little: boolean, exifIfd: nu
     for (let c = 0; c < Math.min(size, 19); c += 1) text += String.fromCharCode(view.getUint8(offset + c));
     const match = text.match(/^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
     if (!match) return null;
-    const when = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6]));
-    return Number.isFinite(when) ? when : null;
+    // The camera writes its own local time with no zone; read it as this device's local time.
+    const when = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6])).getTime();
+    return Number.isFinite(when) && Number(match[1]) > 1990 ? when : null;
   }
   return null;
 }
