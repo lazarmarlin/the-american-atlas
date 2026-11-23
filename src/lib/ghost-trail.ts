@@ -155,11 +155,21 @@ export function freshPoints(points: GhostPoint[], hours: number, now = Date.now(
   return points.filter((point) => point.t >= cutoff);
 }
 
-export function trailLines(points: GhostPoint[]): GhostLines {
+/**
+ * The trail as map lines. A break starts a new line. With `joinUnder`, a break
+ * shorter than that many miles is drawn joined instead: on the live trail a
+ * gap usually means the phone sent no location for a while (screen off,
+ * no signal), not that you teleported, and the fade runs along each line, so
+ * splitting there faded the old end of every piece away and left holes.
+ */
+export function trailLines(points: GhostPoint[], joinUnder = 0): GhostLines {
   const lines: GhostLines = [];
   let cur: [number, number][] = [];
+  let prev: GhostPoint | null = null;
   for (const point of points) {
-    if (point.brk && cur.length) {
+    const join = prev && joinUnder > 0 && milesBetween(prev.lat, prev.lon, point.lat, point.lon) < joinUnder;
+    prev = point;
+    if (point.brk && cur.length && !join) {
       if (cur.length >= 2) lines.push(cur);
       cur = [];
     }

@@ -137,6 +137,9 @@ function sameSettings(a: AccountSettings, b: AccountSettings) {
   return (Object.keys(left) as (keyof AccountSettings)[]).every((key) => left[key] === right[key]);
 }
 
+/** Places that are areas or lines, not spots; a trip's line skips them. */
+const AREA_KINDS = new Set(["county", "route", "state", "reservation", "drive", "forest", "seashore"]);
+
 export function AtlasApp() {
   const { user, isPending } = useCurrentUserState();
   if (isPending) return <AtlasSplash label="Opening the atlas…" />;
@@ -886,7 +889,11 @@ function AtlasShell() {
     const line: [number, number][] = [];
     for (const stop of trip.stops) {
       const mark = byId.get(stop.poiId);
-      if (mark?.lon != null && mark.lat != null) line.push([mark.lon, mark.lat]);
+      // Counties, roads, states and other large areas only have a middle
+      // point, often miles from where you went; joining those drew lines out
+      // into nowhere. The line connects the places you actually stop at.
+      if (!mark || AREA_KINDS.has(mark.category)) continue;
+      if (mark.lon != null && mark.lat != null) line.push([mark.lon, mark.lat]);
     }
     return line;
   }, [activeTrip, marks, recordingId, trips]);
@@ -1045,7 +1052,8 @@ function AtlasShell() {
     };
   }, []);
 
-  const ghostLiveLines = useMemo(() => trailLines(freshPoints(ghostLive, ghostHours)), [ghostHours, ghostLive]);
+  // Joined across gaps up to a few hundred miles (lost signal, screen off); a longer jump, like a flight, stays split.
+  const ghostLiveLines = useMemo(() => trailLines(freshPoints(ghostLive, ghostHours), 300), [ghostHours, ghostLive]);
   const ghostSavedLines = useMemo(
     () =>
       ghostSaved
@@ -1053,7 +1061,7 @@ function AtlasShell() {
         .map((trail) => ({
           id: trail.id,
           focus: ghostFocus === trail.id,
-          lines: trailLines(trail.points),
+          lines: trailLines(trail.points, 300),
         })),
     [ghostFocus, ghostHidden, ghostSaved],
   );
@@ -1219,6 +1227,7 @@ function AtlasShell() {
                   ? { lat: point[0], lon: point[1], t: point[2], brk: true }
                   : { lat: point[0], lon: point[1], t: point[2] },
               ),
+              300,
             ),
           );
         })
