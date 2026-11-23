@@ -1,29 +1,37 @@
 import { useRef, useState } from "react";
-import { matchPlace, readPhotoFile } from "@/lib/photo-file";
+import { matchPlace, readPhotoFile, tripFor, type RecordingTrip } from "@/lib/photo-file";
 import { deletePhoto, loadPhoto, savePhoto, setPhotoShared, type PhotoInfo } from "@/lib/photos";
 
 type Place = { id: string; name: string; lat: number | null; lon: number | null; category: string; state?: string };
+
+function placeLabel(place: Place) {
+  return place.state ? `${place.name}, ${place.state}` : place.name;
+}
 
 type Candidate = {
   key: string;
   thumb: string;
   image: string;
-  lat: number;
-  lon: number;
+  lat: number | null;
+  lon: number | null;
   takenAt: number | null;
   place: Place | null;
+  /** Matched from the photo's location, not picked by hand. */
+  matched: boolean;
   keep: boolean;
 };
 
 export function PhotoFinder({
   marks,
-  tripId,
+  trip,
   onSaved,
 }: {
   marks: Place[];
-  tripId: string | null;
+  trip: RecordingTrip;
   onSaved: (rows: PhotoInfo[]) => void;
 }) {
+  const choices = [...marks].sort((a, b) => placeLabel(a).localeCompare(placeLabel(b)));
+  const byId = new Map(marks.map((mark) => [mark.id, mark]));
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -34,45 +42,44 @@ export function PhotoFinder({
     setBusy(true);
     setNote(null);
     const next: Candidate[] = [];
-    let skipped = 0;
+    let unreadable = 0;
+    let noLocation = 0;
     for (const file of Array.from(files).slice(0, 40)) {
       try {
         const read = await readPhotoFile(file);
-        if (!read.gps) {
-          skipped += 1;
-          continue;
-        }
-        const place = matchPlace(read.gps.lat, read.gps.lon, marks);
+        if (!read.gps) noLocation += 1;
+        const place = read.gps ? matchPlace(read.gps.lat, read.gps.lon, marks) : null;
         next.push({
           key: `${file.name}-${file.size}-${next.length}`,
           thumb: read.thumb,
           image: read.image,
-          lat: read.gps.lat,
-          lon: read.gps.lon,
-          takenAt: read.gps.takenAt,
+          lat: read.gps?.lat ?? null,
+          lon: read.gps?.lon ?? null,
+          takenAt: read.gps?.takenAt ?? (file.lastModified || null),
           place,
+          matched: Boolean(place),
           keep: Boolean(place),
         });
       } catch {
-        skipped += 1;
+        unreadable += 1;
       }
     }
     setRows(next);
-    const matched = next.filter((row) => row.place).length;
-    setNote(
-      matched
-        ? `${matched} match a place you've added.${skipped ? ` ${skipped} had no location.` : ""} Nothing is saved until you keep them.`
-        : skipped
-          ? "None of those photos had a location near a place you've added."
-          : "No photos to check.",
-    );
+    const matched = next.filter((row) => row.matched).length;
+    const parts = [
+      matched ? `${matched} ${matched === 1 ? "matches" : "match"} a place you've added.` : "",
+      next.length - matched ? `Pick a place for the other ${next.length - matched}.` : "",
+      noLocation && noLocation === next.length ? "Android may remove the location from photos it shares with apps." : "",
+      unreadable ? `${unreadable} couldn't be read.` : "",
+    ].filter(Boolean);
+    setNote(next.length ? `${parts.join(" ")} Nothing is saved until you add them.` : "Those couldn't be read.");
     setBusy(false);
   }
 
   async function keep() {
     const chosen = (rows ?? []).filter((row) => row.keep && row.place);
     if (!chosen.length) {
-      setNote("Choose at least one photo that matches a place.");
+      setNote("Pick a place for at least one photo.");
       return;
     }
     setBusy(true);
@@ -85,7 +92,7 @@ export function PhotoFinder({
           data: {
             id,
             poiId: place.id,
-            tripId: tripId ?? "",
+            tripId: tripFor(trip, place.id),
             caption: "",
             takenAt: row.takenAt,
             lat: place.lat ?? row.lat,
@@ -97,7 +104,7 @@ export function PhotoFinder({
         saved.push({
           id,
           poiId: place.id,
-          tripId: tripId ?? "",
+          tripId: tripFor(trip, place.id),
           caption: "",
           takenAt: row.takenAt,
           lat: place.lat ?? row.lat,
@@ -138,7 +145,7 @@ export function PhotoFinder({
         {busy ? "Reading photos…" : "Find photos of places you've been"}
       </button>
       <p className="mt-2 text-xs text-muted">
-        Choose pictures from your camera roll. The location saved on the picture is matched to places already on your atlas. Nothing is uploaded until you keep it.
+        Choose pictures from your camera roll. A picture with a location is matched to a place already on your atlas; for the rest, pick the place. Nothing is uploaded until you add it.
       </p>
       {note ? <p className="mt-2 text-sm text-muted">{note}</p> : null}
       {rows?.length ? (
@@ -148,8 +155,23 @@ export function PhotoFinder({
               <li key={row.key} className="flex items-center gap-2 rounded-lg border border-line px-2 py-2">
                 <img src={row.thumb} alt="" className="size-12 shrink-0 rounded-md object-cover" />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm">{row.place?.name ?? "No place nearby"}</span>
-                  <span className="block text-xs text-faint">
+                  <select
+                    aria-label="Place for this photo"
+                    value={row.place?.id ?? ""}
+                    onChange={(event) => {
+                      const place = byId.get(event.target.value) ?? null;
+                      setRows((list) => list?.map((item) => (item.key === row.key ? { ...item, place, keep: Boolean(place) } : item)) ?? list);
+                    }}
+                    className="block h-9 w-full truncate rounded-md border border-line bg-bg px-2 text-sm text-ink"
+                  >
+                    <option value="">{row.lat == null ? "No location. Pick a place" : "Nothing close. Pick a place"}</option>
+                    {choices.map((mark) => (
+                      <option key={mark.id} value={mark.id}>
+                        {placeLabel(mark)}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="mt-0.5 block text-xs text-faint">
                     {row.takenAt
                       ? new Date(row.takenAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
                       : "No date"}
@@ -162,14 +184,19 @@ export function PhotoFinder({
                   onClick={() => setRows((list) => list?.map((item) => (item.key === row.key ? { ...item, keep: !item.keep } : item)) ?? list)}
                   className={"h-11 shrink-0 rounded-lg border px-3 text-xs disabled:text-faint " + (row.keep ? "border-ink bg-elevated" : "border-line")}
                 >
-                  {row.place ? (row.keep ? "Keep" : "Skip") : "Skip"}
+                  {row.place && row.keep ? "Keep" : "Skip"}
                 </button>
               </li>
             ))}
           </ul>
           <div className="mt-2 flex gap-2">
-            <button type="button" disabled={busy} onClick={() => void keep()} className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm">
-              Add the kept photos
+            <button
+              type="button"
+              disabled={busy || !rows.some((row) => row.keep && row.place)}
+              onClick={() => void keep()}
+              className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
+            >
+              {busy ? "Adding…" : `Add ${rows.filter((row) => row.keep && row.place).length || ""} ${rows.filter((row) => row.keep && row.place).length === 1 ? "photo" : "photos"}`.replace("  ", " ")}
             </button>
             <button type="button" onClick={() => setRows(null)} className="h-11 flex-1 rounded-lg border border-line text-sm">
               Cancel
@@ -185,15 +212,16 @@ export function PhotosPanel({
   photos,
   marks,
   trips,
-  tripId,
+  trip,
   onChange,
 }: {
   photos: PhotoInfo[];
   marks: Place[];
   trips: { id: string; name: string }[];
-  tripId: string | null;
+  trip: RecordingTrip;
   onChange: (photos: PhotoInfo[]) => void;
 }) {
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const [group, setGroup] = useState<"place" | "trip" | "month">("place");
   const [open, setOpen] = useState<PhotoInfo | null>(null);
   const [full, setFull] = useState<string | null>(null);
@@ -205,6 +233,7 @@ export function PhotosPanel({
     setOpen(photo);
     setFull(null);
     setNote(null);
+    setConfirmRemove(false);
     try {
       const row = await loadPhoto({ data: photo.id });
       setFull(row.image);
@@ -240,9 +269,11 @@ export function PhotosPanel({
   for (const photo of photos) {
     const key =
       group === "trip"
-        ? photo.tripId || "No trip"
+        ? (photo.tripId && tripNames.get(photo.tripId)) || "Not on a trip"
         : group === "month"
-          ? new Date(photo.takenAt || 0).toLocaleDateString(undefined, { month: "long", year: "numeric" })
+          ? photo.takenAt
+            ? new Date(photo.takenAt).toLocaleDateString(undefined, { month: "long", year: "numeric" })
+            : "No date"
           : names.get(photo.poiId) || "Place";
     groups.set(key, [...(groups.get(key) ?? []), photo]);
   }
@@ -253,7 +284,11 @@ export function PhotosPanel({
         <button type="button" onClick={() => setOpen(null)} className="h-11 px-2 text-sm text-muted">
           All photos
         </button>
-        {full ? <img src={full} alt="" className="mt-1 max-h-80 w-full rounded-lg object-cover" /> : <p className="px-2 text-sm text-muted">Opening…</p>}
+        {full ? (
+          <img src={full} alt="" className="mt-1 max-h-[60dvh] w-full rounded-lg bg-bg object-contain" />
+        ) : (
+          <img src={open.thumb} alt="" className="mt-1 max-h-[60dvh] w-full rounded-lg bg-bg object-contain opacity-60 blur-sm" />
+        )}
         <p className="mt-2 px-2 font-serif text-xl">{names.get(open.poiId) || "Place"}</p>
         <p className="px-2 text-xs text-muted">
           {open.takenAt ? new Date(open.takenAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "No date on the photo"}
@@ -265,11 +300,22 @@ export function PhotosPanel({
           onClick={() => void share(open)}
           className={"mt-3 h-11 w-full rounded-lg border text-sm " + (open.shared ? "border-ink bg-elevated" : "border-line")}
         >
-          {open.shared ? "Shared with friends" : "Private"}
+          {open.shared ? "Shared with friends" : "Share with friends"}
         </button>
-        <button type="button" onClick={() => void remove(open)} className="mt-2 h-11 w-full rounded-lg border border-line text-sm text-muted">
-          Remove photo
-        </button>
+        {confirmRemove ? (
+          <div className="mt-2 flex gap-2">
+            <button type="button" onClick={() => void remove(open)} className="h-11 flex-1 rounded-lg border border-accent text-sm text-accent">
+              Remove it
+            </button>
+            <button type="button" onClick={() => setConfirmRemove(false)} className="h-11 flex-1 rounded-lg border border-line text-sm">
+              Keep it
+            </button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => setConfirmRemove(true)} className="mt-2 h-11 w-full rounded-lg border border-line text-sm text-muted">
+            Remove photo
+          </button>
+        )}
       </div>
     );
   }
@@ -279,7 +325,7 @@ export function PhotosPanel({
       <h2 className="px-2 font-serif text-2xl">Photos</h2>
       <p className="mt-1 px-2 text-sm text-muted">Pictures stay with the place. Friends see one only after you share it.</p>
       <div className="mt-3 px-2">
-        <PhotoFinder marks={marks} tripId={tripId} onSaved={(rows) => onChange([...rows, ...photos])} />
+        <PhotoFinder marks={marks} trip={trip} onSaved={(rows) => onChange([...rows, ...photos])} />
       </div>
       <div className="mt-4 flex gap-2 px-2">
         {(["place", "trip", "month"] as const).map((id) => (

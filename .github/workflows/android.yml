@@ -1,5 +1,11 @@
-# Builds a debug APK of the Capacitor app. Download it from the run's
-# "Artifacts" section and install it on an Android phone.
+# Builds the Android app. Every build from main is numbered, signed with the
+# app's own key, and published as a GitHub release; the installed app finds it
+# there and offers to update itself (src/lib/app-update.ts).
+#
+# The signing key is committed encrypted (android/atlas-release.keystore.enc).
+# Its password goes in the repository secret ATLAS_KEY_PASSWORD. Without that
+# secret the build still works but uses a throwaway key and isn't published,
+# because a phone couldn't install it over the existing app.
 #
 # The phone talks to https://traveltrack.grok.me unless a repository variable
 # API_ORIGIN is set (Settings → Secrets and variables → Actions → Variables).
@@ -10,9 +16,18 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   apk:
     runs-on: ubuntu-latest
+    env:
+      ATLAS_VERSION_CODE: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
 
@@ -33,11 +48,44 @@ jobs:
           VITE_API_ORIGIN: ${{ vars.API_ORIGIN || 'https://traveltrack.grok.me' }}
         run: npm run build:app
 
-      - name: Build debug APK
+      - name: Unlock the signing key
+        id: key
+        env:
+          ATLAS_KEY_PASSWORD: ${{ secrets.ATLAS_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ATLAS_KEY_PASSWORD" ]; then
+            echo "No ATLAS_KEY_PASSWORD secret: building with a throwaway key, not publishing."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -in android/atlas-release.keystore.enc -out android/atlas-release.keystore \
+            -pass env:ATLAS_KEY_PASSWORD
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build APK
         working-directory: android
+        env:
+          ATLAS_KEY_PASSWORD: ${{ secrets.ATLAS_KEY_PASSWORD }}
         run: ./gradlew assembleDebug --no-daemon
+
+      - name: Rename
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk american-atlas-${{ github.run_number }}.apk
+
+      - name: Publish the update
+        if: steps.key.outputs.signed == 'true' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "build-${{ github.run_number }}" "american-atlas-${{ github.run_number }}.apk" \
+            --target "${{ github.sha }}" --latest \
+            --title "Build ${{ github.run_number }}" \
+            --notes "$(git log -1 --format=%s)"
+          # Keep the 10 newest builds.
+          gh release list --limit 100 --json tagName --jq '.[].tagName' | grep '^build-' | sort -t- -k2 -n -r | tail -n +11 |
+            while read -r tag; do gh release delete "$tag" --yes --cleanup-tag; done
 
       - uses: actions/upload-artifact@v4
         with:
           name: american-atlas-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: american-atlas-${{ github.run_number }}.apk

@@ -13,3 +13,6 @@ screenshots
 .env.*
 *.log
 .DS_Store
+
+# Android signing key: only the encrypted copy is committed.
+android/atlas-release.keystore

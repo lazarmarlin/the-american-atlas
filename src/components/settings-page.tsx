@@ -14,6 +14,8 @@ import { vaultSaveMarker, vaultSaveProfile } from "@/lib/vault";
 import { YouMarkerFace } from "@/components/you-marker-face";
 import { GhostColors, GhostHours } from "@/components/ghost-panel";
 import { PhotoFinder } from "@/components/photos-panel";
+import type { RecordingTrip } from "@/lib/photo-file";
+import { AppVersion } from "@/components/update-prompt";
 import { isMarkerColor, isMarkerIcon, MARKER_COLORS, MARKER_ICONS, markerLabel } from "@/lib/you-marker";
 import type { PhotoInfo } from "@/lib/photos";
 
@@ -27,7 +29,7 @@ export function SettingsPage({
   onSync,
   onTour,
   marks,
-  tripId,
+  trip,
   onPhotosSaved,
 }: {
   profile: Profile;
@@ -39,7 +41,7 @@ export function SettingsPage({
   onSync: () => Promise<void>;
   onTour: () => void;
   marks: { id: string; name: string; lat: number | null; lon: number | null; category: string }[];
-  tripId: string | null;
+  trip: RecordingTrip;
   onPhotosSaved: (rows: PhotoInfo[]) => void;
 }) {
   const icons = useSettings((s) => s.icons);
@@ -168,6 +170,7 @@ export function SettingsPage({
 
       {page === "account" ? (
       <>
+      <AppVersion />
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Sync</h2>
         <p className="mt-1 text-sm text-muted">
@@ -476,7 +479,7 @@ export function SettingsPage({
             On the phone, choose the pictures to check. The website can only see the ones you pick. A match needs a location on the photo and a place you have already added.
           </p>
           <div className="mt-3">
-            <PhotoFinder marks={marks} tripId={tripId} onSaved={onPhotosSaved} />
+            <PhotoFinder marks={marks} trip={trip} onSaved={onPhotosSaved} />
           </div>
           <button
             type="button"

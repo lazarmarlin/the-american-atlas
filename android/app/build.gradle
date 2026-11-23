@@ -7,8 +7,9 @@ android {
         applicationId "com.lazarmarlin.americanatlas"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // CI passes the build number, so each build is newer than the last and installs over it.
+        versionCode((System.getenv("ATLAS_VERSION_CODE") ?: "1") as int)
+        versionName "1.0." + (System.getenv("ATLAS_VERSION_CODE") ?: "0")
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,7 +17,25 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        // One fixed key for every build, so an update installs over the app
+        // instead of needing an uninstall. CI decrypts it from
+        // android/atlas-release.keystore.enc; without it, builds use the
+        // usual per-machine debug key.
+        atlas {
+            def ks = file(System.getenv("ATLAS_KEYSTORE") ?: "../atlas-release.keystore")
+            if (ks.exists() && System.getenv("ATLAS_KEY_PASSWORD")) {
+                storeFile ks
+                storePassword System.getenv("ATLAS_KEY_PASSWORD")
+                keyAlias "atlas"
+                keyPassword System.getenv("ATLAS_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
+        debug {
+            if (signingConfigs.atlas.storeFile != null) signingConfig signingConfigs.atlas
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'

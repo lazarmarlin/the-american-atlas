@@ -27,6 +27,8 @@ import { SettingsPage } from "@/components/settings-page";
 import { GhostPanel } from "@/components/ghost-panel";
 import { FriendsPanel } from "@/components/friends-panel";
 import { PhotosPanel } from "@/components/photos-panel";
+import { tripFor, type RecordingTrip } from "@/lib/photo-file";
+import { UpdatePrompt } from "@/components/update-prompt";
 import { RecapPanel } from "@/components/recap-panel";
 import { deviceId, flushDriveLog, logDrive, switchDriveLog } from "@/lib/drive-log";
 import { acceptFriend } from "@/lib/friends";
@@ -152,6 +154,18 @@ function AtlasShell() {
   const [recordingId, setRecordingId] = useState<string | null>(null);
   const [livePins, setLivePins] = useState<LiveFriend[]>([]);
   const [photos, setPhotos] = useState<PhotoInfo[]>([]);
+  const keepGhost = useSettings((s) => s.keepGhost);
+  const keptGhostBefore = useRef(keepGhost);
+  // Turning "keep the trail on my account" off removes the copy already there.
+  useEffect(() => {
+    const was = keptGhostBefore.current;
+    keptGhostBefore.current = keepGhost;
+    if (was && !keepGhost && user?.id) void clearGhostCache().catch(() => {});
+  }, [keepGhost, user?.id]);
+  const recordingTrip = useMemo<RecordingTrip>(() => {
+    const trip = trips.find((item) => item.id === recordingId);
+    return trip ? { id: trip.id, places: trip.stops.map((stop) => stop.poiId) } : null;
+  }, [trips, recordingId]);
   const [sharedShots, setSharedShots] = useState<FriendPhotoPin[]>([]);
   const [roads, setRoads] = useState<RoadRec[]>([]);
   const [catalog, setCatalog] = useState<CatalogPlace[]>([]);
@@ -909,9 +923,9 @@ function AtlasShell() {
     const row: PhotoInfo = {
       id,
       poiId: mark.id,
-      tripId: recordingId ?? "",
+      tripId: tripFor(recordingTrip, mark.id),
       caption: "",
-      takenAt: read.gps?.takenAt ?? Date.now(),
+      takenAt: read.gps?.takenAt ?? (file.lastModified || Date.now()),
       lat: mark.lat,
       lon: mark.lon,
       shared: false,
@@ -1264,7 +1278,7 @@ function AtlasShell() {
           settingsRoute.close();
         }}
         marks={marks}
-        tripId={recordingId}
+        trip={recordingTrip}
         onPhotosSaved={(rows) => setPhotos((prev) => [...rows, ...prev])}
       />
     );
@@ -1277,6 +1291,7 @@ function AtlasShell() {
       className={"app-shell bg-bg text-ink" + (sheetInstant ? " sheet-drag" : "") + (cardOnly ? " sheet-card" : "")}
       style={cardOnly ? undefined : { ["--sheet" as string]: sheet <= 12 ? "var(--sheet-peek)" : `${sheet}dvh` }}
     >
+      {popped ? null : <UpdatePrompt />}
       {popped ? (
         <div className="pointer-events-none absolute inset-x-0 top-safe z-30 flex justify-center px-4 pt-3">
           <button
@@ -1815,7 +1830,7 @@ function AtlasShell() {
               photos={photos}
               marks={marks}
               trips={trips}
-              tripId={recordingId}
+              trip={recordingTrip}
               onChange={setPhotos}
             />
           ) : null}
@@ -2656,6 +2671,7 @@ function Detail({
   const [draft, setDraft] = useState<Visit[]>(mark.visits.length ? mark.visits : [freshVisit()]);
   const [which, setWhich] = useState(0);
   const [detailNote, setDetailNote] = useState<string | null>(null);
+  const [addingPhoto, setAddingPhoto] = useState(false);
   const visitKey = mark.visits.map((visit) => visit.id).join(",");
 
   useEffect(() => {
@@ -2833,19 +2849,30 @@ function Detail({
             </div>
           ) : null}
           {onAddPhoto ? (
-            <label className="mt-2 block text-xs text-muted">
-              Add to the photo gallery
+            <label
+              className={
+                "mt-2 flex h-11 cursor-pointer items-center justify-center rounded-lg border border-line text-sm " +
+                (addingPhoto ? "text-faint" : "text-muted")
+              }
+            >
+              {addingPhoto ? "Adding the photo…" : "Add a photo of this place"}
               <input
                 type="file"
                 accept="image/*"
-                className="mt-1 block w-full text-xs"
+                disabled={addingPhoto}
+                className="sr-only"
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   event.target.value = "";
                   if (!file) return;
-                  void onAddPhoto(file).catch((err: unknown) => {
-                    setDetailNote(err instanceof Error ? err.message : "Couldn't add that photo");
-                  });
+                  setAddingPhoto(true);
+                  setDetailNote(null);
+                  void onAddPhoto(file)
+                    .then(() => setDetailNote("Added to your photos. It stays private until you share it."))
+                    .catch((err: unknown) => {
+                      setDetailNote(err instanceof Error ? err.message : "Couldn't add that photo");
+                    })
+                    .finally(() => setAddingPhoto(false));
                 }}
               />
             </label>
