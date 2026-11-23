@@ -121,6 +121,31 @@ function write(partial: Partial<Saved>) {
   localStorage.setItem(KEY, JSON.stringify({ ...readSaved(), ...partial }));
 }
 
+const OWNER_KEY = "atlas.settings-owner";
+
+/** The account whose choices are in this device's settings (null before accounts kept them). */
+export function settingsOwner() {
+  try {
+    return localStorage.getItem(OWNER_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setSettingsOwner(userId: string) {
+  try {
+    localStorage.setItem(OWNER_KEY, userId);
+  } catch {
+    /* storage blocked */
+  }
+}
+
+/** Account-kept choices back to their defaults. Tracking and the location marker are left alone. */
+export function resetAccountChoices() {
+  const { trackTravel: _track, markerIcon: _icon, markerColor: _color, ...rest } = DEFAULTS;
+  useSettings.getState().apply(rest);
+}
+
 export const useSettings = create<Settings>((set) => ({
   ...readSaved(),
   setIcons: (icons) => {
@@ -188,7 +213,6 @@ export const useSettings = create<Settings>((set) => ({
   apply: (saved) => {
     const next: Partial<Saved> = {};
     if (typeof saved.icons === "boolean") next.icons = saved.icons;
-    if (typeof saved.trackTravel === "boolean") next.trackTravel = saved.trackTravel;
     if (typeof saved.fastAdd === "boolean") next.fastAdd = saved.fastAdd;
     if (typeof saved.showParks === "boolean") next.showParks = saved.showParks;
     if (typeof saved.showTowns === "boolean") next.showTowns = saved.showTowns;

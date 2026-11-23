@@ -121,7 +121,7 @@ export function GhostPanel({
       aria-label="Ghost trail"
       className="absolute inset-x-2 bottom-2 z-20 flex max-h-[calc(100%-3.5rem)] flex-col overflow-hidden rounded-card border border-line bg-surface/95 shadow-lg backdrop-blur-md"
     >
-      <div className="flex items-start justify-between gap-3 px-4 pt-4">
+      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 pt-4 pb-3">
         <div>
           <h2 className="font-serif text-2xl leading-none">Ghost trail</h2>
           <p className="mt-1 text-sm text-muted">A wisp of where you went while tracking.</p>
@@ -130,7 +130,7 @@ export function GhostPanel({
           Close
         </button>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-4">
         <GhostHours
           hours={hours}
           onChange={(next) => {
@@ -243,10 +243,10 @@ export function GhostPanel({
                       type="button"
                       aria-pressed={shared}
                       onClick={() => toggleShared(trail.id)}
-                      title="Friends see it without the first and last half kilometer, and without times"
+                      aria-label={shared ? "Shared with friends. Tap to make private" : "Share with friends"}
                       className={"h-11 flex-1 rounded-lg border text-xs " + (shared ? "border-ink bg-elevated text-ink" : "border-line text-muted")}
                     >
-                      {shared ? "Shared with friends" : "Private"}
+                      {shared ? "Shared" : "Share"}
                     </button>
                     {dropId === trail.id ? (
                       <>
@@ -343,7 +343,7 @@ function LiveFriends() {
                   className={"flex h-11 w-full items-center justify-between rounded-lg border px-3 text-left text-sm disabled:text-faint " + (on ? "border-ink bg-elevated" : "border-line")}
                 >
                   <span>{friend.name}</span>
-                  <span className="text-xs text-muted">{on ? "Watching" : full ? "Full" : "Off"}</span>
+                  <span className="text-xs text-muted">{on ? "Can watch" : full ? "3 already picked" : "Off"}</span>
                 </button>
               </li>
             );

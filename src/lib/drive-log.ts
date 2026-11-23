@@ -65,7 +65,8 @@ let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
 const storageKey = (id: string) => `atlas.drive-log.${id}`;
 
-function deviceId() {
+/** A random id for this install, kept in local storage. */
+export function deviceId() {
   try {
     let id = window.localStorage.getItem("atlas.device-id");
     if (!id || !DEVICE_RE.test(id)) {

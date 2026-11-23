@@ -1,6 +1,8 @@
 /**
- * Map and tracking choices stored on the account, so a reinstall keeps them.
- * The location marker is saved separately (src/lib/profile.ts).
+ * Map and trail choices stored on the account, so a reinstall keeps them.
+ * Tracking on/off is not one of them: it stays with each device, so signing in
+ * somewhere new never starts tracking there. The location marker is saved
+ * separately (src/lib/profile.ts).
  */
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
@@ -10,7 +12,6 @@ export type AccountSettings = {
   icons?: boolean;
   stateBorder?: string;
   countyColor?: string;
-  trackTravel?: boolean;
   fastAdd?: boolean;
   showParks?: boolean;
   showTowns?: boolean;
@@ -40,7 +41,6 @@ export function cleanAccountSettings(input: unknown): AccountSettings {
   const row = input as Record<string, unknown>;
   const next: AccountSettings = {};
   if (typeof row.icons === "boolean") next.icons = row.icons;
-  if (typeof row.trackTravel === "boolean") next.trackTravel = row.trackTravel;
   if (typeof row.fastAdd === "boolean") next.fastAdd = row.fastAdd;
   if (typeof row.showParks === "boolean") next.showParks = row.showParks;
   if (typeof row.showTowns === "boolean") next.showTowns = row.showTowns;
