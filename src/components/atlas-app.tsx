@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Check, ChevronDown, ChevronLeft, ChevronUp, GripVertical, Locate, Search, Settings } from "lucide-react";
 import { useCurrentUser, useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
@@ -24,11 +25,13 @@ import { collectPassed, takeNativeFixes } from "@/lib/travel";
 import { AtlasSplash, LoginScreen } from "@/components/login-screen";
 import { SettingsPage } from "@/components/settings-page";
 import { GhostPanel } from "@/components/ghost-panel";
+import { FriendsPanel } from "@/components/friends-panel";
+import { acceptFriend } from "@/lib/friends";
 import { useSettingsRoute } from "@/lib/settings-route";
 import { Tour } from "@/components/tour";
 import { BadgeIcon } from "@/components/badge-icon";
 import { useSettings } from "@/lib/atlas-settings";
-import { freshPoints, GHOST_KEEP_HOURS, loadGhost, syncGhost, trailLines, useGhost } from "@/lib/ghost-trail";
+import { freshPoints, GHOST_KEEP_HOURS, loadGhost, syncGhost, trailLines, useGhost, type GhostLines } from "@/lib/ghost-trail";
 import { bindSheetBack } from "@/lib/sheet-back";
 import { isMarkerColor, isMarkerIcon } from "@/lib/you-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
@@ -61,6 +64,7 @@ const TABS = [
   ["near", "Near"],
   ["trips", "Trips"],
   ["badges", "Badges"],
+  ["friends", "Friends"],
 ] as const;
 
 function Shield({ sys, label }: { sys: System | "place"; label: string }) {
@@ -164,6 +168,10 @@ function AtlasShell() {
   const ghostFocus = useGhost((s) => s.focusId);
   const ghostLook = useGhost((s) => s.look);
   const [ghostOpen, setGhostOpen] = useState(false);
+  const [friendId, setFriendId] = useState<string | null>(null);
+  const [friendLines, setFriendLines] = useState<GhostLines>([]);
+  const [friendLook, setFriendLook] = useState(0);
+  const [friendNote, setFriendNote] = useState<string | null>(null);
   const pack = useOfflinePack();
   const packPct = pack.total ? Math.min(100, Math.round((pack.done / pack.total) * 100)) : 0;
 
@@ -181,6 +189,8 @@ function AtlasShell() {
   const setTab = useAtlas((s) => s.setTab);
   const toggleRoads = useAtlas((s) => s.toggleRoads);
   const toggleCounties = useAtlas((s) => s.toggleCounties);
+  const friendCode = (useSearch({ strict: false }) as { friend?: string }).friend;
+  const navigate = useNavigate();
 
   useEffect(() => {
     let dead = false;
@@ -846,11 +856,16 @@ function AtlasShell() {
 
   const sheetBack = useRef<() => boolean>(() => false);
   sheetBack.current = () => {
-    if (mapCard || roadBack) {
-      closeCard();
-      return true;
-    }
     if (sheet > 20) {
+      if (tab === "friends" && friendId) {
+        setFriendId(null);
+        setFriendLines([]);
+        return true;
+      }
+      if (mapCard || roadBack) {
+        closeCard();
+        return true;
+      }
       setSheetInstant(true);
       setSheet(8);
       window.setTimeout(() => setSheetInstant(false), 80);
@@ -866,6 +881,29 @@ function AtlasShell() {
     bindSheetBack(() => sheetBack.current());
     return () => bindSheetBack(null);
   }, []);
+
+  useEffect(() => {
+    if (!friendCode) return;
+    let dead = false;
+    acceptFriend({ data: friendCode })
+      .then((friend) => {
+        if (dead) return;
+        setFriendNote(friend.already ? `You and ${friend.name} are already friends.` : `${friend.name} is a friend now.`);
+        setFriendId(friend.id);
+        setTab("friends");
+      })
+      .catch((err) => {
+        if (dead) return;
+        setFriendNote(err instanceof Error ? err.message : "Couldn't add that friend.");
+        setTab("friends");
+      })
+      .finally(() => {
+        if (!dead) void navigate({ to: "/", search: {}, replace: true });
+      });
+    return () => {
+      dead = true;
+    };
+  }, [friendCode, navigate, setTab]);
 
   if (settingsOpen) {
     return (
@@ -944,6 +982,8 @@ function AtlasShell() {
               ghostFocus={ghostFocus}
               ghostLook={ghostLook}
               ghostColor={ghostColor}
+              friendLines={friendLines}
+              friendLook={friendLook}
               you={you}
               dot={trackTravel ? (tracker ?? you) : you}
               onPress={() => {
@@ -1008,6 +1048,15 @@ function AtlasShell() {
           <span className={"ghost-dot size-2 rounded-full " + (trackTravel ? "is-live" : "opacity-60")} style={{ background: ghostColor }} />
           Ghost trail
         </button>
+        {friendLines.length ? (
+          <button
+            type="button"
+            onClick={() => setFriendLines([])}
+            className="absolute bottom-16 left-3 z-10 h-11 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+          >
+            Friend's trail · Hide
+          </button>
+        ) : null}
         <GhostPanel
           open={ghostOpen}
           hours={ghostHours}
@@ -1257,14 +1306,14 @@ function AtlasShell() {
             </>
           ) : null}
           <div className={"grid grid-cols-[1fr_auto] items-center gap-1 " + (headerOpen ? "mt-4" : "")}>
-            <div className="grid grid-cols-5 gap-1">
+            <div className="flex min-w-0 gap-1 overflow-x-auto">
               {TABS.map(([id, label]) => (
                 <button
                   key={id}
                   type="button"
                   aria-pressed={tab === id}
                   onClick={() => setTab(id)}
-                  className={"h-11 rounded-lg text-xs " + (tab === id ? "bg-elevated text-ink" : "text-faint")}
+                  className={"h-11 shrink-0 rounded-lg px-2.5 text-xs " + (tab === id ? "bg-elevated text-ink" : "text-faint")}
                 >
                   {label}
                 </button>
@@ -1282,7 +1331,7 @@ function AtlasShell() {
           </div>
         </header>
 
-        {tab !== "badges" && tab !== "trips" ? (
+        {tab !== "badges" && tab !== "trips" && tab !== "friends" ? (
           <div className="shrink-0 px-4 pb-3">
             <label className="flex items-center gap-2 rounded-card border border-line bg-bg px-3">
               <Search className="size-4 shrink-0 text-faint" aria-hidden="true" />
@@ -1364,9 +1413,30 @@ function AtlasShell() {
               onToggle={(group) => setOpenGroup(openGroup === group ? null : group)}
             />
           ) : null}
+          {tab === "friends" ? (
+            <FriendsPanel
+              openId={friendId}
+              note={friendNote}
+              onOpen={(id) => {
+                setFriendId(id);
+                setFriendLines([]);
+              }}
+              onClose={() => {
+                setFriendId(null);
+                setFriendLines([]);
+              }}
+              onShow={(lines) => {
+                setFriendLines(lines);
+                setFriendLook((n) => n + 1);
+                setSheetInstant(true);
+                setSheet(8);
+                window.setTimeout(() => setSheetInstant(false), 80);
+              }}
+            />
+          ) : null}
         </div>
 
-        {focus && selected === focus.id && tab !== "badges" && tab !== "trips" ? (
+        {focus && selected === focus.id && tab !== "badges" && tab !== "trips" && tab !== "friends" ? (
           <Detail
             mark={focus}
             saved={savedIds.has(focus.id)}

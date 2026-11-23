@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { GROK_PROVIDERS, authClient, signIn } from "@/lib/auth/client";
 
 export function AtlasSplash({ label }: { label: string }) {
@@ -16,6 +16,7 @@ export function AtlasSplash({ label }: { label: string }) {
 
 export function LoginScreen() {
   const navigate = useNavigate();
+  const friend = (useSearch({ strict: false }) as { friend?: string }).friend;
   const [mode, setMode] = useState<"in" | "up">("in");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -50,7 +51,7 @@ export function LoginScreen() {
           return;
         }
       }
-      await navigate({ to: "/" });
+      await navigate({ to: "/", search: friend ? { friend } : {} });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in didn't go through.");
     } finally {
@@ -63,7 +64,11 @@ export function LoginScreen() {
       <div className="w-full max-w-sm px-2">
         <p className="text-xs tracking-widest text-faint uppercase">Field atlas</p>
         <h1 className="mt-2 font-serif text-4xl leading-none">The American Atlas</h1>
-        <p className="mt-3 text-sm text-muted">Sign in so the places you add stay with your account.</p>
+        <p className="mt-3 text-sm text-muted">
+          {friend
+            ? "Sign in to add them as a friend. Then you can see the badges they've earned and the ghost trails they've saved."
+            : "Sign in so the places you add stay with your account."}
+        </p>
 
         <form onSubmit={submit} className="mt-6 space-y-3">
           {mode === "up" ? (

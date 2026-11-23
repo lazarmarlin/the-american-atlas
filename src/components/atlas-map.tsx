@@ -51,6 +51,8 @@ type Props = {
   ghostFocus: string | null;
   ghostLook: number;
   ghostColor: string;
+  friendLines: GhostLines;
+  friendLook: number;
   you: Fix | null;
   dot: Fix | null;
   onState: (abbr: string) => void;
@@ -70,6 +72,28 @@ const USA: [[number, number], [number, number]] = [
 function duration() {
   if (typeof window === "undefined") return 0;
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700;
+}
+
+function frameLine(map: MlMap, lines: GhostLines) {
+  const flat = lines.flat();
+  if (flat.length < 2) return;
+  let minX = 180;
+  let minY = 90;
+  let maxX = -180;
+  let maxY = -90;
+  for (const [x, y] of flat) {
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+  map.fitBounds(
+    [
+      [minX, minY],
+      [maxX, maxY],
+    ],
+    { padding: 56, maxZoom: 12, duration: duration() },
+  );
 }
 
 function isLine(item: { category: string }) {
@@ -149,6 +173,8 @@ export function AtlasMap({
   ghostFocus,
   ghostLook,
   ghostColor,
+  friendLines,
+  friendLook,
   you,
   dot,
   onState,
@@ -261,6 +287,7 @@ export function AtlasMap({
         // lineMetrics lets the live trail fade along its length with line-gradient.
         map.addSource("ghost-live", { type: "geojson", data: empty, lineMetrics: true });
         map.addSource("ghost-saved", { type: "geojson", data: empty });
+        map.addSource("friend-trail", { type: "geojson", data: empty });
         map.addSource("places", { type: "geojson", data: empty });
         map.addSource("offers", { type: "geojson", data: empty });
         map.addSource("offer-places", { type: "geojson", data: empty });
@@ -519,6 +546,31 @@ export function AtlasMap({
               1,
               "rgba(243, 240, 230, 0.95)",
             ],
+          },
+          layout: { "line-cap": "round", "line-join": "round" },
+        });
+        // A friend's saved trail. Gold, so it doesn't blend into your own ghost.
+        map.addLayer({
+          id: "friend-haze",
+          type: "line",
+          source: "friend-trail",
+          paint: {
+            "line-color": "#e2b15a",
+            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 6, 10, 10, 14, 14],
+            "line-blur": ["interpolate", ["linear"], ["zoom"], 4, 3, 14, 7],
+            "line-opacity": 0.4,
+          },
+          layout: { "line-cap": "round", "line-join": "round" },
+        });
+        map.addLayer({
+          id: "friend-line",
+          type: "line",
+          source: "friend-trail",
+          paint: {
+            "line-color": "#e2b15a",
+            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1.4, 10, 2, 14, 2.6],
+            "line-blur": 0.4,
+            "line-opacity": 0.9,
           },
           layout: { "line-cap": "round", "line-join": "round" },
         });
@@ -875,32 +927,33 @@ export function AtlasMap({
     (map.getSource("ghost-saved") as GeoJSONSource).setData({ type: "FeatureCollection", features: savedFeatures });
   }, [ghostLive, ghostSaved, ready]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const features = friendLines.map((coordinates) => ({
+      type: "Feature" as const,
+      properties: {},
+      geometry: { type: "LineString" as const, coordinates: displayLine(coordinates) },
+    }));
+    (map.getSource("friend-trail") as GeoJSONSource).setData({ type: "FeatureCollection", features });
+  }, [friendLines, ready]);
+
   const framed = useRef(0);
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || !ghostFocus || ghostLook === framed.current) return;
     framed.current = ghostLook;
     const lines = ghostFocus === "live" ? ghostLive : (ghostSaved.find((trail) => trail.id === ghostFocus)?.lines ?? []);
-    const flat = lines.flat();
-    if (flat.length < 2) return;
-    let minX = 180;
-    let minY = 90;
-    let maxX = -180;
-    let maxY = -90;
-    for (const [x, y] of flat) {
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
-    }
-    map.fitBounds(
-      [
-        [minX, minY],
-        [maxX, maxY],
-      ],
-      { padding: 56, maxZoom: 12, duration: duration() },
-    );
+    frameLine(map, lines);
   }, [ghostFocus, ghostLive, ghostLook, ghostSaved, ready]);
+
+  const friendFramed = useRef(0);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map || friendLook === friendFramed.current) return;
+    friendFramed.current = friendLook;
+    frameLine(map, friendLines);
+  }, [friendLines, friendLook, ready]);
 
   useEffect(() => {
     const map = mapRef.current;
