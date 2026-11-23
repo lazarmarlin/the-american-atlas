@@ -5,7 +5,7 @@ import { deletePhoto, loadPhoto, savePhoto, setPhotoShared, type PhotoInfo } fro
 import { canScanLibrary, forgetAdded, lastScanAt, loadLibraryPhoto, rememberAdded, scanAllowed, scanLibrary } from "@/lib/photo-scan";
 import { nativeApp } from "@/lib/native";
 import { deleteLocalPhoto, listLocalPhotos, markUploaded, saveLocalPhoto, setLocalShared, type LocalPhoto } from "@/lib/photo-local";
-import { bindSheetBack } from "@/lib/sheet-back";
+import { pushBack } from "@/lib/sheet-back";
 
 /** A phone photo as a JPEG data URL under `limit` characters, trying lower quality if needed. */
 async function phonePhoto(uri: string, edge: number, limit: number) {
@@ -50,6 +50,13 @@ function PlacePick({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  useEffect(() => {
+    if (!open) return;
+    return pushBack(() => {
+      setOpen(false);
+      return true;
+    });
+  }, [open]);
   const choices = useMemo(() => [...marks].sort((a, b) => placeLabel(a).localeCompare(placeLabel(b))), [marks]);
   const q = query.trim().toLowerCase();
   const hits = q.length < 2 ? [] : choices.filter((mark) => matchesPlace(mark, q)).slice(0, 30);
@@ -245,11 +252,10 @@ function PhotoReview({
   const end = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    bindSheetBack(() => {
+    return pushBack(() => {
       onClose();
       return true;
     });
-    return () => bindSheetBack(null);
   }, [onClose]);
 
   useEffect(() => {
@@ -717,12 +723,19 @@ export function PhotosPanel({
 
   useEffect(() => {
     if (!open) return;
-    bindSheetBack(() => {
+    return pushBack(() => {
       setOpen(null);
       return true;
     });
-    return () => bindSheetBack(null);
   }, [open]);
+
+  useEffect(() => {
+    if (!menu) return;
+    return pushBack(() => {
+      setMenu(null);
+      return true;
+    });
+  }, [menu]);
 
   async function openPhoto(photo: PhotoInfo) {
     setOpen(photo);

@@ -46,7 +46,7 @@ import { friendPhotoPins, listPhotos, savePhoto, type FriendPhotoPin, type Photo
 import { readPhotoFile } from "@/lib/photo-file";
 import { listLocalPhotos, setLocalPhotoOwner } from "@/lib/photo-local";
 import { requestTrackingPermission } from "@/lib/background-location";
-import { bindSheetBack } from "@/lib/sheet-back";
+import { pushBack } from "@/lib/sheet-back";
 import { isMarkerColor, isMarkerIcon } from "@/lib/you-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
 import { nativeApp } from "@/lib/native";
@@ -1113,15 +1113,16 @@ function AtlasShell() {
 
   const sheetBack = useRef<() => boolean>(() => false);
   sheetBack.current = () => {
+    // A place card (from the list or the map) closes first, at any sheet height.
+    if (focus || mapCard || roadBack) {
+      closeCard();
+      return true;
+    }
     if (sheet > 20) {
       if (tab === "friends" && friendId) {
         setFriendId(null);
         setFriendLines([]);
         setFriendLive(null);
-        return true;
-      }
-      if (mapCard || roadBack) {
-        closeCard();
         return true;
       }
       setSheetInstant(true);
@@ -1135,10 +1136,7 @@ function AtlasShell() {
     }
     return false;
   };
-  useEffect(() => {
-    bindSheetBack(() => sheetBack.current());
-    return () => bindSheetBack(null);
-  }, []);
+  useEffect(() => pushBack(() => sheetBack.current()), []);
 
   useEffect(() => {
     void useLiveShare.getState().load().catch(() => {});

@@ -1,10 +1,26 @@
-/** The map screen registers this so Android back can lower the menu before leaving the app. */
-let hide: (() => boolean) | null = null;
+/**
+ * Android back inside the app. Screens that cover others (a photo, the photo
+ * review, the map's menu and cards) each register a handler while they're
+ * open; back asks the newest one first and works down. A handler returns true
+ * when it closed something. Only when nothing is left to close does back
+ * leave the app (src/routes/__root.tsx).
+ */
+type Handler = () => boolean;
 
-export function bindSheetBack(next: (() => boolean) | null) {
-  hide = next;
+const stack: Handler[] = [];
+
+/** Register a back handler; call the returned function to remove it. */
+export function pushBack(handler: Handler) {
+  stack.push(handler);
+  return () => {
+    const at = stack.lastIndexOf(handler);
+    if (at >= 0) stack.splice(at, 1);
+  };
 }
 
 export function hideCoveringSheet() {
-  return hide?.() ?? false;
+  for (let i = stack.length - 1; i >= 0; i--) {
+    if (stack[i]!()) return true;
+  }
+  return false;
 }
