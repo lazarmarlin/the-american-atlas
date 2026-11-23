@@ -4,7 +4,7 @@ import { loadParkShapes, matchPark, choosePhotoPlace } from "@/lib/park-photo";
 import { deletePhoto, loadPhoto, savePhoto, setPhotoShared, type PhotoInfo } from "@/lib/photos";
 import { canScanLibrary, forgetAdded, lastScanAt, loadLibraryPhoto, rememberAdded, scanAllowed, scanLibrary } from "@/lib/photo-scan";
 import { nativeApp } from "@/lib/native";
-import { deleteLocalPhoto, listLocalPhotos, markUploaded, saveLocalPhoto, setLocalShared, type LocalPhoto } from "@/lib/photo-local";
+import { deleteLocalPhoto, getLocalPhoto, listLocalPhotos, markUploaded, saveLocalPhoto, setLocalShared, type LocalPhoto } from "@/lib/photo-local";
 import { pushBack } from "@/lib/sheet-back";
 
 /** A phone photo as a JPEG data URL under `limit` characters, trying lower quality if needed. */
@@ -981,6 +981,96 @@ export function PhotosPanel({
           </ul>
         </section>
       ))}
+    </div>
+  );
+}
+
+/**
+ * One place's photos, full screen, opened from its card on the map. Back (or
+ * Close) returns to the card.
+ */
+export function PhotoViewer({
+  photos,
+  startId,
+  title,
+  onClose,
+}: {
+  photos: PhotoInfo[];
+  startId: string;
+  title: string;
+  onClose: () => void;
+}) {
+  const [index, setIndex] = useState(() => Math.max(0, photos.findIndex((photo) => photo.id === startId)));
+  const [full, setFull] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const photo = photos[index];
+
+  useEffect(
+    () =>
+      pushBack(() => {
+        onClose();
+        return true;
+      }),
+    [onClose],
+  );
+
+  useEffect(() => {
+    if (!photo) return;
+    let live = true;
+    setFull(null);
+    setNote(null);
+    void (async () => {
+      try {
+        const local = nativeApp ? await getLocalPhoto(photo.id) : null;
+        const image = local?.image ?? (await loadPhoto({ data: photo.id })).image;
+        if (live) setFull(image);
+      } catch (err) {
+        if (live) setNote(err instanceof Error ? err.message : "Couldn't open that photo.");
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [photo]);
+
+  if (!photo) return null;
+  const step = (delta: number) => setIndex((i) => (i + delta + photos.length) % photos.length);
+
+  return (
+    <div role="dialog" aria-label={`Photos of ${title}`} className="fixed inset-0 z-50 flex flex-col bg-bg safe-top">
+      <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
+        <button type="button" onClick={onClose} className="h-11 px-2 text-sm text-muted">
+          ‹ Back
+        </button>
+        <p className="min-w-0 flex-1 truncate text-right font-serif text-lg">{title}</p>
+      </div>
+      <div className="flex min-h-0 flex-1 items-center justify-center p-3">
+        <img
+          src={full ?? photo.thumb}
+          alt=""
+          className={"max-h-full max-w-full rounded-lg object-contain " + (full ? "" : "opacity-60 blur-sm")}
+        />
+      </div>
+      <div className="shrink-0 border-t border-line px-3 pt-2 safe-bottom">
+        <p className="text-center text-xs text-muted">
+          {photo.takenAt
+            ? new Date(photo.takenAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+            : "No date"}
+          {photos.length > 1 ? ` · ${index + 1} of ${photos.length}` : ""}
+          {photo.shared ? " · Shared" : ""}
+        </p>
+        {note ? <p className="mt-1 text-center text-xs text-accent">{note}</p> : null}
+        {photos.length > 1 ? (
+          <div className="mt-2 flex gap-2">
+            <button type="button" onClick={() => step(-1)} className="h-11 flex-1 rounded-lg border border-line text-sm">
+              Previous
+            </button>
+            <button type="button" onClick={() => step(1)} className="h-11 flex-1 rounded-lg border border-line text-sm">
+              Next
+            </button>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

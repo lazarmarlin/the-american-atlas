@@ -66,6 +66,10 @@ type Props = {
   onPress: () => void;
   onFriend: (id: string) => void;
   onView: (zoom: number, base: number | null) => void;
+  /** Bumped to fly back out to the whole country (Android back). */
+  homeTick?: number;
+  /** Whether the map is zoomed in past the whole-country view. */
+  onAway?: (away: boolean) => void;
 };
 
 const USA: [[number, number], [number, number]] = [
@@ -223,11 +227,13 @@ export function AtlasMap({
   onPress,
   onFriend,
   onView,
+  homeTick = 0,
+  onAway,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
-  const propsRef = useRef({ onState, onCounty, onPark, onSelect, onOffer, onPress, onFriend, onView });
-  propsRef.current = { onState, onCounty, onPark, onSelect, onOffer, onPress, onFriend, onView };
+  const propsRef = useRef({ onState, onCounty, onPark, onSelect, onOffer, onPress, onFriend, onView, onAway });
+  propsRef.current = { onState, onCounty, onPark, onSelect, onOffer, onPress, onFriend, onView, onAway };
   const viewRef = useRef({ stateAbbr, showCounties });
   viewRef.current = { stateAbbr, showCounties };
   const [ready, setReady] = useState(false);
@@ -890,6 +896,12 @@ export function AtlasMap({
           if (!map) return;
           propsRef.current.onView(map.getZoom(), baseRef.current);
         });
+        // "Away" once zoomed in past the whole-country view, so back can zoom out first.
+        map.on("moveend", () => {
+          if (!map) return;
+          const home = map.cameraForBounds(USA, { padding: 28 })?.zoom ?? 3;
+          propsRef.current.onAway?.(map.getZoom() > home + 0.4);
+        });
         propsRef.current.onView(map.getZoom(), baseRef.current);
         setReady(true);
       });
@@ -1179,6 +1191,14 @@ export function AtlasMap({
     if (!ready || !map) return;
     applyFilters(map);
   }, [hiddenKinds, ready]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map || !homeTick) return;
+    baseRef.current = null;
+    applyFilters(map);
+    map.fitBounds(USA, { padding: 28, duration: duration() });
+  }, [homeTick, ready]);
 
   useEffect(() => {
     const map = mapRef.current;
