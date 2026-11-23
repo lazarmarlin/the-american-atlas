@@ -18,7 +18,7 @@ type UpdaterPlugin = {
   install(options: { url: string }): Promise<void>;
   addListener(
     event: "progress",
-    fn: (data: { percent: number }) => void,
+    fn: (data: { percent: number; bytes?: number }) => void,
   ): Promise<{ remove: () => Promise<void> }>;
 };
 
@@ -109,9 +109,12 @@ export async function installUpdate() {
     return;
   }
   useUpdate.setState({ status: "downloading", percent: 0, message: null });
-  const sub = await Updater.addListener("progress", ({ percent }) =>
-    useUpdate.setState({ percent }),
-  );
+  const sub = await Updater.addListener("progress", ({ percent, bytes }) => {
+    const size = useUpdate.getState().available?.size ?? 0;
+    const fromBytes = size > 0 && bytes ? Math.min(99, Math.round((bytes * 100) / size)) : 0;
+    const next = percent >= 0 ? percent : fromBytes;
+    useUpdate.setState({ percent: next });
+  });
   try {
     await Updater.install({ url: update.url });
     // Android's installer is open now. If they back out of it, the button works again.

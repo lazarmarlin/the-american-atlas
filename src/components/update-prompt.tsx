@@ -9,7 +9,30 @@ import {
 } from "@/lib/app-update";
 import { nativeApp } from "@/lib/native";
 
-/** A card at the top of the map when a newer build of the app is out. */
+function DownloadBar({ percent, size }: { percent: number; size: number }) {
+  const width = Math.max(0, Math.min(100, percent));
+  const got = size > 0 ? sizeText((size * width) / 100) : "";
+  return (
+    <div className="mt-3">
+      <div className="flex items-baseline justify-between text-xs text-muted">
+        <span>Downloading</span>
+        <span>
+          {width}%{got ? ` · ${got} of ${sizeText(size)}` : ""}
+        </span>
+      </div>
+      <div
+        className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-bg"
+        role="progressbar"
+        aria-valuenow={width}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label="Download progress"
+      >
+        <div className="h-full rounded-full bg-ink transition-[width] duration-150" style={{ width: `${width}%` }} />
+      </div>
+    </div>
+  );
+}
 export function UpdatePrompt() {
   const { available, later, status, percent, message } = useUpdate();
 
@@ -67,28 +90,29 @@ export function UpdatePrompt() {
               Installs over this one. Your places and settings stay.
             </p>
             {message ? <p className="mt-1 text-sm text-accent">{message}</p> : null}
-            <div className="mt-2 flex gap-2">
-              <button
-                type="button"
-                disabled={status === "downloading" || status === "installing"}
-                onClick={() => void installUpdate()}
-                className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm disabled:text-muted"
-              >
-                {status === "downloading"
-                  ? `Downloading ${percent}%`
-                  : status === "installing"
+            {status === "downloading" ? (
+              <DownloadBar percent={percent} size={available.size} />
+            ) : (
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  disabled={status === "installing"}
+                  onClick={() => void installUpdate()}
+                  className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm disabled:text-muted"
+                >
+                  {status === "installing"
                     ? "Opening the installer…"
                     : `Update${available.size ? ` (${sizeText(available.size)})` : ""}`}
-              </button>
-              <button
-                type="button"
-                disabled={status === "downloading"}
-                onClick={() => useUpdate.setState({ later: true })}
-                className="h-11 flex-1 rounded-lg border border-line text-sm disabled:text-faint"
-              >
-                Later
-              </button>
-            </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => useUpdate.setState({ later: true })}
+                  className="h-11 flex-1 rounded-lg border border-line text-sm"
+                >
+                  Later
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -98,7 +122,7 @@ export function UpdatePrompt() {
 
 /** Version line and a check button for Settings → Account. */
 export function AppVersion() {
-  const { current, available, status, message } = useUpdate();
+  const { current, available, status, percent, message } = useUpdate();
   useEffect(() => {
     if (nativeApp) void checkForUpdate();
   }, []);
@@ -110,7 +134,8 @@ export function AppVersion() {
         {current ? `Build ${current}.` : "Checking…"} New builds install over this one, so nothing
         is lost.
       </p>
-      {available ? (
+      {available && status === "downloading" ? <DownloadBar percent={percent} size={available.size} /> : null}
+      {available && status !== "downloading" ? (
         <button
           type="button"
           onClick={() => {
@@ -121,7 +146,8 @@ export function AppVersion() {
         >
           Install build {available.build}
         </button>
-      ) : (
+      ) : null}
+      {!available ? (
         <button
           type="button"
           disabled={status === "checking"}
@@ -130,7 +156,7 @@ export function AppVersion() {
         >
           {status === "checking" ? "Checking…" : "Check for updates"}
         </button>
-      )}
+      ) : null}
       {message ? <p className="mt-2 text-sm text-muted">{message}</p> : null}
     </section>
   );

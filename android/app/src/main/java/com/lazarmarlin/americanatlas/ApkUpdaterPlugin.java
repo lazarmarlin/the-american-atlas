@@ -107,20 +107,23 @@ public class ApkUpdaterPlugin extends Plugin {
         long total = conn.getContentLengthLong();
         long done = 0;
         int lastPct = -1;
+        long lastNote = 0;
         try (InputStream in = conn.getInputStream(); OutputStream out = new FileOutputStream(target)) {
             byte[] buf = new byte[64 * 1024];
             int n;
             while ((n = in.read(buf)) > 0) {
                 out.write(buf, 0, n);
                 done += n;
-                if (total > 0) {
-                    int pct = (int) (done * 100 / total);
-                    if (pct != lastPct) {
-                        lastPct = pct;
-                        JSObject p = new JSObject();
-                        p.put("percent", pct);
-                        notifyListeners("progress", p);
-                    }
+                int pct = total > 0 ? (int) (done * 100 / total) : -1;
+                boolean stepped = pct >= 0 && pct != lastPct;
+                boolean tick = pct < 0 && done - lastNote >= 256 * 1024;
+                if (stepped || tick) {
+                    lastPct = pct;
+                    lastNote = done;
+                    JSObject p = new JSObject();
+                    p.put("percent", pct);
+                    p.put("bytes", done);
+                    notifyListeners("progress", p);
                 }
             }
         } finally {
