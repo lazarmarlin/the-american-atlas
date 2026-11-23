@@ -1,8 +1,9 @@
 /**
  * Friends. Each account has one link (`/?friend=CODE`). Opening it while
  * signed in adds both people. A friend can see earned badges and the saved
- * ghost trails the owner chose to share — never places, the live trail, or an
- * unshared trail. Shared trails lose their first and last half kilometer (so
+ * ghost trails the owner chose to share. A live trail is separate: the owner
+ * can show it to at most three friends while tracking (src/lib/live-share.ts).
+ * Shared saved trails lose their first and last half kilometer (so
  * they don't point at a home or hotel) and their times are cut to the day.
  * Resetting the link stops new people adding you; existing friends stay.
  */
@@ -249,6 +250,16 @@ export const removeFriend = createServerFn({ method: "POST" })
       delete from friendships
       where (user_id = ${context.userId} and friend_id = ${friendId})
          or (user_id = ${friendId} and friend_id = ${context.userId})
+    `;
+    await sql`
+      delete from live_viewers
+      where (user_id = ${context.userId} and friend_id = ${friendId})
+         or (user_id = ${friendId} and friend_id = ${context.userId})
+    `;
+    await sql`
+      delete from live_trails
+      where user_id in (${context.userId}, ${friendId})
+        and not exists (select 1 from live_viewers v where v.user_id = live_trails.user_id)
     `;
     return { ok: true as const };
   });

@@ -10,6 +10,7 @@ export type Trip = {
   id: string;
   name: string;
   stops: TripStop[];
+  recording?: boolean;
 };
 
 function cleanId(value: unknown) {
@@ -18,7 +19,7 @@ function cleanId(value: unknown) {
   return id;
 }
 
-export function ensureStops(trip: { id: string; name: string; stops?: unknown }): Trip {
+export function ensureStops(trip: { id: string; name: string; stops?: unknown; recording?: boolean }): Trip {
   const raw = Array.isArray(trip.stops) ? trip.stops : [];
   const stops: TripStop[] = [];
   const seen = new Set<string>();
@@ -38,7 +39,7 @@ export function ensureStops(trip: { id: string; name: string; stops?: unknown })
     seen.add(id);
     stops.push({ id, poiId });
   });
-  return { id: trip.id, name: trip.name, stops };
+  return { id: trip.id, name: trip.name, stops, recording: trip.recording === true };
 }
 
 function parseStops(value: unknown): TripStop[] {
@@ -54,8 +55,8 @@ export const listTrips = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
-    const trips = await sql<{ id: string; name: string }>`
-      select id, name from trips where user_id = ${context.userId} order by created_at desc
+    const trips = await sql<{ id: string; name: string; recording: boolean }>`
+      select id, name, recording from trips where user_id = ${context.userId} order by created_at desc
     `;
     const stops = await sql<{ trip_id: string; stop_id: string; poi_id: string }>`
       select trip_id, stop_id, poi_id from trip_stops where user_id = ${context.userId} order by pos
@@ -67,6 +68,7 @@ export const listTrips = createServerFn({ method: "GET" })
         stops: stops
           .filter((stop) => stop.trip_id === trip.id)
           .map((stop) => ({ id: stop.stop_id || stop.poi_id, poiId: stop.poi_id })),
+        recording: trip.recording === true,
       }),
     );
   });
@@ -157,6 +159,26 @@ export const orderTripStops = createServerFn({ method: "POST" })
         insert into trip_stops (user_id, trip_id, poi_id, pos, stop_id)
         values (${context.userId}, ${data.tripId}, ${stop.poiId}, ${i + 1}, ${stop.id})
       `;
+    }
+    return data;
+  });
+
+/** One trip records places as you travel. Turning one on turns the others off. */
+export const setTripRecording = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    if (!input || typeof input !== "object") throw new Error("Missing trip");
+    const row = input as Record<string, unknown>;
+    return { id: cleanId(row.id), on: row.on === true };
+  })
+  .handler(async ({ context, data }) => {
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    if (data.on) {
+      await sql`update trips set recording = false where user_id = ${context.userId} and id <> ${data.id}`;
+      await sql`update trips set recording = true where user_id = ${context.userId} and id = ${data.id}`;
+    } else {
+      await sql`update trips set recording = false where user_id = ${context.userId} and id = ${data.id}`;
     }
     return data;
   });

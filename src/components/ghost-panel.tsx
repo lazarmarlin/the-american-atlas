@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { GHOST_COLORS } from "@/lib/atlas-settings";
 import { formatMiles, freshPoints, suggestTrailName, trailMiles, useGhost } from "@/lib/ghost-trail";
+import { listFriends, type FriendRow } from "@/lib/friends";
+import { MAX_LIVE_FRIENDS, useLiveShare } from "@/lib/live-share";
 
 export function GhostColors({ color, onChange }: { color: string; onChange: (color: string) => void }) {
   const label = GHOST_COLORS.find((item) => item.id === color)?.label ?? "Mist";
@@ -199,6 +201,8 @@ export function GhostPanel({
           {note ? <p className="mt-2 text-sm text-muted">{note}</p> : null}
         </div>
 
+        <LiveFriends />
+
         <h3 className="mt-5 font-serif text-xl">Previous trails</h3>
         <p className="mt-1 text-xs text-muted">
           Saved trails are private until you share one. Friends see a shared trail without its first and last half
@@ -274,6 +278,78 @@ export function GhostPanel({
           <p className="mt-1 text-sm text-muted">Trails you save stay on the atlas. They don't fade.</p>
         )}
       </div>
+    </div>
+  );
+}
+
+function LiveFriends() {
+  const viewers = useLiveShare((s) => s.viewers);
+  const load = useLiveShare((s) => s.load);
+  const toggle = useLiveShare((s) => s.toggle);
+  const [friends, setFriends] = useState<FriendRow[] | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    let dead = false;
+    void load().catch(() => {});
+    listFriends()
+      .then((rows) => {
+        if (!dead) setFriends(rows);
+      })
+      .catch(() => {
+        if (!dead) setFriends([]);
+      });
+    return () => {
+      dead = true;
+    };
+  }, [load]);
+
+  async function pick(id: string) {
+    setNote(null);
+    try {
+      await toggle(id);
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Couldn't update that.");
+    }
+  }
+
+  return (
+    <div className="mt-5">
+      <h3 className="font-serif text-xl">Live with friends</h3>
+      <p className="mt-1 text-xs text-muted">
+        Pick up to {MAX_LIVE_FRIENDS}. While tracking is on they see this trail, including where you are. It drops off a
+        few minutes after you stop.
+      </p>
+      <p className="mt-2 text-sm text-muted">
+        {viewers.length} of {MAX_LIVE_FRIENDS}
+      </p>
+      {note ? <p className="mt-1 text-sm text-accent">{note}</p> : null}
+      {friends === null ? (
+        <p className="mt-2 text-sm text-muted">Loading friends…</p>
+      ) : friends.length === 0 ? (
+        <p className="mt-2 text-sm text-muted">Add a friend from the Friends tab, then choose them here.</p>
+      ) : (
+        <ul className="mt-2 grid gap-2">
+          {friends.map((friend) => {
+            const on = viewers.includes(friend.id);
+            const full = !on && viewers.length >= MAX_LIVE_FRIENDS;
+            return (
+              <li key={friend.id}>
+                <button
+                  type="button"
+                  aria-pressed={on}
+                  disabled={full}
+                  onClick={() => void pick(friend.id)}
+                  className={"flex h-11 w-full items-center justify-between rounded-lg border px-3 text-left text-sm disabled:text-faint " + (on ? "border-ink bg-elevated" : "border-line")}
+                >
+                  <span>{friend.name}</span>
+                  <span className="text-xs text-muted">{on ? "Watching" : full ? "Full" : "Off"}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

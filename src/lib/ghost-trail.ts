@@ -378,6 +378,19 @@ export const useGhost = create<GhostState>((set, get) => ({
   lookAt: (id) => set((state) => ({ focusId: id, look: state.look + 1 })),
 }));
 
+/** Put a restored trail back under the one on this device. Points older than 24 hours are dropped. */
+export function mergeLiveCache(points: GhostPoint[]) {
+  if (!points.length) return;
+  useGhost.setState((state) => {
+    const seen = new Set(state.live.map((point) => point.t));
+    const extra = points.filter((point) => Number.isFinite(point.t) && !seen.has(point.t));
+    if (!extra.length) return state;
+    const live = freshPoints([...state.live, ...extra].sort((a, b) => a.t - b.t), GHOST_KEEP_HOURS);
+    scheduleSave();
+    return { live, dirty: true };
+  });
+}
+
 // ---------------------------------------------------------------- loading, sync, sign-out
 
 let loadingFor: string | null = null;

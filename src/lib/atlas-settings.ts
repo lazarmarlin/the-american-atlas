@@ -43,6 +43,8 @@ type Saved = {
   markerColor: string;
   ghostHours: number;
   ghostColor: string;
+  /** Keep the fading trail on the account for 24 hours. Off until turned on. */
+  keepGhost: boolean;
 };
 
 type Settings = Saved & {
@@ -60,6 +62,8 @@ type Settings = Saved & {
   setMarkerColor: (markerColor: string) => void;
   setGhostHours: (ghostHours: number) => void;
   setGhostColor: (ghostColor: string) => void;
+  setKeepGhost: (keepGhost: boolean) => void;
+  apply: (saved: Partial<Saved>) => void;
 };
 
 const KEY = "trak-settings";
@@ -78,6 +82,7 @@ const DEFAULTS: Saved = {
   markerColor: DEFAULT_MARKER_COLOR,
   ghostHours: 6,
   ghostColor: "#d5e2ea",
+  keepGhost: false,
 };
 
 function clampHours(value: unknown) {
@@ -105,6 +110,7 @@ function readSaved(): Saved {
       markerColor: isMarkerColor(raw.markerColor) ? raw.markerColor.toLowerCase() : DEFAULTS.markerColor,
       ghostHours: clampHours(raw.ghostHours),
       ghostColor: isGhostColor(raw.ghostColor) ? raw.ghostColor.toLowerCase() : DEFAULTS.ghostColor,
+      keepGhost: raw.keepGhost === true,
     };
   } catch {
     return DEFAULTS;
@@ -174,5 +180,28 @@ export const useSettings = create<Settings>((set) => ({
     const color = isGhostColor(ghostColor) ? ghostColor.toLowerCase() : DEFAULTS.ghostColor;
     write({ ghostColor: color });
     set({ ghostColor: color });
+  },
+  setKeepGhost: (keepGhost) => {
+    write({ keepGhost });
+    set({ keepGhost });
+  },
+  apply: (saved) => {
+    const next: Partial<Saved> = {};
+    if (typeof saved.icons === "boolean") next.icons = saved.icons;
+    if (typeof saved.trackTravel === "boolean") next.trackTravel = saved.trackTravel;
+    if (typeof saved.fastAdd === "boolean") next.fastAdd = saved.fastAdd;
+    if (typeof saved.showParks === "boolean") next.showParks = saved.showParks;
+    if (typeof saved.showTowns === "boolean") next.showTowns = saved.showTowns;
+    if (typeof saved.showReservations === "boolean") next.showReservations = saved.showReservations;
+    if (typeof saved.keepGhost === "boolean") next.keepGhost = saved.keepGhost;
+    if (typeof saved.stateBorder === "string") next.stateBorder = saved.stateBorder;
+    if (typeof saved.countyColor === "string") next.countyColor = saved.countyColor;
+    if (typeof saved.townColor === "string") next.townColor = saved.townColor;
+    if (typeof saved.reservationColor === "string") next.reservationColor = saved.reservationColor;
+    if (typeof saved.ghostColor === "string" && isGhostColor(saved.ghostColor)) next.ghostColor = saved.ghostColor.toLowerCase();
+    if (saved.ghostHours != null) next.ghostHours = clampHours(saved.ghostHours);
+    if (!Object.keys(next).length) return;
+    write(next);
+    set(next);
   },
 }));

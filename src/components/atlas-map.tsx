@@ -53,6 +53,8 @@ type Props = {
   ghostColor: string;
   friendLines: GhostLines;
   friendLook: number;
+  friendLive: boolean;
+  friendPins: { id: string; name: string; lat: number; lon: number; icon: string; color: string }[];
   you: Fix | null;
   dot: Fix | null;
   onState: (abbr: string) => void;
@@ -61,6 +63,7 @@ type Props = {
   onSelect: (id: string) => void;
   onOffer: (id: string) => void;
   onPress: () => void;
+  onFriend: (id: string) => void;
   onView: (zoom: number, base: number | null) => void;
 };
 
@@ -175,6 +178,8 @@ export function AtlasMap({
   ghostColor,
   friendLines,
   friendLook,
+  friendLive,
+  friendPins,
   you,
   dot,
   onState,
@@ -183,12 +188,13 @@ export function AtlasMap({
   onSelect,
   onOffer,
   onPress,
+  onFriend,
   onView,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
-  const propsRef = useRef({ onState, onCounty, onPark, onSelect, onOffer, onPress, onView });
-  propsRef.current = { onState, onCounty, onPark, onSelect, onOffer, onPress, onView };
+  const propsRef = useRef({ onState, onCounty, onPark, onSelect, onOffer, onPress, onFriend, onView });
+  propsRef.current = { onState, onCounty, onPark, onSelect, onOffer, onPress, onFriend, onView };
   const viewRef = useRef({ stateAbbr, showCounties });
   viewRef.current = { stateAbbr, showCounties };
   const [ready, setReady] = useState(false);
@@ -288,10 +294,13 @@ export function AtlasMap({
         map.addSource("ghost-live", { type: "geojson", data: empty, lineMetrics: true });
         map.addSource("ghost-saved", { type: "geojson", data: empty });
         map.addSource("friend-trail", { type: "geojson", data: empty });
+        map.addSource("friend-live", { type: "geojson", data: empty, lineMetrics: true });
+        map.addSource("friend-tip", { type: "geojson", data: empty });
         map.addSource("places", { type: "geojson", data: empty });
         map.addSource("offers", { type: "geojson", data: empty });
         map.addSource("offer-places", { type: "geojson", data: empty });
         map.addSource("you", { type: "geojson", data: empty });
+        map.addSource("friend-people", { type: "geojson", data: empty });
         for (const id of glyphKinds()) {
           const color = placeKinds.find((kind) => kind.id === id)?.color ?? "#e2b15a";
           map.addImage(`k-${id}`, glyphImage(id, color, false), { pixelRatio: 2 });
@@ -588,6 +597,60 @@ export function AtlasMap({
           layout: { "line-cap": "round", "line-join": "round" },
         });
         map.addLayer({
+          id: "friend-live-haze",
+          type: "line",
+          source: "friend-live",
+          paint: {
+            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 6, 10, 10, 14, 14],
+            "line-blur": ["interpolate", ["linear"], ["zoom"], 4, 3, 14, 7],
+            "line-gradient": [
+              "interpolate",
+              ["linear"],
+              ["line-progress"],
+              0,
+              "rgba(226, 177, 90, 0)",
+              0.45,
+              "rgba(226, 177, 90, 0.16)",
+              1,
+              "rgba(226, 177, 90, 0.45)",
+            ],
+          },
+          layout: { "line-cap": "round", "line-join": "round" },
+        });
+        map.addLayer({
+          id: "friend-live-line",
+          type: "line",
+          source: "friend-live",
+          paint: {
+            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1.3, 10, 1.9, 14, 2.4],
+            "line-blur": 0.5,
+            "line-gradient": [
+              "interpolate",
+              ["linear"],
+              ["line-progress"],
+              0,
+              "rgba(226, 177, 90, 0)",
+              0.3,
+              "rgba(226, 177, 90, 0.28)",
+              1,
+              "rgba(243, 240, 230, 0.9)",
+            ],
+          },
+          layout: { "line-cap": "round", "line-join": "round" },
+        });
+        map.addLayer({
+          id: "friend-tip",
+          type: "circle",
+          source: "friend-tip",
+          paint: {
+            "circle-radius": 6,
+            "circle-color": "#e2b15a",
+            "circle-stroke-color": "#f3f0e6",
+            "circle-stroke-width": 1.5,
+            "circle-opacity": 0.95,
+          },
+        });
+        map.addLayer({
           id: "offer-dots",
           type: "circle",
           source: "offer-places",
@@ -649,6 +712,18 @@ export function AtlasMap({
             "icon-ignore-placement": true,
           },
         });
+        map.addLayer({
+          id: "friend-people",
+          type: "symbol",
+          source: "friend-people",
+          layout: {
+            "icon-image": ["get", "icon"],
+            "icon-size": 0.92,
+            "icon-anchor": "center",
+            "icon-allow-overlap": true,
+            "icon-ignore-placement": true,
+          },
+        });
 
         let hover: string | null = null;
         map.on("mousemove", "states-fill", (event) => {
@@ -666,7 +741,7 @@ export function AtlasMap({
           if (hover) map.setFeatureState({ source: "states", id: hover }, { hover: false });
           hover = null;
         });
-        for (const layer of ["route-line", "place-dots", "place-icons", "offer-line", "offer-dots", "offer-icons", "park-fill", "reservation-fill", "county-fill"]) {
+        for (const layer of ["route-line", "place-dots", "place-icons", "offer-line", "offer-dots", "offer-icons", "park-fill", "reservation-fill", "county-fill", "friend-people"]) {
           map.on("mouseenter", layer, () => map?.getCanvas().style.setProperty("cursor", "pointer"));
           map.on("mouseleave", layer, () => map?.getCanvas().style.setProperty("cursor", ""));
         }
@@ -677,6 +752,12 @@ export function AtlasMap({
             [event.point.x - pad, event.point.y - pad],
             [event.point.x + pad, event.point.y + pad],
           ];
+          const person = map.queryRenderedFeatures(area, { layers: ["friend-people"] });
+          const personId = person[0]?.properties?.id;
+          if (typeof personId === "string") {
+            propsRef.current.onFriend(personId);
+            return;
+          }
           const saved = map.queryRenderedFeatures(area, { layers: ["route-line", "place-icons", "place-dots"] });
           const savedId = saved[0]?.properties?.id;
           if (typeof savedId === "string") {
@@ -943,13 +1024,26 @@ export function AtlasMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
-    const features = friendLines.map((coordinates) => ({
+    const features = (friendLive ? [] : friendLines).map((coordinates) => ({
       type: "Feature" as const,
       properties: {},
       geometry: { type: "LineString" as const, coordinates: displayLine(coordinates) },
     }));
+    const liveFeatures = (friendLive ? friendLines : []).map((coordinates) => ({
+      type: "Feature" as const,
+      properties: {},
+      geometry: { type: "LineString" as const, coordinates: displayLine(coordinates) },
+    }));
+    const tip = friendLive ? friendLines.at(-1)?.at(-1) : null;
     (map.getSource("friend-trail") as GeoJSONSource).setData({ type: "FeatureCollection", features });
-  }, [friendLines, ready]);
+    (map.getSource("friend-live") as GeoJSONSource).setData({ type: "FeatureCollection", features: liveFeatures });
+    (map.getSource("friend-tip") as GeoJSONSource).setData({
+      type: "FeatureCollection",
+      features: tip
+        ? [{ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: tip } }]
+        : [],
+    });
+  }, [friendLines, friendLive, ready]);
 
   const framed = useRef(0);
   useEffect(() => {
@@ -964,6 +1058,7 @@ export function AtlasMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || friendLook === friendFramed.current) return;
+    if (friendLines.flat().length < 2) return;
     friendFramed.current = friendLook;
     frameLine(map, friendLines);
   }, [friendLines, friendLook, ready]);
@@ -1095,6 +1190,29 @@ export function AtlasMap({
         : { type: "FeatureCollection", features: [] },
     );
   }, [dot, ready]);
+
+  const friendIcons = useRef(new Map<string, string>());
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const features = [];
+    for (const pin of friendPins) {
+      const imageId = `fy-${pin.id}`;
+      const key = `${pin.icon}|${pin.color}`;
+      if (friendIcons.current.get(pin.id) !== key) {
+        const image = youMarkerImage(pin.icon, pin.color);
+        if (map.hasImage(imageId)) map.updateImage(imageId, image);
+        else map.addImage(imageId, image, { pixelRatio: 2 });
+        friendIcons.current.set(pin.id, key);
+      }
+      features.push({
+        type: "Feature" as const,
+        properties: { id: pin.id, name: pin.name, icon: imageId },
+        geometry: { type: "Point" as const, coordinates: [pin.lon, pin.lat] },
+      });
+    }
+    (map.getSource("friend-people") as GeoJSONSource).setData({ type: "FeatureCollection", features });
+  }, [friendPins, ready]);
 
   useEffect(() => {
     const map = mapRef.current;

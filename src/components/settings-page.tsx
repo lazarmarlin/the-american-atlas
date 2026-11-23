@@ -3,6 +3,7 @@ import { ChevronLeft } from "lucide-react";
 import { BORDER_COLORS, useSettings } from "@/lib/atlas-settings";
 import { authEnabled, signOut } from "@/lib/auth/client";
 import { clearGhostLocal } from "@/lib/ghost-trail";
+import { clearGhostCache } from "@/lib/ghost-cache";
 import { hasGateSessionMarker } from "@/lib/auth/gate-session-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
 import { nativeApp } from "@/lib/native";
@@ -61,6 +62,8 @@ export function SettingsPage({
   const setGhostHours = useSettings((s) => s.setGhostHours);
   const ghostColor = useSettings((s) => s.ghostColor);
   const setGhostColor = useSettings((s) => s.setGhostColor);
+  const keepGhost = useSettings((s) => s.keepGhost);
+  const setKeepGhost = useSettings((s) => s.setKeepGhost);
   const pack = useOfflinePack();
   const packPct = pack.total ? Math.min(100, Math.round((pack.done / pack.total) * 100)) : 0;
   const [name, setName] = useState(profile.name);
@@ -327,6 +330,21 @@ export function SettingsPage({
         </p>
         <GhostHours hours={ghostHours} onChange={setGhostHours} />
         <GhostColors color={ghostColor} onChange={setGhostColor} />
+        <button
+          type="button"
+          aria-pressed={keepGhost}
+          onClick={() => {
+            const next = !keepGhost;
+            setKeepGhost(next);
+            if (!next) void clearGhostCache().catch(() => {});
+          }}
+          className={"mt-3 h-12 w-full rounded-lg border text-sm " + (keepGhost ? "border-ink bg-elevated" : "border-line")}
+        >
+          {keepGhost ? "Live trail kept on your account" : "Keep the live trail on your account"}
+        </button>
+        <p className="mt-2 text-sm text-muted">
+          Off unless you turn it on. The last 24 hours of the fading trail stays with your account, so a reinstall can pick it up. Saved trails are separate and always stay.
+        </p>
       </section>
 
       <section className="mt-8">
@@ -441,6 +459,7 @@ export function SettingsPage({
 
       {page === "map" ? (
       <>
+      <p className="mt-3 text-sm text-muted">These stay with your account, including county colors, so a new install picks them up.</p>
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Map markers</h2>
         <p className="mt-1 text-sm text-muted">Icons use the same colors as the place types. Dots are the plain circles.</p>

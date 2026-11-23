@@ -80,18 +80,22 @@ function milesToPaths(lat: number, lon: number, paths: number[][][]) {
   return best;
 }
 
-/** Roads you are on, sites within a quarter mile, and the town, city, or reservation you are inside. */
-export async function collectPassed(fix: Fix, states: StateInfo[], saved: Set<string>): Promise<Mark[]> {
+/** Roads you are on, sites within a quarter mile, and the town, city, or reservation you are inside.
+ * `visited` collects places already on the atlas that this fix is passing, for a trip that is recording. */
+export async function collectPassed(fix: Fix, states: StateInfo[], saved: Set<string>, visited?: Mark[]): Promise<Mark[]> {
   const here = statesTouching(fix, states);
   const found: { miles: number; mark: Mark }[] = [];
   const countyRows = await Promise.all(here.map(async (state) => ({ state: state.abbr, rows: await loadCounties(state.abbr) })));
   for (const group of countyRows) {
     const hit = countyContaining(fix.lat, fix.lon, group.rows);
-    if (!hit || saved.has(hit.id)) continue;
+    if (!hit || saved.has(hit.id)) {
+      if (hit && saved.has(hit.id)) remember(visited, countyToMark(hit, group.state));
+      continue;
+    }
     found.push({ miles: 0, mark: countyToMark(hit, group.state) });
   }
-  found.push(...(await passedTowns(fix, saved)));
-  found.push(...(await passedReservations(fix, saved, here)));
+  found.push(...(await passedTowns(fix, saved, visited)));
+  found.push(...(await passedReservations(fix, saved, here, visited)));
   const places = await Promise.all(
     here.flatMap((state) =>
       PASS_CATS.map(async (cat) => {
@@ -102,23 +106,30 @@ export async function collectPassed(fix: Fix, states: StateInfo[], saved: Set<st
   );
   for (const batch of places) {
     for (const item of batch) {
-      if (item.row.lat == null || item.row.lon == null || saved.has(item.row.id)) continue;
+      if (item.row.lat == null || item.row.lon == null) continue;
       const miles =
         item.cat === "drive" && item.row.paths?.length
           ? milesToPaths(fix.lat, fix.lon, item.row.paths)
           : milesBetween(fix.lat, fix.lon, item.row.lat, item.row.lon);
       const limit = item.cat === "drive" ? ROAD_MILES : PLACE_MILES;
       if (miles > limit) continue;
+      if (saved.has(item.row.id)) {
+        remember(visited, placeToMark(item.row, item.cat, item.state));
+        continue;
+      }
       found.push({ miles, mark: placeToMark(item.row, item.cat, item.state) });
     }
   }
   const roads = await Promise.all(here.map(async (state) => ({ state: state.abbr, rows: await loadRoads(state.abbr) })));
   for (const group of roads) {
     for (const road of group.rows) {
-      if (saved.has(road.id)) continue;
       if (milesBetween(fix.lat, fix.lon, road.lat, road.lon) > 40) continue;
       const miles = road.paths?.length ? milesToPaths(fix.lat, fix.lon, road.paths) : milesBetween(fix.lat, fix.lon, road.lat, road.lon);
       if (miles > ROAD_MILES) continue;
+      if (saved.has(road.id)) {
+        remember(visited, roadToMark(road, group.state));
+        continue;
+      }
       found.push({ miles, mark: roadToMark(road, group.state) });
     }
   }
@@ -140,6 +151,11 @@ export async function collectPassed(fix: Fix, states: StateInfo[], saved: Set<st
   return out;
 }
 
+function remember(visited: Mark[] | undefined, mark: Mark) {
+  if (!visited || visited.length >= 6 || visited.some((item) => item.id === mark.id)) return;
+  visited.push(mark);
+}
+
 function geoidIndex(rows: CatalogPlace[]) {
   const map = new Map<string, CatalogPlace>();
   for (const row of rows) {
@@ -151,7 +167,7 @@ function geoidIndex(rows: CatalogPlace[]) {
   return map;
 }
 
-async function passedTowns(fix: Fix, saved: Set<string>) {
+async function passedTowns(fix: Fix, saved: Set<string>, visited?: Mark[]) {
   const hits = await townsAt(fix.lat, fix.lon).catch(() => []);
   const states = [...new Set(hits.map((hit) => hit.st))];
   const lists = await Promise.all(states.map(async (st) => ({ st, rows: geoidIndex(await loadPlaces("town", st)) })));
@@ -159,16 +175,27 @@ async function passedTowns(fix: Fix, saved: Set<string>) {
   const out: { miles: number; mark: Mark }[] = [];
   for (const hit of hits) {
     const row = byState.get(hit.st)?.get(hit.geoid) ?? byState.get(hit.st)?.get(hit.geoid.replace(/^0+/, ""));
-    if (!row || saved.has(row.id)) continue;
+    if (!row || saved.has(row.id)) {
+      if (row && saved.has(row.id)) remember(visited, placeToMark(row, "town", hit.st));
+      continue;
+    }
     out.push({ miles: 0, mark: placeToMark(row, "town", hit.st) });
   }
   return out;
 }
 
-async function passedReservations(fix: Fix, saved: Set<string>, states: StateInfo[]) {
+async function passedReservations(fix: Fix, saved: Set<string>, states: StateInfo[], visited?: Mark[]) {
   const hits = await reservationsAt(fix.lat, fix.lon).catch(() => []);
   return hits
-    .filter((hit) => hit.id && !saved.has(hit.id))
+    .filter((hit) => {
+      if (!hit.id) return false;
+      if (!saved.has(hit.id)) return true;
+      remember(
+        visited,
+        placeToMark({ id: hit.id, name: hit.name, lat: hit.lat, lon: hit.lon, pts: hit.pts }, "reservation", reservationState(hit, fix, states)),
+      );
+      return false;
+    })
     .map((hit) => ({
       miles: 0,
       mark: placeToMark(

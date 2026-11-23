@@ -15,6 +15,7 @@ import {
 import { formatMiles, trailLines, type GhostLines } from "@/lib/ghost-trail";
 import type { PackedPoint } from "@/lib/ghost-sync";
 import { apiOrigin, nativeApp } from "@/lib/native";
+import { type LiveFriend } from "@/lib/live-share";
 import { friendsLeaderboard, periodRange, type LeaderRow } from "@/lib/recap";
 
 function friendUrl(code: string) {
@@ -40,15 +41,19 @@ function Face({ name, photo }: { name: string; photo: string }) {
 export function FriendsPanel({
   openId,
   note,
+  liveNow,
   onOpen,
   onClose,
   onShow,
+  onWatch,
 }: {
   openId: string | null;
   note: string | null;
+  liveNow: LiveFriend[];
   onOpen: (id: string) => void;
   onClose: () => void;
   onShow: (lines: GhostLines) => void;
+  onWatch: (friend: { id: string; name: string }) => void;
 }) {
   const [friends, setFriends] = useState<FriendRow[] | null>(null);
   const [code, setCode] = useState<string | null>(null);
@@ -203,6 +208,21 @@ export function FriendsPanel({
             </div>
             {error ? <p className="mt-2 px-2 text-sm text-accent">{error}</p> : null}
 
+            {liveNow.some((row) => row.id === page.id) ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setShown("live");
+                  onWatch({ id: page.id, name: page.name });
+                }}
+                className={"mt-4 h-11 w-full rounded-lg border text-sm " + (shown === "live" ? "border-ink bg-elevated" : "border-line")}
+              >
+                {shown === "live" ? "Watching their live trail" : "Watch live trail"}
+              </button>
+            ) : (
+              <p className="mt-4 px-2 text-sm text-muted">They aren't sharing a live trail right now.</p>
+            )}
+
             <h3 className="mt-5 px-2 font-serif text-xl">Badges</h3>
             {page.badges.length ? (
               <ul className="mt-2 grid gap-2">
@@ -221,7 +241,7 @@ export function FriendsPanel({
             )}
 
             <h3 className="mt-5 px-2 font-serif text-xl">Ghost trails</h3>
-            <p className="mt-1 px-2 text-sm text-muted">Saved trails only. A trail still fading on their phone isn't here, and neither are ones they hid.</p>
+            <p className="mt-1 px-2 text-sm text-muted">Saved trails they chose to share. The ends and the times are left off.</p>
             {page.trails.length ? (
               <ul className="mt-2 grid gap-2">
                 {page.trails.map((trail) => (
@@ -314,6 +334,7 @@ export function FriendsPanel({
                 <span>
                   <span className="block text-sm">{friend.name}</span>
                   <span className="block text-xs text-faint">
+                    {liveNow.some((row) => row.id === friend.id) ? "Live trail · " : ""}
                     {friend.trails} {friend.trails === 1 ? "shared trail" : "shared trails"}
                   </span>
                 </span>

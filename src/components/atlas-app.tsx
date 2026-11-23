@@ -33,7 +33,12 @@ import { useSettingsRoute } from "@/lib/settings-route";
 import { Tour } from "@/components/tour";
 import { BadgeIcon } from "@/components/badge-icon";
 import { useSettings } from "@/lib/atlas-settings";
-import { freshPoints, GHOST_KEEP_HOURS, loadGhost, syncGhost, trailLines, useGhost, type GhostLines } from "@/lib/ghost-trail";
+import { freshPoints, GHOST_KEEP_HOURS, loadGhost, mergeLiveCache, syncGhost, thinTrail, trailLines, useGhost, type GhostLines, type GhostPoint } from "@/lib/ghost-trail";
+import { clearLiveTrail, incomingLive, pullLiveTrail, pushLiveTrail, useLiveShare, type LiveFriend } from "@/lib/live-share";
+import { loadAccountSettings, saveAccountSettings, type AccountSettings } from "@/lib/account-settings";
+import { clearGhostCache, pullGhostCache, pushGhostCache } from "@/lib/ghost-cache";
+import { setTripRecording } from "@/lib/trips";
+import { requestTrackingPermission } from "@/lib/background-location";
 import { bindSheetBack } from "@/lib/sheet-back";
 import { isMarkerColor, isMarkerIcon } from "@/lib/you-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
@@ -96,6 +101,36 @@ function Shield({ sys, label }: { sys: System | "place"; label: string }) {
   );
 }
 
+function packTrail(points: GhostPoint[]) {
+  return points.slice(-800).map((point) =>
+    point.brk ? ([point.lat, point.lon, point.t, 1] as const) : ([point.lat, point.lon, point.t] as const),
+  );
+}
+
+function pickSettings(state: AccountSettings): AccountSettings {
+  return {
+    icons: state.icons,
+    stateBorder: state.stateBorder,
+    countyColor: state.countyColor,
+    trackTravel: state.trackTravel,
+    fastAdd: state.fastAdd,
+    showParks: state.showParks,
+    showTowns: state.showTowns,
+    showReservations: state.showReservations,
+    townColor: state.townColor,
+    reservationColor: state.reservationColor,
+    ghostHours: state.ghostHours,
+    ghostColor: state.ghostColor,
+    keepGhost: state.keepGhost,
+  };
+}
+
+function sameSettings(a: AccountSettings, b: AccountSettings) {
+  const left = pickSettings(a);
+  const right = pickSettings(b);
+  return (Object.keys(left) as (keyof AccountSettings)[]).every((key) => left[key] === right[key]);
+}
+
 export function AtlasApp() {
   const { user, isPending } = useCurrentUserState();
   if (isPending) return <AtlasSplash label="Opening the atlas…" />;
@@ -110,6 +145,8 @@ function AtlasShell() {
   const [badges, setBadges] = useState<BadgeView[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [activeTrip, setActiveTrip] = useState<string | null>(null);
+  const [recordingId, setRecordingId] = useState<string | null>(null);
+  const [livePins, setLivePins] = useState<LiveFriend[]>([]);
   const [roads, setRoads] = useState<RoadRec[]>([]);
   const [catalog, setCatalog] = useState<CatalogPlace[]>([]);
   const [stateRoads, setStateRoads] = useState<RoadRec[]>([]);
@@ -174,6 +211,7 @@ function AtlasShell() {
   const [friendId, setFriendId] = useState<string | null>(null);
   const [friendLines, setFriendLines] = useState<GhostLines>([]);
   const [friendLook, setFriendLook] = useState(0);
+  const [friendLive, setFriendLive] = useState<{ id: string; name: string } | null>(null);
   const [friendNote, setFriendNote] = useState<string | null>(null);
   const pack = useOfflinePack();
   const packPct = pack.total ? Math.min(100, Math.round((pack.done / pack.total) * 100)) : 0;
@@ -451,6 +489,7 @@ function AtlasShell() {
       await vaultSaveMark(clean);
       noteBadges(badgeViewsFromMarks([clean, ...marks.filter((item) => item.id !== clean.id)]));
       setPendingSync((await readVault()).pending);
+      noteTrip(clean.id);
     } catch {
       setMarks((prev) => prev.filter((item) => item.id !== clean.id));
       setError("Couldn't save that place.");
@@ -461,8 +500,23 @@ function AtlasShell() {
   addRef.current = add;
   const marksRef = useRef(marks);
   marksRef.current = marks;
+  const tripsRef = useRef(trips);
+  tripsRef.current = trips;
+  const recordingRef = useRef(recordingId);
+  recordingRef.current = recordingId;
   const metaRef = useRef(meta);
   metaRef.current = meta;
+
+  function noteTrip(poiId: string) {
+    const tripId = recordingRef.current;
+    if (!tripId) return;
+    const trip = tripsRef.current.find((item) => item.id === tripId);
+    if (!trip || trip.stops.some((stop) => stop.poiId === poiId)) return;
+    const stop = { id: `stop:${crypto.randomUUID()}`, poiId };
+    tripsRef.current = tripsRef.current.map((item) => (item.id === tripId ? { ...item, stops: [...item.stops, stop] } : item));
+    setTrips(tripsRef.current);
+    void vaultTripStop(tripId, poiId, true).catch(() => setError("Couldn't add that place to the trip."));
+  }
 
   useEffect(() => {
     if (!trackTravel) return;
@@ -490,12 +544,15 @@ function AtlasShell() {
       if (last && milesBetween(last.lat, last.lon, fix.lat, fix.lon) < 0.08) return;
       last = fix;
       const saved = new Set(marksRef.current.map((mark) => mark.id));
-      const found = await collectPassed(fix, atlas.states, saved);
-      if (dead || !found.length) return;
+      const visited: Mark[] = [];
+      const found = await collectPassed(fix, atlas.states, saved, recordingRef.current ? visited : undefined);
+      if (dead || (!found.length && !visited.length)) return;
       for (const mark of found) {
         saved.add(mark.id);
         await addRef.current(mark, true);
       }
+      for (const mark of visited) noteTrip(mark.id);
+      if (!found.length) return;
       const label = found.length === 1 ? `Added ${found[0]?.name}` : `Added ${found.length} places from the drive`;
       setPassedNote(label);
       void notifyPlacesAdded(found);
@@ -514,11 +571,48 @@ function AtlasShell() {
       }
     }
 
+    let lastShare = 0;
+    function shareLive() {
+      if (!useLiveShare.getState().viewers.length) {
+        if (lastShare) {
+          lastShare = 0;
+          void clearLiveTrail().catch(() => {});
+        }
+        return;
+      }
+      const now = Date.now();
+      if (now - lastShare < 12000) return;
+      const points = thinTrail(freshPoints(useGhost.getState().live, useSettings.getState().ghostHours), 90);
+      if (points.length < 2) return;
+      lastShare = now;
+      const packed = points.slice(-600).map((point) =>
+        point.brk ? ([point.lat, point.lon, point.t, 1] as const) : ([point.lat, point.lon, point.t] as const),
+      );
+      void pushLiveTrail({ data: packed }).catch(() => {
+        lastShare = 0;
+      });
+    }
+
+    let lastCache = 0;
+    function shareCache() {
+      if (!useSettings.getState().keepGhost) return;
+      const now = Date.now();
+      if (now - lastCache < 20000) return;
+      const points = thinTrail(freshPoints(useGhost.getState().live, 24), 80);
+      if (points.length < 2) return;
+      lastCache = now;
+      void pushGhostCache({ data: packTrail(points) }).catch(() => {
+        lastCache = 0;
+      });
+    }
+
     function push(fixes: Fix[], forceDot = false) {
       const latest = fixes[fixes.length - 1];
       if (latest) paintTracker(latest, forceDot);
       useGhost.getState().record(fixes);
       logDrive(fixes);
+      shareLive();
+      shareCache();
       pending.push(...fixes);
       void pump();
     }
@@ -572,6 +666,8 @@ function AtlasShell() {
           paintTracker(fix, true);
           useGhost.getState().record([fix]);
           logDrive([fix]);
+          shareLive();
+          shareCache();
         })
         .catch(() => {});
     };
@@ -587,6 +683,7 @@ function AtlasShell() {
       delete host.atlasPushFixes;
       window.removeEventListener("focus", refreshDot);
       document.removeEventListener("visibilitychange", refreshDot);
+      void clearLiveTrail().catch(() => {});
     };
   }, [setTrackTravel, trackTravel]);
 
@@ -665,6 +762,54 @@ function AtlasShell() {
     return trip.id;
   }
 
+  async function ensureTracking() {
+    if (useSettings.getState().trackTravel) return true;
+    if (nativeApp) {
+      const result = await requestTrackingPermission();
+      if (result === "denied") {
+        setError("Allow location all the time, then start the trip again.");
+        return false;
+      }
+    }
+    setTrackTravel(true);
+    return true;
+  }
+
+  async function beginRecording(id: string) {
+    setRecordingId(id);
+    setActiveTrip(id);
+    setTrips((prev) => prev.map((trip) => ({ ...trip, recording: trip.id === id })));
+    setTab("trips");
+    try {
+      await setTripRecording({ data: { id, on: true } });
+    } catch {
+      setError("Couldn't start that trip.");
+    }
+  }
+
+  async function startTrip(name: string) {
+    if (!(await ensureTracking())) return;
+    const id = await makeTrip(name);
+    await beginRecording(id);
+  }
+
+  async function restartTrip(id: string) {
+    if (!(await ensureTracking())) return;
+    await beginRecording(id);
+  }
+
+  async function endTrip() {
+    const id = recordingId;
+    setRecordingId(null);
+    if (!id) return;
+    setTrips((prev) => prev.map((trip) => (trip.id === id ? { ...trip, recording: false } : trip)));
+    try {
+      await setTripRecording({ data: { id, on: false } });
+    } catch {
+      setError("Couldn't end that trip.");
+    }
+  }
+
   async function renameTrip(id: string, name: string) {
     const next = name.trim().slice(0, 80);
     if (!next) return;
@@ -688,6 +833,7 @@ function AtlasShell() {
   async function dropTrip(id: string) {
     setTrips((prev) => prev.filter((item) => item.id !== id));
     if (activeTrip === id) setActiveTrip(null);
+    if (recordingId === id) setRecordingId(null);
     try {
       await vaultDeleteTrip(id);
     } catch {
@@ -713,7 +859,7 @@ function AtlasShell() {
   }
 
   const tripLine = useMemo(() => {
-    const trip = trips.find((item) => item.id === activeTrip);
+    const trip = trips.find((item) => item.id === (recordingId ?? activeTrip));
     if (!trip) return [] as [number, number][];
     const byId = new Map(marks.map((mark) => [mark.id, mark]));
     const line: [number, number][] = [];
@@ -722,7 +868,7 @@ function AtlasShell() {
       if (mark?.lon != null && mark.lat != null) line.push([mark.lon, mark.lat]);
     }
     return line;
-  }, [activeTrip, marks, trips]);
+  }, [activeTrip, marks, recordingId, trips]);
 
   async function locate() {
     if (!meta) return;
@@ -868,6 +1014,7 @@ function AtlasShell() {
       if (tab === "friends" && friendId) {
         setFriendId(null);
         setFriendLines([]);
+        setFriendLive(null);
         return true;
       }
       if (mapCard || roadBack) {
@@ -889,6 +1036,110 @@ function AtlasShell() {
     bindSheetBack(() => sheetBack.current());
     return () => bindSheetBack(null);
   }, []);
+
+  useEffect(() => {
+    void useLiveShare.getState().load().catch(() => {});
+  }, []);
+
+  const settingsReady = useRef(false);
+  useEffect(() => {
+    let dead = false;
+    settingsReady.current = false;
+    loadAccountSettings()
+      .then(async (saved) => {
+        if (dead) return;
+        if (Object.keys(saved).length) useSettings.getState().apply(saved);
+        else await saveAccountSettings({ data: pickSettings(useSettings.getState()) }).catch(() => {});
+        settingsReady.current = true;
+        if (!useSettings.getState().keepGhost) return;
+        const packed = await pullGhostCache().catch(() => []);
+        if (dead || !packed.length) return;
+        mergeLiveCache(
+          packed.map((point) =>
+            point[3] === 1 ? { lat: point[0], lon: point[1], t: point[2], brk: true } : { lat: point[0], lon: point[1], t: point[2] },
+          ),
+        );
+      })
+      .catch(() => {
+        settingsReady.current = true;
+      });
+    return () => {
+      dead = true;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    let timer = 0;
+    const unsub = useSettings.subscribe((state, prev) => {
+      if (!settingsReady.current || sameSettings(state, prev)) return;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        void saveAccountSettings({ data: pickSettings(useSettings.getState()) }).catch(() => {});
+      }, 700);
+    });
+    return () => {
+      unsub();
+      window.clearTimeout(timer);
+    };
+  }, [user?.id]);
+
+  const resumedTrip = useRef(false);
+  useEffect(() => {
+    if (resumedTrip.current) return;
+    const live = trips.find((trip) => trip.recording);
+    if (!live) return;
+    resumedTrip.current = true;
+    setRecordingId(live.id);
+    setActiveTrip(live.id);
+  }, [trips]);
+
+  useEffect(() => {
+    let dead = false;
+    const pull = () => {
+      incomingLive()
+        .then((rows) => {
+          if (!dead) setLivePins(rows);
+        })
+        .catch(() => {
+          if (!dead) setLivePins([]);
+        });
+    };
+    pull();
+    const id = window.setInterval(pull, 12000);
+    return () => {
+      dead = true;
+      window.clearInterval(id);
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!friendLive) return;
+    let dead = false;
+    const pull = () => {
+      pullLiveTrail({ data: friendLive.id })
+        .then((points) => {
+          if (dead) return;
+          setFriendLines(
+            trailLines(
+              points.map((point) =>
+                point[3] === 1
+                  ? { lat: point[0], lon: point[1], t: point[2], brk: true }
+                  : { lat: point[0], lon: point[1], t: point[2] },
+              ),
+            ),
+          );
+        })
+        .catch(() => {
+          if (!dead) setFriendLines([]);
+        });
+    };
+    pull();
+    const id = window.setInterval(pull, 10000);
+    return () => {
+      dead = true;
+      window.clearInterval(id);
+    };
+  }, [friendLive]);
 
   useEffect(() => {
     if (!friendCode) return;
@@ -992,11 +1243,20 @@ function AtlasShell() {
               ghostColor={ghostColor}
               friendLines={friendLines}
               friendLook={friendLook}
+              friendLive={friendLive != null}
+              friendPins={livePins}
               you={you}
               dot={trackTravel ? (tracker ?? you) : you}
               onPress={() => {
                 if (mapCard) closeCard();
                 else setSheet(50);
+              }}
+              onFriend={(id) => {
+                const pin = livePins.find((item) => item.id === id);
+                setFriendId(id);
+                setTab("friends");
+                setSheet(58);
+                if (pin) setFriendNote(null);
               }}
               onOffer={(id) => {
                 const mark = offers.find((item) => item.id === id);
@@ -1056,13 +1316,16 @@ function AtlasShell() {
           <span className={"ghost-dot size-2 rounded-full " + (trackTravel ? "is-live" : "opacity-60")} style={{ background: ghostColor }} />
           Ghost trail
         </button>
-        {friendLines.length ? (
+        {friendLive || friendLines.length ? (
           <button
             type="button"
-            onClick={() => setFriendLines([])}
+            onClick={() => {
+              setFriendLines([]);
+              setFriendLive(null);
+            }}
             className="absolute bottom-16 left-3 z-10 h-11 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
           >
-            Friend's trail · Hide
+            {friendLive ? `${friendLive.name} · live · Hide` : "Friend's trail · Hide"}
           </button>
         ) : null}
         <GhostPanel
@@ -1399,8 +1662,12 @@ function AtlasShell() {
               trips={trips}
               marks={marks}
               active={activeTrip}
+              recordingId={recordingId}
               onOpen={(id) => setActiveTrip(id)}
               onCreate={() => makeTrip("New trip")}
+              onStart={(name) => void startTrip(name)}
+              onEnd={() => void endTrip()}
+              onRestart={(id) => void restartTrip(id)}
               onDelete={(id) => void dropTrip(id)}
               onRename={(id, name) => void renameTrip(id, name)}
               onOrder={(id, stops) => void orderStops(id, stops)}
@@ -1426,16 +1693,27 @@ function AtlasShell() {
             <FriendsPanel
               openId={friendId}
               note={friendNote}
+              liveNow={livePins}
               onOpen={(id) => {
                 setFriendId(id);
                 setFriendLines([]);
+                setFriendLive(null);
               }}
               onClose={() => {
                 setFriendId(null);
                 setFriendLines([]);
+                setFriendLive(null);
               }}
               onShow={(lines) => {
+                setFriendLive(null);
                 setFriendLines(lines);
+                setFriendLook((n) => n + 1);
+                setSheetInstant(true);
+                setSheet(8);
+                window.setTimeout(() => setSheetInstant(false), 80);
+              }}
+              onWatch={(friend) => {
+                setFriendLive(friend);
                 setFriendLook((n) => n + 1);
                 setSheetInstant(true);
                 setSheet(8);
@@ -1945,8 +2223,12 @@ function TripsPanel({
   trips,
   marks,
   active,
+  recordingId,
   onOpen,
   onCreate,
+  onStart,
+  onEnd,
+  onRestart,
   onDelete,
   onRename,
   onOrder,
@@ -1954,8 +2236,12 @@ function TripsPanel({
   trips: Trip[];
   marks: Mark[];
   active: string | null;
+  recordingId: string | null;
   onOpen: (id: string) => void;
   onCreate: () => Promise<string>;
+  onStart: (name: string) => void;
+  onEnd: () => void;
+  onRestart: (id: string) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onOrder: (id: string, stops: TripStop[]) => void;
@@ -1964,6 +2250,8 @@ function TripsPanel({
   const [search, setSearch] = useState("");
   const [preview, setPreview] = useState<TripStop[] | null>(null);
   const [name, setName] = useState("");
+  const [naming, setNaming] = useState(false);
+  const [draft, setDraft] = useState("");
   const trip = trips.find((item) => item.id === editing) ?? null;
   const byId = useMemo(() => new Map(marks.map((mark) => [mark.id, mark])), [marks]);
 
@@ -1976,21 +2264,68 @@ function TripsPanel({
       <div className="px-2">
         <div className="flex items-center justify-between gap-2">
           <h2 className="font-serif text-2xl">Trips</h2>
-          <button
-            type="button"
-            onClick={() => {
-              void onCreate().then((id) => {
-                setSearch("");
-                setEditing(id);
-                onOpen(id);
-              });
-            }}
-            className="h-10 shrink-0 rounded-lg border border-line bg-bg px-3 text-sm"
-          >
-            Add trip
-          </button>
+          {recordingId ? (
+            <button type="button" onClick={onEnd} className="h-11 shrink-0 rounded-lg bg-accent px-3 text-sm text-accent-ink">
+              End trip
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setDraft("");
+                setNaming(true);
+              }}
+              className="h-11 shrink-0 rounded-lg border border-ink bg-elevated px-3 text-sm"
+            >
+              Start a trip
+            </button>
+          )}
         </div>
-        <p className="mt-1 text-sm text-muted">Name a trip, then pick the places you've already added. The same place can be on the route more than once.</p>
+        <p className="mt-1 text-sm text-muted">
+          Start a trip and it asks for a name, turns tracking on, and adds each place you pass until you end it. The line stays on the map.
+        </p>
+        {naming ? (
+          <div className="mt-3 rounded-lg border border-line px-3 py-3">
+            <label className="block text-xs text-muted">
+              Name
+              <input
+                value={draft}
+                onChange={(event) => setDraft(event.target.value.slice(0, 80))}
+                className="mt-1 h-11 w-full rounded-lg border border-line bg-bg px-3 text-base text-ink outline-none"
+              />
+            </label>
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const next = draft.trim();
+                  if (!next) return;
+                  setNaming(false);
+                  onStart(next);
+                }}
+                className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm"
+              >
+                Start
+              </button>
+              <button type="button" onClick={() => setNaming(false)} className="h-11 flex-1 rounded-lg border border-line text-sm">
+                Not now
+              </button>
+            </div>
+          </div>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => {
+            void onCreate().then((id) => {
+              setSearch("");
+              setEditing(id);
+              onOpen(id);
+            });
+          }}
+          className="mt-2 h-11 text-sm text-muted"
+        >
+          Or plan one by hand
+        </button>
         {trips.length === 0 ? <p className="mt-4 text-sm text-muted">No trips yet.</p> : null}
         <ul className="mt-3 space-y-1">
           {trips.map((item) => (
@@ -2006,7 +2341,11 @@ function TripsPanel({
                 className={"h-11 min-w-0 flex-1 truncate rounded-lg px-2 text-left text-sm " + (active === item.id ? "bg-elevated text-ink" : "text-muted")}
               >
                 {item.name}
-                <span className="text-xs text-faint"> · {item.stops.length}</span>
+                <span className="text-xs text-faint">
+                  {" "}
+                  · {item.stops.length}
+                  {recordingId === item.id ? " · recording" : ""}
+                </span>
               </button>
               <button type="button" onClick={() => onDelete(item.id)} className="h-11 px-2 text-xs text-faint">
                 Delete
@@ -2065,6 +2404,15 @@ function TripsPanel({
         aria-label="Trip name"
         className="h-11 w-full rounded-lg border border-line bg-bg px-3 font-serif text-xl outline-none"
       />
+      {recordingId === trip.id ? (
+        <button type="button" onClick={onEnd} className="mt-3 h-11 w-full rounded-lg bg-accent text-sm text-accent-ink">
+          End trip
+        </button>
+      ) : (
+        <button type="button" onClick={() => onRestart(trip.id)} className="mt-3 h-11 w-full rounded-lg border border-ink bg-elevated text-sm">
+          Restart trip
+        </button>
+      )}
       <label className="mt-3 flex items-center gap-2 rounded-card border border-line bg-bg px-3">
         <Search className="size-4 shrink-0 text-faint" aria-hidden="true" />
         <input
