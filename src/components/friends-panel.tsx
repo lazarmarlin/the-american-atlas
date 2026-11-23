@@ -202,7 +202,7 @@ export function FriendsPanel({
                 <h2 className="font-serif text-2xl leading-tight">{page.name}</h2>
                 <p className="text-sm text-muted">
                   {page.badges.length} {page.badges.length === 1 ? "badge" : "badges"} · {page.trails.length}{" "}
-                  {page.trails.length === 1 ? "trail" : "trails"}
+                  {page.trails.length === 1 ? "shared trail" : "shared trails"}
                 </p>
               </div>
             </div>
@@ -257,7 +257,7 @@ export function FriendsPanel({
                 ))}
               </ul>
             ) : (
-              <p className="mt-2 px-2 text-sm text-muted">No saved trails yet.</p>
+              <p className="mt-2 px-2 text-sm text-muted">Nothing shared yet.</p>
             )}
 
             {drop ? (
@@ -289,7 +289,7 @@ export function FriendsPanel({
         <h2 className="font-serif text-2xl">Friends</h2>
         <p className="mt-1 text-sm text-muted">
           Send a link. Once they open it and sign in, you can both see earned badges and any saved ghost trails you
-          choose to share.
+          choose to share. Live trails are picked in the Ghost trail panel.
         </p>
       </div>
       {note ? <p className="mt-3 px-2 text-sm text-ink">{note}</p> : null}
@@ -356,7 +356,7 @@ export function FriendsPanel({
               >
                 <span className="w-5 text-right font-serif text-lg text-muted">{i + 1}</span>
                 <Face name={row.name} photo={row.photo} />
-                <span className="min-w-0 flex-1 truncate text-sm">{row.name}</span>
+                <span className="min-w-0 flex-1 truncate text-sm">{row.me ? "You" : row.name}</span>
                 <span className="text-right">
                   <span className="block text-sm">{row.points.toLocaleString()} pts</span>
                   <span className="block text-xs text-faint">

@@ -76,10 +76,22 @@ export const setLiveViewers = createServerFn({ method: "POST" })
     return { ids };
   });
 
+const DEVICE_RE = /^[a-z0-9]{8,40}$/;
+
+function parseDevice(value: unknown) {
+  const id = String(value ?? "");
+  return DEVICE_RE.test(id) ? id : "";
+}
+
 export const pushLiveTrail = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((input: unknown) => parsePoints(input))
-  .handler(async ({ context, data: points }) => {
+  .validator((input: unknown) => {
+    // Older app builds send the points alone.
+    if (Array.isArray(input)) return { points: parsePoints(input), deviceId: "" };
+    const row = (input ?? {}) as Record<string, unknown>;
+    return { points: parsePoints(row.points), deviceId: parseDevice(row.deviceId) };
+  })
+  .handler(async ({ context, data: { points, deviceId } }) => {
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
     const viewers = await sql<{ ok: boolean }>`select true as ok from live_viewers where user_id = ${context.userId} limit 1`;
@@ -88,19 +100,28 @@ export const pushLiveTrail = createServerFn({ method: "POST" })
       return { ok: false as const };
     }
     await sql`
-      insert into live_trails (user_id, points, updated_at)
-      values (${context.userId}, ${JSON.stringify(points)}::jsonb, now())
-      on conflict (user_id) do update set points = excluded.points, updated_at = now()
+      insert into live_trails (user_id, points, device_id, updated_at)
+      values (${context.userId}, ${JSON.stringify(points)}::jsonb, ${deviceId}, now())
+      on conflict (user_id) do update set points = excluded.points, device_id = excluded.device_id, updated_at = now()
     `;
     return { ok: true as const };
   });
 
+/**
+ * Stop showing the live trail. With a device id, only if that device sent it
+ * last, so stopping tracking on one phone doesn't blank another still moving.
+ */
 export const clearLiveTrail = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .handler(async ({ context }) => {
+  .validator((input: unknown) => ({ deviceId: parseDevice((input as { deviceId?: unknown } | null)?.deviceId) }))
+  .handler(async ({ context, data }) => {
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
-    await sql`delete from live_trails where user_id = ${context.userId}`;
+    if (data.deviceId) {
+      await sql`delete from live_trails where user_id = ${context.userId} and device_id in (${data.deviceId}, '')`;
+    } else {
+      await sql`delete from live_trails where user_id = ${context.userId}`;
+    }
     return { ok: true as const };
   });
 

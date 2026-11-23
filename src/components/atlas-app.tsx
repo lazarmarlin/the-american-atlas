@@ -27,12 +27,12 @@ import { SettingsPage } from "@/components/settings-page";
 import { GhostPanel } from "@/components/ghost-panel";
 import { FriendsPanel } from "@/components/friends-panel";
 import { RecapPanel } from "@/components/recap-panel";
-import { flushDriveLog, logDrive, switchDriveLog } from "@/lib/drive-log";
+import { deviceId, flushDriveLog, logDrive, switchDriveLog } from "@/lib/drive-log";
 import { acceptFriend } from "@/lib/friends";
 import { useSettingsRoute } from "@/lib/settings-route";
 import { Tour } from "@/components/tour";
 import { BadgeIcon } from "@/components/badge-icon";
-import { useSettings } from "@/lib/atlas-settings";
+import { resetAccountChoices, setSettingsOwner, settingsOwner, useSettings } from "@/lib/atlas-settings";
 import { freshPoints, GHOST_KEEP_HOURS, loadGhost, mergeLiveCache, syncGhost, thinTrail, trailLines, useGhost, type GhostLines, type GhostPoint } from "@/lib/ghost-trail";
 import { clearLiveTrail, incomingLive, pullLiveTrail, pushLiveTrail, useLiveShare, type LiveFriend } from "@/lib/live-share";
 import { loadAccountSettings, saveAccountSettings, type AccountSettings } from "@/lib/account-settings";
@@ -112,7 +112,6 @@ function pickSettings(state: AccountSettings): AccountSettings {
     icons: state.icons,
     stateBorder: state.stateBorder,
     countyColor: state.countyColor,
-    trackTravel: state.trackTravel,
     fastAdd: state.fastAdd,
     showParks: state.showParks,
     showTowns: state.showTowns,
@@ -576,7 +575,7 @@ function AtlasShell() {
       if (!useLiveShare.getState().viewers.length) {
         if (lastShare) {
           lastShare = 0;
-          void clearLiveTrail().catch(() => {});
+          void clearLiveTrail({ data: { deviceId: deviceId() } }).catch(() => {});
         }
         return;
       }
@@ -588,7 +587,7 @@ function AtlasShell() {
       const packed = points.slice(-600).map((point) =>
         point.brk ? ([point.lat, point.lon, point.t, 1] as const) : ([point.lat, point.lon, point.t] as const),
       );
-      void pushLiveTrail({ data: packed }).catch(() => {
+      void pushLiveTrail({ data: { points: packed, deviceId: deviceId() } }).catch(() => {
         lastShare = 0;
       });
     }
@@ -683,7 +682,7 @@ function AtlasShell() {
       delete host.atlasPushFixes;
       window.removeEventListener("focus", refreshDot);
       document.removeEventListener("visibilitychange", refreshDot);
-      void clearLiveTrail().catch(() => {});
+      void clearLiveTrail({ data: { deviceId: deviceId() } }).catch(() => {});
     };
   }, [setTrackTravel, trackTravel]);
 
@@ -1045,11 +1044,19 @@ function AtlasShell() {
   useEffect(() => {
     let dead = false;
     settingsReady.current = false;
+    const userId = user?.id;
+    if (!userId) return;
     loadAccountSettings()
       .then(async (saved) => {
         if (dead) return;
+        // This device last held another account's choices: start from the defaults, never copy them over.
+        const owner = settingsOwner();
+        const fromOther = owner !== null && owner !== userId;
+        if (fromOther) resetAccountChoices();
         if (Object.keys(saved).length) useSettings.getState().apply(saved);
-        else await saveAccountSettings({ data: pickSettings(useSettings.getState()) }).catch(() => {});
+        else if (!fromOther) await saveAccountSettings({ data: pickSettings(useSettings.getState()) }).catch(() => {});
+        if (dead) return;
+        setSettingsOwner(userId);
         settingsReady.current = true;
         if (!useSettings.getState().keepGhost) return;
         const packed = await pullGhostCache().catch(() => []);
@@ -1061,7 +1068,8 @@ function AtlasShell() {
         );
       })
       .catch(() => {
-        settingsReady.current = true;
+        // Offline: changes still upload later if these are already this account's choices.
+        if (!dead && settingsOwner() === userId) settingsReady.current = true;
       });
     return () => {
       dead = true;
@@ -1310,7 +1318,11 @@ function AtlasShell() {
         <button
           type="button"
           aria-expanded={ghostOpen}
-          onClick={() => setGhostOpen((open) => !open)}
+          onClick={() => {
+            // Give the panel the map's height; the sheet drops to its handle.
+            if (!ghostOpen && sheet > 8) setSheet(8);
+            setGhostOpen(!ghostOpen);
+          }}
           className="absolute bottom-3 left-3 z-10 flex h-11 items-center gap-2 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
         >
           <span className={"ghost-dot size-2 rounded-full " + (trackTravel ? "is-live" : "opacity-60")} style={{ background: ghostColor }} />
@@ -2285,25 +2297,32 @@ function TripsPanel({
           Start a trip and it asks for a name, turns tracking on, and adds each place you pass until you end it. The line stays on the map.
         </p>
         {naming ? (
-          <div className="mt-3 rounded-lg border border-line px-3 py-3">
+          <form
+            className="mt-3 rounded-lg border border-line px-3 py-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const next = draft.trim();
+              if (!next) return;
+              setNaming(false);
+              onStart(next);
+            }}
+          >
             <label className="block text-xs text-muted">
               Name
               <input
+                autoFocus
                 value={draft}
+                placeholder="Lake Superior loop"
+                enterKeyHint="go"
                 onChange={(event) => setDraft(event.target.value.slice(0, 80))}
-                className="mt-1 h-11 w-full rounded-lg border border-line bg-bg px-3 text-base text-ink outline-none"
+                className="mt-1 h-11 w-full rounded-lg border border-line bg-bg px-3 text-base text-ink outline-none placeholder:text-faint"
               />
             </label>
             <div className="mt-2 flex gap-2">
               <button
-                type="button"
-                onClick={() => {
-                  const next = draft.trim();
-                  if (!next) return;
-                  setNaming(false);
-                  onStart(next);
-                }}
-                className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm"
+                type="submit"
+                disabled={!draft.trim()}
+                className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
               >
                 Start
               </button>
@@ -2311,7 +2330,7 @@ function TripsPanel({
                 Not now
               </button>
             </div>
-          </div>
+          </form>
         ) : null}
         <button
           type="button"
@@ -2322,7 +2341,7 @@ function TripsPanel({
               onOpen(id);
             });
           }}
-          className="mt-2 h-11 text-sm text-muted"
+          className="mt-3 h-11 w-full rounded-lg border border-line text-sm text-muted"
         >
           Or plan one by hand
         </button>

@@ -320,13 +320,14 @@ export function SettingsPage({
         >
           {trackTravel ? "Tracking on" : "Tracking off"}
         </button>
+        <p className="mt-2 text-xs text-faint">Only on this device. Signing in somewhere else doesn't turn it on there.</p>
         {trackNote ? <p className="mt-2 text-sm text-muted">{trackNote}</p> : null}
       </section>
 
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Ghost trail</h2>
         <p className="mt-1 text-sm text-muted">
-          While tracking, a wispy path stays behind you, then fades. Pick how many hours of it to show, up to 24, and a color. The color stays faint. The Ghost trail tab on the map is where you save one for good; saved trails stay on your account and show up on all your devices.
+          While tracking, a wispy path stays behind you, then fades. Pick how many hours of it to show, up to 24, and a color. The color stays faint. The Ghost trail button on the map is where you save one for good; saved trails stay on your account and show up on all your devices.
         </p>
         <GhostHours hours={ghostHours} onChange={setGhostHours} />
         <GhostColors color={ghostColor} onChange={setGhostColor} />

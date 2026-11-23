@@ -196,7 +196,7 @@ export const friendsLeaderboard = createServerFn({ method: "POST" })
       const okPhoto = photo.startsWith("https://") || photo.startsWith("data:image/");
       rows.push({
         id: person.id,
-        name: person.id === context.userId ? "You" : person.name || "Friend",
+        name: person.name || "Friend",
         photo: okPhoto ? photo : "",
         me: person.id === context.userId,
         points: stats.points,
@@ -204,7 +204,7 @@ export const friendsLeaderboard = createServerFn({ method: "POST" })
       });
     }
     return rows.sort(
-      (a, b) => b.points - a.points || b.counties - a.counties || a.name.localeCompare(b.name),
+      (a, b) => b.points - a.points || b.counties - a.counties || Number(b.me) - Number(a.me),
     );
   });
 
