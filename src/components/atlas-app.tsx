@@ -44,6 +44,7 @@ import { clearGhostCache, pullGhostCache, pushGhostCache } from "@/lib/ghost-cac
 import { setTripRecording } from "@/lib/trips";
 import { friendPhotoPins, listPhotos, savePhoto, type FriendPhotoPin, type PhotoInfo } from "@/lib/photos";
 import { readPhotoFile } from "@/lib/photo-file";
+import { listLocalPhotos, setLocalPhotoOwner } from "@/lib/photo-local";
 import { requestTrackingPermission } from "@/lib/background-location";
 import { bindSheetBack } from "@/lib/sheet-back";
 import { isMarkerColor, isMarkerIcon } from "@/lib/you-marker";
@@ -387,6 +388,7 @@ function AtlasShell() {
       "distillery",
       "drivein",
       "diner",
+      "cemetery",
     ];
     loadRoads(stateAbbr).then((rows) => {
       if (!dead) setStateRoads(rows);
@@ -1224,9 +1226,16 @@ function AtlasShell() {
 
   useEffect(() => {
     let dead = false;
-    listPhotos()
-      .then((rows) => {
-        if (!dead) setPhotos(rows);
+    setLocalPhotoOwner(user?.id ?? null);
+    // Photos on the account, plus ones kept only on this phone, so both show on the map.
+    Promise.all([listPhotos().catch(() => [] as PhotoInfo[]), nativeApp ? listLocalPhotos().catch(() => []) : []])
+      .then(([rows, local]) => {
+        if (dead) return;
+        const seen = new Set(rows.map((row) => row.id));
+        const phoneOnly = local
+          .filter((row) => !seen.has(row.id))
+          .map(({ image: _image, uploaded: _uploaded, uri: _uri, ...info }) => info);
+        setPhotos([...rows, ...phoneOnly]);
       })
       .catch(() => {});
     friendPhotoPins()

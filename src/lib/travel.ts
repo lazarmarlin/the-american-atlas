@@ -31,6 +31,7 @@ const PASS_CATS = [
   "cave",
   "president",
   "fort",
+  "cemetery",
   "winery",
   "distillery",
   "drivein",

@@ -29,6 +29,7 @@ const KINDS: Record<string, string> = {
   mall: "mall",
   roadside: "roadside attraction",
   route: "road",
+  cemetery: "national cemetery",
 };
 
 const cache = new Map<string, PlaceBlurb | null>();

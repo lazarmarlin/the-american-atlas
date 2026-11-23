@@ -44,6 +44,7 @@ export const placeKinds: PlaceKind[] = [
   { id: "cave", label: "Caves", color: "#6b5b4b", tier: 1, legend: true },
   { id: "president", label: "Presidents", color: "#c4a484", tier: 1, legend: true },
   { id: "fort", label: "Forts", color: "#a67c52", tier: 1, legend: true },
+  { id: "cemetery", label: "National cemeteries", color: "#b8c2cc", tier: 1, legend: true },
   { id: "winery", label: "Wineries", color: "#8e3a4a", tier: 2, legend: true },
   { id: "distillery", label: "Distilleries", color: "#c47a3a", tier: 2, legend: true },
   { id: "drivein", label: "Drive-ins", color: "#e25d8c", tier: 2, legend: true },
