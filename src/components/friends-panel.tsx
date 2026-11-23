@@ -27,6 +27,7 @@ function friendUrl(code: string) {
 function unpack(points: PackedPoint[]): GhostLines {
   return trailLines(
     points.map((p) => (p[3] === 1 ? { lat: p[0], lon: p[1], t: p[2], brk: true } : { lat: p[0], lon: p[1], t: p[2] })),
+    300,
   );
 }
 
