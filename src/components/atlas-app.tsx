@@ -3437,8 +3437,14 @@ function Detail({
       ) : null}
       {along.length ? (
         <div className="mt-3">
-          <p className="text-xs tracking-widest text-faint uppercase">Along this road</p>
-          <ul className="mt-1">
+          <p className="text-xs tracking-widest text-faint uppercase">
+            Along this road{along.length > 4 ? ` · ${along.length}` : ""}
+          </p>
+          {/* About four rows show; the rest scroll inside the box so the card stays short. */}
+          <ul
+            className={"mt-1 " + (along.length > 4 ? "max-h-[11.5rem] overflow-y-auto overscroll-contain rounded-lg border border-line px-2" : "")}
+            style={along.length > 4 ? { maskImage: "linear-gradient(to bottom, black 80%, transparent)", WebkitMaskImage: "linear-gradient(to bottom, black 80%, transparent)" } : undefined}
+          >
             {along.map((stop) => (
               <li key={stop.id} className="flex items-center gap-2 py-1">
                 <span className="min-w-0 flex-1 truncate text-sm">{stop.name}</span>
@@ -3447,6 +3453,7 @@ function Detail({
                 </button>
               </li>
             ))}
+            {along.length > 4 ? <li aria-hidden="true" className="h-6" /> : null}
           </ul>
         </div>
       ) : null}
