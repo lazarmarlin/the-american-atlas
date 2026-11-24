@@ -166,6 +166,65 @@ for (const [name, query] of Object.entries(OSM)) {
   if (!done) summary[`osm-${name}`] = "FAILED";
 }
 
+/** Join a route's member ways into as few lines as possible, then simplify them (~50 m). */
+function shrinkRoads(els) {
+  const key = (p) => `${p[0].toFixed(6)},${p[1].toFixed(6)}`;
+  const simplify = (line, tol) => {
+    if (line.length < 3) return line;
+    const keep = new Uint8Array(line.length);
+    keep[0] = keep[line.length - 1] = 1;
+    const stack = [[0, line.length - 1]];
+    while (stack.length) {
+      const [a, b] = stack.pop();
+      const [ax, ay] = line[a];
+      const [bx, by] = line[b];
+      let md = 0, mi = -1;
+      for (let i = a + 1; i < b; i++) {
+        const [px, py] = line[i];
+        const dx = bx - ax, dy = by - ay;
+        const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy || 1)));
+        const d = Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+        if (d > md) [md, mi] = [d, i];
+      }
+      if (md > tol && mi > 0) {
+        keep[mi] = 1;
+        stack.push([a, mi], [mi, b]);
+      }
+    }
+    return line.filter((_, i) => keep[i]);
+  };
+  return els
+    .filter((el) => el.type === "relation")
+    .map((rel) => {
+      const lines = (rel.members ?? [])
+        .filter((m) => m.type === "way" && m.geometry?.length >= 2 && !/^(platform|stop)/.test(m.role ?? ""))
+        .map((m) => m.geometry.map((g) => [Math.round(g.lon * 1e5) / 1e5, Math.round(g.lat * 1e5) / 1e5]));
+      // Join end to end (both directions of a divided highway stay separate lines, which is fine).
+      const out = [];
+      while (lines.length) {
+        let line = lines.pop();
+        for (let grew = true; grew; ) {
+          grew = false;
+          for (let i = 0; i < lines.length; i++) {
+            const o = lines[i];
+            const [hs, he, os, oe] = [key(line[0]), key(line.at(-1)), key(o[0]), key(o.at(-1))];
+            if (he === os) line = line.concat(o.slice(1));
+            else if (he === oe) line = line.concat(o.slice(0, -1).reverse());
+            else if (hs === oe) line = o.concat(line.slice(1));
+            else if (hs === os) line = o.slice().reverse().concat(line.slice(1));
+            else continue;
+            lines.splice(i, 1);
+            grew = true;
+            break;
+          }
+        }
+        out.push(simplify(line, 0.0005));
+      }
+      const t = rel.tags ?? {};
+      return { id: rel.id, tags: { ref: t.ref, network: t.network, modifier: t.modifier, name: t.name, "is_in:state": t["is_in:state"] }, lines: out };
+    });
+}
+
 /** Jobs that run one query per state or per river and merge the results. */
 const STATE_CODES = "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split(" ");
 const ROAD = `["highway"~"^(motorway|trunk|primary)$"]["ref"~"(^|;) *(I|US)[ -]?[0-9]"]`;
@@ -174,6 +233,12 @@ const LOOPS = {
   statelines: STATE_CODES.filter((c) => c !== "HI" && c !== "AK").map((c) => [
     c,
     `rel["ISO3166-2"="US-${c}"]["admin_level"="4"];way(r)->.b;.b out geom;way(around.b:0)${ROAD};out geom;`,
+  ]),
+  // Every Interstate and U.S. route relation in the state, with its lines
+  // (simplified before saving; see shrinkRoads).
+  roads: STATE_CODES.map((c) => [
+    c,
+    `area["ISO3166-2"="US-${c}"]["admin_level"="4"]->.a;relation["type"="route"]["route"="road"]["network"~"^US:(I|US)"](area.a);out geom;`,
   ]),
   // Interstate / U.S. route bridges over each big river.
   riverbridges: RIVERS.map((r) => [
@@ -190,7 +255,8 @@ for (const [name, parts] of Object.entries(LOOPS)) {
     for (let attempt = 0; attempt < 3 && !done; attempt++) {
       for (const ep of working) {
         try {
-          all[part] = (await overpass(ep, query, 600)).elements;
+          const els = (await overpass(ep, query, 900)).elements;
+          all[part] = name === "roads" ? shrinkRoads(els) : els;
           done = true;
           break;
         } catch (e) {
