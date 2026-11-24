@@ -2938,7 +2938,7 @@ function Detail({
     // Its own full screen: inside the card it was squeezed into the lower half
     // and scrolled out of view, especially with the keyboard up.
     return (
-      <div role="dialog" aria-label="Visit details" className="fixed inset-0 z-50 overflow-y-auto bg-surface px-4 pt-3 pb-6 safe-top safe-bottom">
+      <div role="dialog" aria-label="Visit details" className="fixed inset-0 z-50 overflow-y-auto bg-surface px-4 pb-6 screen-top safe-bottom">
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => setEditing(false)} className="h-11 shrink-0 px-1 text-sm text-muted">
             ‹ Place

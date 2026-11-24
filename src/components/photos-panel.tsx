@@ -288,7 +288,7 @@ function PhotoReview({
   const remaining = rows.filter((row) => row.place && !row.added);
 
   return (
-    <div role="dialog" aria-label="Review photos" className="fixed inset-0 z-50 flex flex-col bg-bg safe-top">
+    <div role="dialog" aria-label="Review photos" className="fixed inset-0 z-50 flex flex-col bg-bg screen-top">
       <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
         <button type="button" onClick={onClose} className="h-11 px-2 text-sm text-muted">
           ‹ Photos
@@ -1037,7 +1037,7 @@ export function PhotoViewer({
   const step = (delta: number) => setIndex((i) => (i + delta + photos.length) % photos.length);
 
   return (
-    <div role="dialog" aria-label={`Photos of ${title}`} className="fixed inset-0 z-50 flex flex-col bg-bg safe-top">
+    <div role="dialog" aria-label={`Photos of ${title}`} className="fixed inset-0 z-50 flex flex-col bg-bg screen-top">
       <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
         <button type="button" onClick={onClose} className="h-11 px-2 text-sm text-muted">
           ‹ Back

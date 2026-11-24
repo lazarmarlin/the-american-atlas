@@ -197,6 +197,13 @@
   padding-top: max(1rem, env(safe-area-inset-top));
 }
 
+/* Full-screen overlays (photo review, photo viewer, visit details). Unlike
+   .safe-top this isn't trimmed inside the sheet, where those screens live in
+   the page, so their headers clear the status bar. */
+.screen-top {
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+}
+
 .safe-bottom {
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
 }
