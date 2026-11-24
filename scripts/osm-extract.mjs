@@ -106,7 +106,14 @@ function refLabel(ref) {
   const m = parts.find((x) => x[1] === "I") ?? parts[0];
   return m ? (m[1] === "I" ? `I-${m[2]}` : `US ${m[2]}`) : null;
 }
-const lines = (geom) => (geom.type === "LineString" ? [geom.coordinates] : geom.type === "MultiLineString" ? geom.coordinates : geom.type === "Polygon" ? geom.coordinates : []);
+const lines = (geom) =>
+  geom.type === "LineString"
+    ? [geom.coordinates]
+    : geom.type === "MultiLineString" || geom.type === "Polygon"
+      ? geom.coordinates
+      : geom.type === "MultiPolygon"
+        ? geom.coordinates.flat()
+        : [];
 const CELL = 0.05;
 const borders = new Map(); // cell -> [[a, b, level]]
 const rivers = new Map(); // cell -> [[a, b, name]]

@@ -37,7 +37,7 @@ jobs:
             "nwr/cuisine=diner,diner;american,american;diner" nwr/waterway=waterfall nwr/mountain_pass=yes \
             nwr/landuse=winter_sports w/covered=yes \
             -o pois.osm.pbf --overwrite
-          osmium tags-filter region.osm.pbf w/boundary=administrative w/highway=motorway,trunk,primary w/waterway=river \
+          osmium tags-filter region.osm.pbf r/boundary=administrative w/boundary=administrative w/highway=motorway,trunk,primary w/waterway=river \
             -o lines.osm.pbf --overwrite
           rm region.osm.pbf
           osmium export pois.osm.pbf -f geojsonseq -a type,id -o pois.geojsonseq --overwrite
