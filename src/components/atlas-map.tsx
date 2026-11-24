@@ -74,6 +74,8 @@ type Props = {
   fitTo?: { tick: number; points: [number, number][]; maxZoom: number } | null;
   /** Whether the map is zoomed in past the whole-country view. */
   onAway?: (away: boolean) => void;
+  /** One place on its own: everything else hidden, zoomed all the way in on it. */
+  spotlight?: { id: string; lon: number; lat: number } | null;
 };
 
 const USA: [[number, number], [number, number]] = [
@@ -111,6 +113,14 @@ function roundPhoto(url: string, ring: string) {
     img.src = url;
   });
 }
+
+/** The app's layers that a spotlight hides (everything we draw on top of the base map). */
+const SPOT_HIDE = [
+  "states-fill", "town-fill", "town-outline", "reservation-fill", "reservation-line", "park-fill", "park-line", "county-fill", "county-line",
+  "offer-halo", "offer-line", "route-halo", "route-line", "trip-line", "ghost-saved-haze", "ghost-saved-line", "ghost-haze", "ghost-line",
+  "friend-haze", "friend-line", "friend-live-haze", "friend-live-line", "friend-tip", "offer-dots", "offer-icons", "place-dots", "place-icons",
+  "photo-pins", "you-dot", "friend-people",
+];
 
 /** How far past the whole-country view a tap still just opens the state. */
 const COUNTRY_TAP_ZOOM = 1.2;
@@ -238,6 +248,7 @@ export function AtlasMap({
   homeTick = 0,
   fitTo = null,
   onAway,
+  spotlight = null,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
@@ -1255,6 +1266,61 @@ export function AtlasMap({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitTo?.tick, ready]);
+
+  // Spotlight: hide the app's own layers (the base map stays for streets and names) and mark the one place.
+  // While it's on, the other effects' visibility changes are remembered and applied when it ends.
+  const spotHidden = useRef<Map<string, string>>(new Map());
+  const spotPatched = useRef<MlMap["setLayoutProperty"] | null>(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const restore = () => {
+      if (spotPatched.current) {
+        map.setLayoutProperty = spotPatched.current;
+        spotPatched.current = null;
+      }
+      for (const [id, vis] of spotHidden.current) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", vis as "visible" | "none");
+      spotHidden.current.clear();
+      (map.getSource("spotlight") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: [] });
+    };
+    if (!spotlight) {
+      restore();
+      return;
+    }
+    if (!map.getSource("spotlight")) {
+      const accentSpot = tokenColor("--color-accent", "#e23d2b");
+      map.addSource("spotlight", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      map.addLayer({ id: "spotlight-halo", type: "circle", source: "spotlight", paint: { "circle-radius": 26, "circle-color": accentSpot, "circle-opacity": 0.22, "circle-stroke-width": 2, "circle-stroke-color": accentSpot, "circle-stroke-opacity": 0.6 } });
+      map.addLayer({ id: "spotlight-dot", type: "circle", source: "spotlight", paint: { "circle-radius": 9, "circle-color": accentSpot, "circle-stroke-width": 3, "circle-stroke-color": "#ffffff" } });
+    }
+    if (!spotPatched.current) {
+      const original = map.setLayoutProperty.bind(map);
+      spotPatched.current = map.setLayoutProperty;
+      for (const id of SPOT_HIDE) {
+        if (!map.getLayer(id)) continue;
+        spotHidden.current.set(id, (map.getLayoutProperty(id, "visibility") as string | undefined) ?? "visible");
+        original(id, "visibility", "none");
+      }
+      map.setLayoutProperty = ((id: string, name: string, value: unknown, options?: unknown) => {
+        if (name === "visibility" && SPOT_HIDE.includes(id)) {
+          spotHidden.current.set(id, String(value));
+          return map;
+        }
+        return original(id, name as never, value as never, options as never);
+      }) as MlMap["setLayoutProperty"];
+    }
+    (map.getSource("spotlight") as GeoJSONSource).setData({
+      type: "FeatureCollection",
+      features: [{ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [spotlight.lon, spotlight.lat] } }],
+    });
+    // The card takes the bottom of the screen; wait for the map to settle into the space above it.
+    const timer = window.setTimeout(() => {
+      map.resize();
+      map.easeTo({ center: [spotlight.lon, spotlight.lat], zoom: 15, duration: duration() });
+    }, 250);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spotlight?.id, spotlight?.lon, spotlight?.lat, ready]);
 
   useEffect(() => {
     const map = mapRef.current;
