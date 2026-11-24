@@ -19,7 +19,7 @@ const ATLAS = path.join(ROOT, "public", "atlas");
 const RAW = path.resolve(process.argv[2] ?? "raw-places");
 const readJson = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
 /** One raw file, merged across RAW and its subfolders (one artifact per OSM region). */
-const RAW_DIRS = [RAW, ...(fs.existsSync(RAW) ? fs.readdirSync(RAW, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => path.join(RAW, d.name)) : [])];
+const RAW_DIRS = [RAW, ...(fs.existsSync(RAW) ? fs.readdirSync(RAW).map((d) => path.join(RAW, d)).filter((d) => fs.statSync(d).isDirectory()) : [])];
 const rawFound = (name) => RAW_DIRS.some((dir) => fs.existsSync(path.join(dir, `${name}.json`)));
 const raw = (name) => {
   const out = [];
@@ -228,8 +228,19 @@ count("waterfall", fromWd("waterfall", "wd-waterfall", { pts: () => 15 }));
 count("waterfall", fromOsm("waterfall", "osm-waterfall", { pts: () => 15 }));
 count("bridge", fromWd("bridge", "wd-coveredbridge", { pts: () => 15 }));
 count("bridge", fromOsm("bridge", "osm-coveredbridge", { near: 0.1, pts: () => 15 }));
+// Presidential libraries and centers by name (OSM), minus bus stops, shops and the like.
+count("president", fromWd("president", "wd-preslib2", { near: 1, pts: () => 40 }));
+count("president", fromOsm("president", "osm-preslib", {
+  near: 1,
+  pts: () => 40,
+  filter: (t, el) =>
+    el.type !== "relation" && !t.route && !t.highway && !t.public_transport &&
+    /\b(library|center|museum|site)\b/i.test(t.name ?? "") &&
+    !/^(presidential (library|center|museum)( and museum)?|presidential library association)$/i.test(t.name ?? "") &&
+    !/tiny door|lake|branch|association|jefferson davis|bus |streetcar/i.test(t.name ?? ""),
+}));
 for (const f of ["wd-preslib", "wd-presgrave", "wd-preshome", "wd-presnamed"])
-  count("president", fromWd("president", f, { near: 0.2, pts: () => 40, filter: (r) => !/apartment|hotel|school|office|street/i.test(r.itemLabel ?? "") }));
+  count("president", fromWd("president", f, { near: 0.2, pts: () => 40, filter: (r) => !/apartment|hotel|school|office|street|memorial library/i.test(r.itemLabel ?? "") }));
 
 // Scenic byways (points) and historic highways (lines).
 count("drive", fromWd("drive", "wd-byway", { near: 1, sameName: 400, pts: () => 30 }));
@@ -289,31 +300,29 @@ function joinWays(ways) {
 const relLines = (rel) =>
   joinWays((rel.members ?? []).filter((m) => m.type === "way" && m.geometry?.length >= 2).map((m) => m.geometry.map((g) => [g.lon, g.lat])));
 
-{
-  const byName = new Map();
-  // OSM splits these by state and era ("Dixie Highway from Macon to Thomasville (1919)",
-  // "Lincoln Highway - original route (1913) - Iowa"): one drive per route.
-  for (const rel of raw("osm-lincoln")) {
-    const full = rel.tags?.name;
-    if (!full || /detour|auxiliary|other routes|branch|loop|spur|alternate/i.test(full)) continue;
-    let name = full.replace(/\s*\(.*?\)/g, "").replace(/\s+-\s+.*$/, "").replace(/\s+from\s+.*$/i, "").trim();
-    if (name === "Old Spanish Trail") {
-      const g = rel.members?.[0]?.geometry?.[0];
-      if (g && g.lon > -100) name = "Old Spanish Trail Highway";
-    }
-    if (name === "El Camino Real") {
-      const g = rel.members?.[0]?.geometry?.[0];
-      name = g && g.lon < -114 ? "El Camino Real (California)" : "El Camino Real de Tierra Adentro";
-    }
-    if (!name) continue;
-    (byName.get(name) ?? byName.set(name, []).get(name)).push(rel);
-  }
+/** Miles along a set of [lon, lat] lines. */
+const lineMiles = (lines) =>
+  lines.reduce((sum, l) => sum + l.slice(1).reduce((m, p, i) => m + milesApart({ lat: l[i][1], lon: l[i][0] }, { lat: p[1], lon: p[0] }), 0), 0);
+/** "Trail Ridge Road Scenic Byway" and "Trail Ridge Road" are the same drive. */
+const driveKey = (name) =>
+  normName(name)
+    .replace(/\b(national|scenic|byway|byways|highway|road|drive|parkway|route|all american|americas|america s|and|historic|backcountry|trail)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/**
+ * Drives with real lines from OSM route relations, grouped by name. One drive is
+ * listed in every state it passes through, under one id. A drive already in
+ * the atlas keeps its id; it gets these lines when it had only a point, or when
+ * it is one of our historic routes and now reaches more states.
+ */
+function importRoutes(groups, { minMiles = 0, routeStates = {}, label }) {
   const drives = existing.drive ?? [];
-  for (const [name, rels] of byName) {
-    if (drives.some((d) => normName(d.name) === normName(name))) continue;
-    const lines = rels.flatMap(relLines).map((l) => simplify(l, 0.01)).filter((l) => l.length >= 2);
-    if (!lines.length) continue;
-    // Split by state; the same id is listed in every state it passes through.
+  for (const [name, rels] of groups) {
+    const key = driveKey(name);
+    if (!key) continue;
+    const lines = rels.flatMap(relLines).map((l) => simplify(l, 0.005)).filter((l) => l.length >= 2);
+    if (!lines.length || lineMiles(lines) < minMiles) continue;
     const per = new Map();
     for (const line of lines) {
       let run = [], runSt = null;
@@ -329,32 +338,120 @@ const relLines = (rel) =>
       if (runSt && run.length >= 2) (per.get(runSt) ?? per.set(runSt, []).get(runSt)).push(run);
     }
     // Same-named local roads elsewhere (a "Great River Road" in Massachusetts) don't count.
-    const ROUTE_STATES = {
-      "Great River Road": "MN WI IA IL MO KY TN AR MS LA",
-      "Lincoln Highway": "NY NJ PA OH IN IL IA NE CO WY UT NV CA",
-      "Dixie Highway": "MI OH IN IL KY TN NC SC GA AL FL",
-      "Santa Fe Trail": "MO KS OK CO NM",
-      "Old Spanish Trail": "NM CO UT AZ NV CA",
-      "Old Spanish Trail Highway": "FL AL MS LA TX NM AZ CA",
-      "Historic National Road": "MD PA WV OH IN IL",
-      "Lewis and Clark Trail": "IL MO KS NE IA SD ND MT ID OR WA",
-      "Trail of Tears National Historic Trail": "NC GA AL TN KY IL MO AR OK",
-    };
-    if (ROUTE_STATES[name]) for (const st of [...per.keys()]) if (!ROUTE_STATES[name].split(" ").includes(st)) per.delete(st);
+    if (routeStates[name]) for (const st of [...per.keys()]) if (!routeStates[name].split(" ").includes(st)) per.delete(st);
     const states = [...per.keys()].sort();
     if (!states.length) continue;
-    const idState = states[0];
+    const already = drives.filter((d) => driveKey(d.name) === key);
+    let id;
+    let shownName = name;
+    if (already.length) {
+      const oldStates = new Set(Object.entries(places).filter(([, b]) => (b.drive ?? []).some((d) => d.id === already[0].id)).map(([st]) => st));
+      const pointOnly = already.every((d) => !d.paths?.length);
+      const ours = /:(node|way|rel)\d+$|:wdQ\d+$/.test(already[0].id) || routeStates[name];
+      if (!pointOnly && !(ours && states.length > oldStates.size)) continue;
+      id = already[0].id;
+      shownName = already[0].name;
+      // Replace the old rows (a point, or lines in fewer states).
+      for (const st of oldStates) places[st].drive = places[st].drive.filter((d) => d.id !== id);
+    } else {
+      if ((added.drive ?? []).some((a) => driveKey(a.row.name) === key)) continue;
+      id = `p:drive:${states[0]}:${slug(name)}`;
+    }
     for (const st of states) {
       const ps = per.get(st);
       const mid = ps[Math.floor(ps.length / 2)];
       const [lon, lat] = mid[Math.floor(mid.length / 2)];
-      const fullId = `p:drive:${idState}:${slug(name)}`;
-      const row = { id: fullId, name, lat, lon, pts: 30, paths: ps };
-      (added.drive ??= []).push({ row, st });
+      (added.drive ??= []).push({ row: { id, name: shownName, lat, lon, pts: 30, paths: ps }, st });
     }
-    count("drive (historic route)", 1);
+    count(label, 1);
   }
 }
+
+/** Group relations by a cleaned-up name; `clean` returns null to skip one. */
+function groupRoutes(rels, clean) {
+  const out = new Map();
+  const seen = new Set();
+  for (const rel of rels) {
+    if (seen.has(rel.id)) continue;
+    seen.add(rel.id);
+    const name = rel.tags?.name ? clean(rel.tags.name, rel) : null;
+    if (name) (out.get(name) ?? out.set(name, []).get(name)).push(rel);
+  }
+  return out;
+}
+
+// Historic highways and trails. OSM splits them by state and era ("Dixie
+// Highway from Macon to Thomasville (1919)", "Lincoln Highway - original route
+// (1913) - Iowa"): one drive per route.
+const HISTORIC_NAMES = [
+  [/^(historic )?lincoln highway/i, "Lincoln Highway"],
+  [/^dixie highway/i, "Dixie Highway"],
+  [/^great river road/i, "Great River Road"],
+  [/^(historic )?national road/i, "Historic National Road"],
+  [/^santa fe (national historic )?trail/i, "Santa Fe Trail"],
+  [/^oregon (national historic )?trail/i, "Oregon Trail"],
+  [/^california (national historic )?trail/i, "California Trail"],
+  [/^mormon (pioneer )?(national historic )?trail/i, "Mormon Trail"],
+  [/^pony express/i, "Pony Express Trail"],
+  [/^lewis (and|&) clark/i, "Lewis and Clark Trail"],
+  [/^trail of tears/i, "Trail of Tears National Historic Trail"],
+  [/^jefferson highway/i, "Jefferson Highway"],
+  [/^yellowstone trail/i, "Yellowstone Trail"],
+  [/^bankhead highway/i, "Bankhead Highway"],
+  [/^atlantic highway/i, "Atlantic Highway"],
+  [/^lee highway/i, "Lee Highway"],
+  [/^victory highway/i, "Victory Highway"],
+  [/^mohawk trail/i, "Mohawk Trail"],
+  [/^old spanish (national historic )?trail/i, "Old Spanish Trail"],
+  [/^el camino real/i, "El Camino Real"],
+];
+const historic = groupRoutes([...raw("osm-lincoln"), ...raw("osm-historic")], (full, rel) => {
+  if (/detour|auxiliary|other routes|branch|loop|spur|alternate|greenway|heritage trail|bike|bicycle/i.test(full)) return null;
+  if (rel.tags?.route && !/^(road|historic|hiking|foot)$/.test(rel.tags.route)) return null;
+  const hit = HISTORIC_NAMES.find(([re]) => re.test(full));
+  if (!hit) return null;
+  let name = hit[1];
+  const g = rel.members?.[0]?.geometry?.[0];
+  if (name === "Old Spanish Trail" && g && g.lon > -100) name = "Old Spanish Trail Highway";
+  if (name === "El Camino Real") name = g && g.lon < -114 ? "El Camino Real (California)" : "El Camino Real de Tierra Adentro";
+  return name;
+});
+importRoutes(historic, {
+  label: "drive (historic route)",
+  routeStates: {
+    "Great River Road": "MN WI IA IL MO KY TN AR MS LA",
+    "Lincoln Highway": "NY NJ PA OH IN IL IA NE CO WY UT NV CA",
+    "Dixie Highway": "MI OH IN IL KY TN NC SC GA AL FL",
+    "Santa Fe Trail": "MO KS OK CO NM",
+    "Oregon Trail": "MO KS NE WY ID OR WA",
+    "California Trail": "MO KS NE WY ID UT NV CA",
+    "Mormon Trail": "IL IA NE WY UT",
+    "Pony Express Trail": "MO KS NE CO WY UT NV CA",
+    "Old Spanish Trail": "NM CO UT AZ NV CA",
+    "Old Spanish Trail Highway": "FL AL MS LA TX NM AZ CA",
+    "Historic National Road": "MD PA WV OH IN IL",
+    "Lewis and Clark Trail": "IL MO KS NE IA SD ND MT ID OR WA",
+    "Trail of Tears National Historic Trail": "NC GA AL TN KY IL MO AR OK",
+    "Jefferson Highway": "MN IA MO KS OK TX LA",
+    "Yellowstone Trail": "MA NY PA OH IN IL WI MN SD ND MT ID WA",
+    "Bankhead Highway": "DC VA NC SC GA AL MS TN AR TX NM AZ CA",
+    "Atlantic Highway": "ME NH MA RI CT NY NJ PA DE MD VA NC SC GA FL",
+    "Lee Highway": "NY DC VA TN AL MS LA TX NM AZ CA",
+    "Victory Highway": "NY NJ PA OH IN IL MO KS CO UT NV CA",
+    "Mohawk Trail": "MA",
+  },
+});
+
+// Scenic byways: every named byway route at least 10 miles long. Loops of a
+// byway ("Loess Hills National Scenic Byway: Ridge Road Loop") join the byway.
+const byways = groupRoutes(raw("osm-byway"), (full) => {
+  const name = full.replace(/\s*\(.*?\)/g, "").replace(/\s*:.*$/, "").trim();
+  if (!/[a-z]/i.test(driveKey(name)) || /^(scenic (drive|highway|route|loop)|byway)$/i.test(name)) return null;
+  // A byway that is one of the historic routes above ("Jefferson Highway Heritage Byway").
+  if (HISTORIC_NAMES.some(([re]) => re.test(name))) return null;
+  return name;
+});
+importRoutes(byways, { minMiles: 10, label: "drive (scenic byway)" });
 
 // --- new categories
 count("landmark", fromWd("landmark", "wd-nnl", { near: 0.5, pts: () => 20 }));
@@ -365,6 +462,15 @@ count("pass", fromOsm("pass", "osm-pass", { near: 0.5, pts: () => 15 }));
 count("dam", fromWd("dam", "wd-dam", { near: 0.5, pts: () => 20 }));
 count("lake", fromWd("lake", "wd-lake", { near: 2, pts: () => 15 }));
 count("ship", fromWd("ship", "wd-museumship", { near: 0.05, sameName: 1, pts: () => 20 }));
+// Historic ships on display (OSM historic=ship): the notable ones, not every boat on a lawn.
+count("ship", fromOsm("ship", "osm-ship", {
+  near: 0.05,
+  sameName: 1,
+  pts: () => 20,
+  filter: (t) =>
+    !/yacht club|maritime museum|museum$|taxi|remains|sail$|replica of/i.test(t.name ?? "") &&
+    (!!t.wikidata || /^(attraction|museum)$/.test(t.tourism ?? "") || /^(USS|SS|USCGC|LV|USNS|PT|Lightship|Battleship|Fireboat|Fire Fighter|Steamer|Tug|Submarine)\b/i.test(t.name ?? "")),
+}));
 count("railroad", fromWd("railroad", "wd-heritagerail", { near: 0.5, pts: () => 15 }));
 count("aviation", fromWd("aviation", "wd-aviation", { near: 0.2, pts: () => 15 }));
 count("observatory", fromWd("observatory", "wd-observatory", { pts: () => 15 }));
@@ -502,15 +608,18 @@ if (bridgeRaw) {
     const name = `${h.ref} over the ${river}${bridge ? ` (${bridge})` : ""}`;
     const id = `${slug(h.ref)}-${slug(h.river)}-${h.lat.toFixed(2)}${h.lon.toFixed(2)}`.replace(/\./g, "_");
     // One per road per crossing: the two halves of a divided highway are one crossing.
-    const dup = (added.crossing ?? []).some((a) => a.row.name.startsWith(`${h.ref} over the ${river}`) && milesApart(a.row, h) <= 0.6);
+    const dup = [...(existing.crossing ?? []), ...(added.crossing ?? []).map((a) => a.row)].some(
+      (row) => row.name.startsWith(`${h.ref} over the ${river}`) && milesApart(row, h) <= 0.6,
+    );
     if (dup) continue;
     count("crossing", +addPlace("crossing", { id, name, lat: h.lat, lon: h.lon, pts: BIG.has(h.river) ? 15 : 10 }, { near: 0.05, sameName: 0 }));
   }
 }
 
 // Fallback when the state-line download is missing: where the same road's
-// line ends in one state and picks up in the next.
-if (!stateRaw) {
+// line ends in one state and picks up in the next. Only when nothing at all
+// was downloaded, so a partial run can't add rougher duplicates.
+if (!stateRaw && !rawFound("osm-winery")) {
   const ends = new Map(); // "I:94" -> [{st, p}]
   for (const r of mainRoads) {
     const key = `${r.sys}:${r.ref}`;
@@ -536,7 +645,7 @@ if (!stateRaw) {
 
 
 // Fallback when the bridge download is missing: our road lines against the river lines.
-if (!bridgeRaw) {
+if (!bridgeRaw && !rawFound("osm-winery")) {
   const rivers = new Map(); // name -> longest relation's lines
   for (const rel of raw("osm-rivers")) {
     const name = rel.tags?.name;
@@ -575,6 +684,60 @@ if (!bridgeRaw) {
           }
       }
 }
+
+// ---------------------------------------------------------------- starter list vs imported twins
+// The hand-picked starter places have rough points (the Eisenhower Library was
+// 20 miles off). Where an imported place in the same category has the same
+// name close by, the starter place keeps its id and takes the better point,
+// and the twin's id becomes an alias of it (src/lib/register-also.json), so
+// anything saved under either id still resolves.
+const TWIN_WORDS = /\b(presidential|library|museum|and|center|centre|boyhood|home|the|of|state|historic|site|national|park|falls|cave|caverns|fort|winery|vineyards?|distillery|diner|drive in|theater|theatre|covered|bridge)\b/g;
+const twinKey = (name) => normName(name).replace(TWIN_WORDS, " ").replace(/\s+/g, " ").trim();
+const imported = (id) => /:(node|way|rel)\d+$|:wdQ\d+$/.test(id);
+const siteKind = (name) => (/library|center|museum/i.test(name) ? "library" : /home|house|birthplace|farm|ranch/i.test(name) ? "home" : "other");
+const aliases = {};
+for (const cat of ["president", "cave", "fort", "battlefield", "waterfall", "drivein", "diner", "winery", "distillery", "bridge"]) {
+  const rows = Object.entries(places).flatMap(([st, b]) => (b[cat] ?? []).map((row) => ({ row, st })));
+  const fresh = [...rows.filter((r) => imported(r.row.id)), ...(added[cat] ?? [])];
+  for (const starter of rows.filter((r) => !imported(r.row.id))) {
+    const key = twinKey(starter.row.name);
+    if (key.length < 4) continue;
+    // Same state, and close: chain and common names (Silver Diner, Tick Tock Diner) repeat.
+    const reach = ["diner", "drivein", "winery", "distillery"].includes(cat) ? 10 : 30;
+    const twin = fresh.find(
+      (f) =>
+        f.row.id !== starter.row.id &&
+        f.st === starter.st &&
+        twinKey(f.row.name) === key &&
+        milesApart(f.row, starter.row) <= reach &&
+        // A president's home and library are different places, often a mile apart.
+        (cat !== "president" || siteKind(f.row.name) === siteKind(starter.row.name)),
+    );
+    if (!twin) continue;
+    starter.row.lat = twin.row.lat;
+    starter.row.lon = twin.row.lon;
+    aliases[starter.row.id] = twin.row.id;
+    places[twin.st][cat] = (places[twin.st][cat] ?? []).filter((r) => r.id !== twin.row.id);
+    if (added[cat]) added[cat] = added[cat].filter((a) => a.row.id !== twin.row.id);
+    count(`${cat} (starter point fixed)`, 1);
+  }
+}
+if (Object.keys(aliases).length) {
+  const file = path.join(ROOT, "src", "lib", "register-also.json");
+  const prev = fs.existsSync(file) ? readJson(file) : {};
+  // One alias per place in that file; keep an existing one (a merged Register listing).
+  for (const [kept, gone] of Object.entries(aliases)) if (!prev[kept]) prev[kept] = gone;
+  fs.writeFileSync(file, JSON.stringify(Object.fromEntries(Object.entries(prev).sort(([a], [b]) => (a < b ? -1 : 1)))));
+}
+
+// ---------------------------------------------------------------- known bad imports
+const DROP = new Set([
+  "p:president:CA:wdQ108659080", // a public library named for Kennedy, not a presidential site
+  "p:president:NJ:wdQ69956867", // same
+]);
+for (const bundle of Object.values(places))
+  for (const [cat, rows] of Object.entries(bundle)) if (rows.some((r) => DROP.has(r.id))) bundle[cat] = rows.filter((r) => !DROP.has(r.id));
+for (const [cat, list] of Object.entries(added)) added[cat] = list.filter((a) => !DROP.has(a.row.id));
 
 // ---------------------------------------------------------------- write
 for (const [cat, list] of Object.entries(added))
