@@ -20,7 +20,7 @@ import { badgeViewsFromMarks, listBadgeProgress, type BadgeView } from "@/lib/ba
 import { type Mark } from "@/lib/marks";
 import { type Trip, type TripStop } from "@/lib/trips";
 import { fallbackBlurb, lookupPlace, mapsUrl, type PlaceBlurb } from "@/lib/place-info";
-import { kindFor, kindVisible, placeKinds, tierForKind } from "@/lib/place-kinds";
+import { kindFor, kindVisible, placeKinds, tierForKind, tierForPlace } from "@/lib/place-kinds";
 import { placeToMark, placesNear, readDeviceLocation, roadToMark, stateToMark, stopsAlong, milesBetween, type Fix, type NearMark } from "@/lib/nearby";
 import { collectPassed, takeNativeFixes } from "@/lib/travel";
 import { missedFixes, nativeDelivery, noteHandledFix } from "@/lib/native-tracking";
@@ -1134,7 +1134,7 @@ function AtlasShell() {
       .filter((place) => !savedIds.has(place.id))
       .map((place) => {
         const kind = kindFor(place.cat, place.name, place.pts);
-        return { ...placeToMark(place, place.cat, stateAbbr), tier: tierForKind(kind) };
+        return { ...placeToMark(place, place.cat, stateAbbr), tier: tierForPlace(kind, place.name) };
       });
     const routes = stateRoads
       .filter((road) => !savedIds.has(road.id))

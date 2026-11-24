@@ -100,6 +100,24 @@ export function tierForKind(id: string) {
   return byId.get(id)?.tier ?? 2;
 }
 
+/**
+ * A National Park Service site by its name (National Historic Site, National
+ * Monument, National Battlefield, ...), whatever category it is filed under —
+ * not a visitor center, plaque or trail marker that shares the name.
+ * Kept in step with npsSite() in scripts/fix-atlas-data.mjs.
+ */
+export function npsSite(name: string) {
+  return (
+    /\bNational (Historic(al)? Site|Historical Park|Monument|Memorial|Battlefield( Park| Site)?|Military Park|Preserve|Recreation Area|Seashore|Lakeshore|Scenic River|River|Riverway|Reserve|Park)\b/.test(name) &&
+    !/visitor|center|centre|plaque|kiosk|terminus|museum|shrine|dedication|marker|sign\b|airport|lowe mill|entrance|peace and justice|distinguished flying|military ascent|hanson national|forefathers|silent heroes|memorial arch|soldiers. national|working dog|mays national|uss indianapolis|mckinley national/i.test(name)
+  );
+}
+
+/** Map tier for one place: National Park Service sites show at every zoom, like national parks. */
+export function tierForPlace(kind: string, name: string) {
+  return npsSite(name) ? 0 : tierForKind(kind);
+}
+
 export function kindVisible(tier: number, zoom: number, base: number) {
   if (tier <= 0) return true;
   return zoom + 0.05 >= base + (TIER_ZOOM[tier] ?? TIER_ZOOM[2]);
