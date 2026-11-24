@@ -112,6 +112,9 @@ function roundPhoto(url: string, ring: string) {
   });
 }
 
+/** How far past the whole-country view a tap still just opens the state. */
+const COUNTRY_TAP_ZOOM = 1.2;
+
 function duration() {
   if (typeof window === "undefined") return 0;
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700;
@@ -814,6 +817,15 @@ export function AtlasMap({
             [event.point.x - pad, event.point.y - pad],
             [event.point.x + pad, event.point.y + pad],
           ];
+          // Zoomed out to the whole country, everything is crowded together:
+          // a tap just zooms into the state underneath instead of picking a place.
+          if (map.getZoom() < (map.cameraForBounds(USA, { padding: 28 })?.zoom ?? 3) + COUNTRY_TAP_ZOOM) {
+            const abbr = map.queryRenderedFeatures(event.point, { layers: ["states-fill"] })[0]?.properties?.abbr;
+            if (typeof abbr === "string") {
+              propsRef.current.onState(abbr);
+              return;
+            }
+          }
           const person = map.queryRenderedFeatures(area, { layers: ["friend-people"] });
           const personId = person[0]?.properties?.id;
           if (typeof personId === "string") {
