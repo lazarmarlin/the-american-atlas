@@ -16,7 +16,7 @@ import { formatMiles, trailLines, type GhostLines } from "@/lib/ghost-trail";
 import type { PackedPoint } from "@/lib/ghost-sync";
 import { apiOrigin, nativeApp } from "@/lib/native";
 import { friendPhotos, loadFriendPhoto, type PhotoInfo } from "@/lib/photos";
-import { ChatThread, Sheet, type ChatPhoto, type ChatPlaceOption } from "@/components/friend-chat";
+import { ChatScreen, Sheet, type ChatPhoto, type ChatPlaceOption } from "@/components/friend-chat";
 import { useChat } from "@/lib/chat-store";
 import { createGroup, leaveGroup, listGroups, type ChatGroup } from "@/lib/chat-groups";
 import type { ChatPlace } from "@/lib/messages";
@@ -98,7 +98,8 @@ export function FriendsPanel({
   const [shown, setShown] = useState<string | null>(null);
   const [shots, setShots] = useState<PhotoInfo[]>([]);
   const [bigShot, setBigShot] = useState<{ id: string; image: string | null; thumb: string } | null>(null);
-  const [part, setPart] = useState<"chat" | "badges" | "photos" | "trails">("badges");
+  const [part, setPart] = useState<"badges" | "photos" | "trails">("badges");
+  const [chatOpen, setChatOpen] = useState(false);
   const unread = useChat((state) => state.summary);
   const [groups, setGroups] = useState<ChatGroup[] | null>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
@@ -216,14 +217,16 @@ export function FriendsPanel({
       setShots([]);
       setBigShot(null);
       setPart("badges");
+      setChatOpen(false);
       return;
     }
     let dead = false;
     setPage(null);
     setShots([]);
     setBigShot(null);
-    // Something new from them: open on the chat.
-    setPart(useChat.getState().summary.friends[openId] ? "chat" : "badges");
+    setPart("badges");
+    // Something new from them: straight into the conversation.
+    setChatOpen(!!useChat.getState().summary.friends[openId]);
     setError(null);
     setThumbs(new Map());
     reactionsOn({ data: { ownerId: openId } })
@@ -345,10 +348,18 @@ export function FriendsPanel({
               <p className="mt-4 px-2 text-sm text-muted">They aren't sharing a live trail right now.</p>
             )}
 
+            <button
+              type="button"
+              onClick={() => setChatOpen(true)}
+              className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-lg border border-ink bg-elevated text-sm"
+            >
+              Message {page.name.split(" ")[0]}
+              {unread.friends[page.id] ? <Count n={unread.friends[page.id] ?? 0} label="new messages" /> : null}
+            </button>
+
             <div className="mt-4 flex gap-1 px-2">
               {(
                 [
-                  ["chat", unread.friends[page.id] ? `Chat · ${unread.friends[page.id]}` : "Chat"],
                   ["badges", "Badges"],
                   ["photos", shots.length ? `Photos · ${shots.length}` : "Photos"],
                   ["trails", "Trails"],
@@ -368,8 +379,20 @@ export function FriendsPanel({
               ))}
             </div>
 
-            {part === "chat" && openId ? (
-              <ChatThread thread={{ kind: "friend", id: openId }} meId={meId} places={places} onAddToMap={onAddToMap} onOpenPlace={onOpenPlace} />
+            {chatOpen && openId ? (
+              <ChatScreen
+                title={page.name}
+                subtitle={liveNow.some((row) => row.id === page.id) ? "Sharing a live trail" : undefined}
+                onClose={() => setChatOpen(false)}
+                thread={{ kind: "friend", id: openId }}
+                meId={meId}
+                places={places}
+                onAddToMap={onAddToMap}
+                onOpenPlace={(place) => {
+                  setChatOpen(false);
+                  onOpenPlace(place);
+                }}
+              />
             ) : null}
 
             {part === "badges" ? (
@@ -478,7 +501,7 @@ export function FriendsPanel({
             ) : null}
 
             {drop ? (
-              <div className="mt-4 rounded-lg border border-line bg-bg px-3 py-3">
+              <div className="mt-12 rounded-lg border border-line bg-bg px-3 py-3">
                 <p className="text-sm">Remove {page.name}? They won't see your badges or trails either.</p>
                 <div className="mt-2 flex gap-2">
                   <button type="button" onClick={() => void dropFriend()} className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm">
@@ -490,64 +513,13 @@ export function FriendsPanel({
                 </div>
               </div>
             ) : (
-              <button type="button" onClick={() => setDrop(true)} className="mt-4 h-11 w-full rounded-lg border border-line text-sm text-muted">
-                Remove friend
-              </button>
+              <div className="mt-12 border-t border-line pt-4">
+                <button type="button" onClick={() => setDrop(true)} className="h-11 px-2 text-sm text-faint">
+                  Remove {page.name.split(" ")[0]} as a friend…
+                </button>
+              </div>
             )}
           </>
-        )}
-      </div>
-    );
-  }
-
-  if (openGroup) {
-    const others = openGroup.members.filter((m) => m.id !== meId);
-    return (
-      <div className="px-2 pb-4">
-        <button type="button" onClick={() => setGroupId(null)} className="h-11 px-2 text-sm text-muted">
-          All friends
-        </button>
-        <div className="px-2">
-          <h2 className="font-serif text-2xl leading-tight">{openGroup.name}</h2>
-          <p className="text-sm text-muted">{openGroup.members.map((m) => m.name).join(", ")}</p>
-        </div>
-        <div className="mt-3 flex gap-2 px-2">
-          <button
-            type="button"
-            onClick={() => {
-              const n = onShowGroup(others.map((m) => m.id));
-              setGroupNote(n ? `Showing ${n} on the map.` : "Nobody in this chat is sharing a live location with you right now.");
-            }}
-            className="h-11 flex-1 rounded-lg border border-line text-sm"
-          >
-            Everyone on the map
-          </button>
-          <button
-            type="button"
-            onClick={() => void onShareLive(others.map((m) => m.id)).then(setGroupNote)}
-            className="h-11 flex-1 rounded-lg border border-line text-sm"
-          >
-            Share my location
-          </button>
-        </div>
-        {groupNote ? <p className="mt-2 px-2 text-sm text-muted">{groupNote}</p> : null}
-        <ChatThread thread={{ kind: "group", id: openGroup.id }} meId={meId} places={places} onAddToMap={onAddToMap} onOpenPlace={onOpenPlace} />
-        {leaving ? (
-          <div className="mt-4 rounded-lg border border-line bg-bg px-3 py-3">
-            <p className="text-sm">Leave {openGroup.name}? You won't see its messages any more.</p>
-            <div className="mt-2 flex gap-2">
-              <button type="button" onClick={() => void leave(openGroup.id)} className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm">
-                Leave
-              </button>
-              <button type="button" onClick={() => setLeaving(false)} className="h-11 flex-1 rounded-lg border border-line text-sm">
-                Stay
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button type="button" onClick={() => setLeaving(true)} className="mt-4 h-11 w-full rounded-lg border border-line text-sm text-muted">
-            Leave this chat
-          </button>
         )}
       </div>
     );
@@ -664,6 +636,51 @@ export function FriendsPanel({
             )
           ) : null}
         </div>
+      ) : null}
+
+      {openGroup ? (
+        <ChatScreen
+          title={openGroup.name}
+          subtitle={openGroup.members.map((m) => m.name).join(", ")}
+          note={groupNote}
+          onClose={() => {
+            setGroupId(null);
+            setGroupNote(null);
+          }}
+          actions={[
+            {
+              label: "Everyone on the map",
+              onClick: () => {
+                const others = openGroup.members.filter((m) => m.id !== meId).map((m) => m.id);
+                if (onShowGroup(others)) {
+                  setGroupId(null);
+                  setGroupNote(null);
+                } else setGroupNote("Nobody in this chat is sharing a live location with you right now.");
+              },
+            },
+            {
+              label: "Share my location with the group",
+              onClick: () => void onShareLive(openGroup.members.filter((m) => m.id !== meId).map((m) => m.id)).then(setGroupNote),
+            },
+            { label: "Leave this chat", danger: true, onClick: () => setLeaving(true) },
+          ]}
+          thread={{ kind: "group", id: openGroup.id }}
+          meId={meId}
+          places={places}
+          onAddToMap={onAddToMap}
+          onOpenPlace={(place) => {
+            setGroupId(null);
+            onOpenPlace(place);
+          }}
+        />
+      ) : null}
+      {openGroup && leaving ? (
+        <Sheet label={`Leave ${openGroup.name}?`} onClose={() => setLeaving(false)}>
+          <p className="text-sm text-muted">You won't see its messages any more.</p>
+          <button type="button" onClick={() => void leave(openGroup.id)} className="mt-3 h-11 w-full rounded-lg border border-ink bg-elevated text-sm text-accent">
+            Leave
+          </button>
+        </Sheet>
       ) : null}
 
       {making ? (
