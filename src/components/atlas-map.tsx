@@ -59,6 +59,8 @@ type Props = {
   you: Fix | null;
   dot: Fix | null;
   onState: (abbr: string) => void;
+  /** Zoomed in, moving the map into another state picks it (keeping the view). */
+  followState?: boolean;
   onCounty: (county: { id: string; name: string; st: string; lat: number; lon: number }) => void;
   onPark: (park: { id: string; name: string; cat: string; st: string; lat: number; lon: number; pts: number }) => void;
   onSelect: (id: string) => void;
@@ -220,6 +222,7 @@ export function AtlasMap({
   you,
   dot,
   onState,
+  followState = false,
   onCounty,
   onPark,
   onSelect,
@@ -234,8 +237,10 @@ export function AtlasMap({
   const mapRef = useRef<MlMap | null>(null);
   const propsRef = useRef({ onState, onCounty, onPark, onSelect, onOffer, onPress, onFriend, onView, onAway });
   propsRef.current = { onState, onCounty, onPark, onSelect, onOffer, onPress, onFriend, onView, onAway };
-  const viewRef = useRef({ stateAbbr, showCounties });
-  viewRef.current = { stateAbbr, showCounties };
+  const viewRef = useRef({ stateAbbr, showCounties, followState });
+  viewRef.current = { stateAbbr, showCounties, followState };
+  /** Set when the map picks a state itself (following the view), so the camera stays put. */
+  const keepView = useRef(false);
   const [ready, setReady] = useState(false);
   const overlaysLoaded = useRef(new Set<string>());
   /** Download the town outlines once (for the town layer or a selected town's outline). */
@@ -310,6 +315,8 @@ export function AtlasMap({
       map.dragRotate.disable();
       map.touchZoomRotate.disableRotation();
       mapRef.current = map;
+      // For browser tests in development only.
+      if (import.meta.env.DEV) (window as Window & { __atlasMap?: unknown }).__atlasMap = map;
 
       map.on("load", () => {
         if (!map) return;
@@ -901,7 +908,27 @@ export function AtlasMap({
           if (!map) return;
           const home = map.cameraForBounds(USA, { padding: 28 })?.zoom ?? 3;
           propsRef.current.onAway?.(map.getZoom() > home + 0.4);
+          // Follow the view into another state, once zoomed in past a state's
+          // whole-state view (not while flying between states or out to the country).
+          followView(true);
         });
+        const followView = (retry: boolean) => {
+          if (!map) return;
+          const { stateAbbr: current, followState: follow } = viewRef.current;
+          const base = baseRef.current;
+          if (!follow || !current || base == null || map.getZoom() < base + 0.3) return;
+          const center = map.project(map.getCenter());
+          const hit = map.queryRenderedFeatures(center, { layers: ["states-fill"] })[0]?.properties?.abbr;
+          // Nothing drawn under the center yet (a long jump): look again once the map settles.
+          if (hit === undefined && retry) {
+            map.once("idle", () => followView(false));
+            return;
+          }
+          if (typeof hit === "string" && hit !== current) {
+            keepView.current = true;
+            propsRef.current.onState(hit);
+          }
+        };
         propsRef.current.onView(map.getZoom(), baseRef.current);
         setReady(true);
       });
@@ -1156,7 +1183,10 @@ export function AtlasMap({
     const map = mapRef.current;
     if (!ready || !map) return;
     if (prevState.current === stateAbbr) return;
+    const was = prevState.current;
     prevState.current = stateAbbr;
+    const following = keepView.current;
+    keepView.current = false;
     if (selected) return;
     const box = stateAbbr ? states.find((state) => state.abbr === stateAbbr) : null;
     if (box) {
@@ -1171,6 +1201,10 @@ export function AtlasMap({
       baseRef.current = base;
       applyFilters(map);
       propsRef.current.onView(map.getZoom(), base);
+      // Switching from one state to the next while zoomed in keeps the view:
+      // you tapped (or panned) into the neighbor to look at something there,
+      // not to see the whole state.
+      if (following || (was && map.getZoom() >= base - 0.2)) return;
       map.fitBounds(
         [
           [box.w, box.s],
