@@ -109,9 +109,15 @@ const ENDPOINTS = [
   { url: "https://maps.mail.ru/osm/tools/overpass/api/interpreter", headers: {} },
 ];
 
-async function overpass(ep, query, timeout = 900) {
-  const body = new URLSearchParams({ data: `[out:json][timeout:${timeout}][maxsize:2000000000];${query}` });
-  const res = await fetch(ep.url, { method: "POST", body, headers: { "User-Agent": UA, ...ep.headers } });
+async function overpass(ep, query, timeout = 600) {
+  const size = timeout > 60 ? "[maxsize:1073741824]" : "";
+  const body = new URLSearchParams({ data: `[out:json][timeout:${timeout}]${size};${query}` });
+  const res = await fetch(ep.url, {
+    method: "POST",
+    body,
+    headers: { "User-Agent": UA, ...ep.headers },
+    signal: AbortSignal.timeout((timeout + 120) * 1000),
+  });
   const text = await res.text();
   if (!res.ok) throw new Error(`${res.status} ${text.slice(0, 200)}`);
   const json = JSON.parse(text);
@@ -122,7 +128,7 @@ async function overpass(ep, query, timeout = 900) {
 const working = [];
 for (const ep of ENDPOINTS) {
   try {
-    const r = await overpass(ep, `node(1);out;`, 25);
+    const r = await overpass(ep, `node(1);out;`, 20);
     if (r.elements) {
       working.push(ep);
       console.log("overpass ok:", ep.url.replace(KEY, "***"));
@@ -136,7 +142,9 @@ const only = process.argv.slice(2);
 const want = (name) => !only.length || only.includes(name);
 const summary = {};
 
+if (!working.length) console.log("No Overpass server answered; skipping OpenStreetMap jobs.");
 for (const [name, query] of Object.entries(OSM)) {
+  if (!working.length) break;
   if (!want(`osm-${name}`) && !want(name)) continue;
   let done = false;
   for (let attempt = 0; attempt < 3 && !done; attempt++) {
@@ -174,6 +182,7 @@ const LOOPS = {
   ]),
 };
 for (const [name, parts] of Object.entries(LOOPS)) {
+  if (!working.length) break;
   if (!want(`osm-${name}`) && !want(name)) continue;
   const all = {};
   for (const [part, query] of parts) {
@@ -206,6 +215,7 @@ for (const [name, query] of Object.entries(WD)) {
         method: "POST",
         headers: { "User-Agent": UA, Accept: "application/sparql-results+json", "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ query }),
+        signal: AbortSignal.timeout(150000),
       });
       const text = await res.text();
       if (!res.ok) throw new Error(`${res.status} ${text.slice(0, 200)}`);
