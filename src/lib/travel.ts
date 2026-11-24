@@ -60,6 +60,25 @@ const PASS_CATS = [
 ];
 
 const PLACE_MILES = 0.25;
+const boxes = new WeakMap<object, [number, number, number, number] | null>();
+/** [west, south, east, north] of a road's lines, padded by about half a mile. */
+function roadBox(road: { paths?: number[][][] }) {
+  if (boxes.has(road)) return boxes.get(road) ?? null;
+  let box: [number, number, number, number] | null = null;
+  for (const line of road.paths ?? [])
+    for (const [lon, lat] of line) {
+      if (!box) box = [lon, lat, lon, lat];
+      else {
+        if (lon < box[0]) box[0] = lon;
+        if (lat < box[1]) box[1] = lat;
+        if (lon > box[2]) box[2] = lon;
+        if (lat > box[3]) box[3] = lat;
+      }
+    }
+  if (box) box = [box[0] - 0.01, box[1] - 0.01, box[2] + 0.01, box[3] + 0.01];
+  boxes.set(road, box);
+  return box;
+}
 /** Places spread over a big area count from farther out than their one map point. */
 const WIDE_MILES: Record<string, number> = { unesco: 2, space: 1, ski: 0.75, college: 0.5, dam: 0.5, landmark: 0.5, ghost: 0.4 };
 const ROAD_MILES = 0.35;
@@ -148,7 +167,10 @@ export async function collectPassed(fix: Fix, states: StateInfo[], saved: Set<st
   const roads = await Promise.all(here.map(async (state) => ({ state: state.abbr, rows: await loadRoads(state.abbr) })));
   for (const group of roads) {
     for (const road of group.rows) {
-      if (milesBetween(fix.lat, fix.lon, road.lat, road.lon) > 40) continue;
+      // A quick skip for roads nowhere near: their whole line's box, not the
+      // label point (a 400-mile route's label is in the middle of it).
+      const box = roadBox(road);
+      if (box ? fix.lat < box[1] || fix.lat > box[3] || fix.lon < box[0] || fix.lon > box[2] : milesBetween(fix.lat, fix.lon, road.lat, road.lon) > 40) continue;
       const miles = road.paths?.length ? milesToPaths(fix.lat, fix.lon, road.paths) : milesBetween(fix.lat, fix.lon, road.lat, road.lon);
       if (miles > ROAD_MILES) continue;
       if (saved.has(road.id)) {
