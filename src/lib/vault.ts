@@ -135,11 +135,25 @@ async function writeSnapshot(marks: Mark[], trips: Trip[], profile: Profile) {
   ]);
 }
 
+/**
+ * Changes to the device copy take turns. Two at once (a place and its trip
+ * stop, or a place saved while the account copy was being downloaded) could
+ * otherwise each read the old copy and the second write drop the first's change.
+ */
+let turn: Promise<unknown> = Promise.resolve();
+function inTurn<T>(work: () => Promise<T>): Promise<T> {
+  const run = turn.then(work, work);
+  turn = run.catch(() => {});
+  return run;
+}
+
 async function mutate(op: Op, apply: (snap: VaultSnapshot) => VaultSnapshot) {
-  const current = await readVault();
-  const next = apply(current);
-  await writeSnapshot(next.marks, next.trips, next.profile);
-  await idbAdd(op);
+  await inTurn(async () => {
+    const current = await readVault();
+    const next = apply(current);
+    await writeSnapshot(next.marks, next.trips, next.profile);
+    await idbAdd(op);
+  });
   void flushVault();
 }
 
@@ -303,6 +317,11 @@ export async function refreshVault(): Promise<VaultSnapshot | null> {
   const [marks, trips, profile] = await Promise.all([listMarks(), listTrips(), getProfile()]);
   const nextMarks = marks.map((mark) => ensureVisits(mark));
   const nextTrips = trips.map((trip) => ensureStops(trip));
-  await writeSnapshot(nextMarks, nextTrips, profile);
-  return { marks: nextMarks, trips: nextTrips, profile, pending: 0 };
+  return inTurn(async () => {
+    // Something was saved on the device while the account copy downloaded: the
+    // download is already out of date, so keep the device copy (it syncs next).
+    if ((await pendingCount()) > 0) return null;
+    await writeSnapshot(nextMarks, nextTrips, profile);
+    return { marks: nextMarks, trips: nextTrips, profile, pending: 0 };
+  });
 }

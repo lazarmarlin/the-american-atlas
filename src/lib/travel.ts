@@ -1,4 +1,5 @@
 import { loadCounties, loadPlaces, loadRoads, type CatalogPlace, type StateInfo } from "@/lib/atlas-model";
+import { npsSite } from "@/lib/place-kinds";
 import { countyContaining, countyToMark } from "@/lib/counties";
 import type { Mark } from "@/lib/marks";
 import { milesBetween, placeToMark, roadToMark, type Fix } from "@/lib/nearby";
@@ -141,12 +142,17 @@ export async function collectPassed(fix: Fix, states: StateInfo[], saved: Set<st
   found.push(...(await passedTowns(fix, saved, visited)));
   found.push(...(await passedReservations(fix, saved, here, visited)));
   const places = await Promise.all(
-    here.flatMap((state) =>
-      PASS_CATS.map(async (cat) => {
+    here.flatMap((state) => [
+      ...PASS_CATS.map(async (cat) => {
         const rows = await loadPlaces(cat, state.abbr);
         return rows.map((row) => ({ row, cat, state: state.abbr }));
       }),
-    ),
+      // Historic sites aren't added just by driving past (there are tens of
+      // thousands of markers), except National Park Service sites like Nicodemus.
+      loadPlaces("historic", state.abbr).then((rows) =>
+        rows.filter((row) => npsSite(row.name)).map((row) => ({ row, cat: "historic", state: state.abbr })),
+      ),
+    ]),
   );
   for (const batch of places) {
     for (const item of batch) {
