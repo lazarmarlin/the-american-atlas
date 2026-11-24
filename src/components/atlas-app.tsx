@@ -172,6 +172,7 @@ function AtlasShell() {
   const closeViewer = useCallback(() => setViewing(null), []);
   // Back from a zoomed-in map or a picked state goes to the whole country first.
   const [homeTick, setHomeTick] = useState(0);
+  const [focusTick, setFocusTick] = useState(0);
   const [mapAway, setMapAway] = useState(false);
   const keepGhost = useSettings((s) => s.keepGhost);
   const keptGhostBefore = useRef(keepGhost);
@@ -1323,6 +1324,11 @@ function AtlasShell() {
       setGhostOpen(false);
       return true;
     }
+    // Zoomed in past a state's view: back to the whole state first, then the country.
+    if (stateAbbr && viewBase != null && viewZoom > viewBase + 0.3) {
+      setFocusTick((n) => n + 1);
+      return true;
+    }
     if (stateAbbr || mapAway) {
       chooseState(null);
       setHomeTick((n) => n + 1);
@@ -1726,6 +1732,7 @@ function AtlasShell() {
                 else setSelected(id);
               }}
               homeTick={homeTick}
+              focusTick={focusTick}
               fitTo={fitTo}
               spotlight={spot}
               onAway={setMapAway}
