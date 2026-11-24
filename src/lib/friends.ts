@@ -39,6 +39,8 @@ export type FriendPage = {
   photo: string;
   badges: FriendBadge[];
   trails: FriendTrailInfo[];
+  /** Their latest check-ins, newest first (for a thumbs-up). */
+  recent: { target: string; name: string; category: string; state: string; points: number; visitedOn: string }[];
 };
 
 const CODE_RE = /^[a-z0-9]{8}$/;
@@ -261,6 +263,25 @@ export const removeFriend = createServerFn({ method: "POST" })
       where (user_id = ${context.userId} and friend_id = ${friendId})
          or (user_id = ${friendId} and friend_id = ${context.userId})
     `;
+    // The conversation goes too, and thumbs-up between you.
+    await sql`
+      delete from message_hidden where message_id in (
+        select id from messages
+        where (from_id = ${context.userId} and to_id = ${friendId}) or (from_id = ${friendId} and to_id = ${context.userId})
+      )
+    `;
+    await sql`
+      delete from messages
+      where (from_id = ${context.userId} and to_id = ${friendId}) or (from_id = ${friendId} and to_id = ${context.userId})
+    `;
+    await sql`
+      delete from message_reads
+      where (user_id = ${context.userId} and thread = ${friendId}) or (user_id = ${friendId} and thread = ${context.userId})
+    `;
+    await sql`
+      delete from reactions
+      where (user_id = ${context.userId} and owner_id = ${friendId}) or (user_id = ${friendId} and owner_id = ${context.userId})
+    `;
     await sql`
       delete from live_trails
       where user_id in (${context.userId}, ${friendId})
@@ -313,6 +334,21 @@ export const loadFriend = createServerFn({ method: "POST" })
     const badges = badgeViewsFromMarks(rows)
       .filter((badge) => badge.earned)
       .map((badge) => ({ id: badge.id, group: badge.group, name: badge.name, detail: badge.detail }));
+    const recent = rows
+      .flatMap((row) =>
+        row.visits
+          .filter((visit) => visit.visitedOn)
+          .map((visit) => ({
+            target: `visit:${row.id}|${visit.id}`,
+            name: row.name,
+            category: row.category,
+            state: row.state,
+            points: row.points,
+            visitedOn: visit.visitedOn as string,
+          })),
+      )
+      .sort((a, b) => (a.visitedOn < b.visitedOn ? 1 : -1))
+      .slice(0, 12);
     const trails = await sql<{ id: string; name: string; started_at: unknown; saved_at: unknown; points: unknown }>`
       select id, name, started_at, saved_at, points
       from ghost_trails
@@ -323,6 +359,7 @@ export const loadFriend = createServerFn({ method: "POST" })
     return {
       ...friend,
       badges,
+      recent,
       trails: trails
         .map((trail) => {
           const savedAt = toMs(trail.saved_at);

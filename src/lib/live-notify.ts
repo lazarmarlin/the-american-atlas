@@ -58,3 +58,37 @@ export async function notifyFriendLive(name: string) {
     /* a missed notification is fine */
   }
 }
+
+const MESSAGE_CHANNEL = "messages";
+let messageChannel: Promise<void> | null = null;
+
+/** A phone notification for a new message or thumbs-up (Android app, while it's running). */
+export async function notifyMessage(title: string, body: string) {
+  if (!nativeApp) return;
+  try {
+    const LocalNotifications = await plugin();
+    messageChannel ??= LocalNotifications.createChannel({
+      id: MESSAGE_CHANNEL,
+      name: "Messages",
+      description: "Texts and thumbs-up from friends.",
+      importance: 4,
+    }).catch(() => {});
+    await messageChannel;
+    const { display } = await LocalNotifications.checkPermissions();
+    if (display !== "granted") return;
+    await LocalNotifications.schedule({
+      notifications: [
+        {
+          id: Math.floor(Date.now() % 2147483647),
+          title,
+          body,
+          channelId: MESSAGE_CHANNEL,
+          smallIcon: "ic_stat_atlas",
+          iconColor: "#e2b15a",
+        },
+      ],
+    });
+  } catch {
+    /* a missed notification is fine */
+  }
+}

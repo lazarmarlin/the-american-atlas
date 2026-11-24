@@ -20,10 +20,12 @@ import { badgeViewsFromMarks, listBadgeProgress, type BadgeView } from "@/lib/ba
 import { type Mark } from "@/lib/marks";
 import { type Trip, type TripStop } from "@/lib/trips";
 import { fallbackBlurb, lookupPlace, mapsUrl, type PlaceBlurb } from "@/lib/place-info";
-import { kindFor, kindVisible, placeKinds, tierForKind, tierForPlace } from "@/lib/place-kinds";
+import { categoryName, kindFor, kindVisible, placeKinds, tierForKind, tierForPlace } from "@/lib/place-kinds";
 import { placeToMark, placesNear, readDeviceLocation, roadToMark, stateToMark, stopsAlong, milesBetween, type Fix, type NearMark } from "@/lib/nearby";
 import { collectPassed, takeNativeFixes } from "@/lib/travel";
 import { missedFixes, nativeDelivery, noteHandledFix } from "@/lib/native-tracking";
+import { startChatChecks, useChat } from "@/lib/chat-store";
+import { SendPlaceSheet } from "@/components/chat-send";
 import { AtlasSplash, LoginScreen } from "@/components/login-screen";
 import { SettingsPage } from "@/components/settings-page";
 import { GhostPanel } from "@/components/ghost-panel";
@@ -606,6 +608,19 @@ function AtlasShell() {
   metaRef.current = meta;
   const userIdRef = useRef("");
   userIdRef.current = user?.id ?? "";
+  // Unread messages and thumbs-up, checked while signed in.
+  useEffect(() => {
+    if (!user?.id) return;
+    return startChatChecks();
+  }, [user?.id]);
+  const unreadTotal = useChat(
+    (state) =>
+      Object.values(state.summary.friends).reduce((a, b) => a + b, 0) +
+      Object.values(state.summary.groups).reduce((a, b) => a + b, 0) +
+      state.summary.likes,
+  );
+  const [sendPlace, setSendPlace] = useState<Mark | null>(null);
+  const [fitTo, setFitTo] = useState<{ tick: number; points: [number, number][]; maxZoom: number } | null>(null);
 
   function noteTrip(poiId: string) {
     const tripId = recordingRef.current;
@@ -1659,6 +1674,7 @@ function AtlasShell() {
                 else setSelected(id);
               }}
               homeTick={homeTick}
+              fitTo={fitTo}
               onAway={setMapAway}
               onView={(zoom, base) => {
                 setViewZoom(zoom);
@@ -1719,6 +1735,7 @@ function AtlasShell() {
           onClose={() => setGhostOpen(false)}
         />
         <div className="pointer-events-none absolute top-safe left-3 z-10 flex flex-col items-start gap-2">
+          {sendPlace ? <SendPlaceSheet mark={sendPlace} onClose={() => setSendPlace(null)} /> : null}
           {addedFlash ? (
             <button
               type="button"
@@ -1781,7 +1798,7 @@ function AtlasShell() {
               type="button"
               aria-pressed={showRoads}
               onClick={toggleRoads}
-              className={"flex h-8 items-center gap-1 rounded-full border px-2.5 text-[11px] " + (showRoads ? "border-line bg-surface text-ink" : "border-transparent text-faint")}
+              className={"flex h-8 items-center gap-1 rounded-full border px-2.5 text-[11px] " + (showRoads ? "border-line bg-surface text-ink" : "border-line/40 bg-surface/70 text-faint")}
             >
               <span className="size-2 rounded-full bg-[#3d7ab5]" />
               Roads
@@ -1790,7 +1807,7 @@ function AtlasShell() {
               type="button"
               aria-pressed={showCounties}
               onClick={toggleCounties}
-              className={"flex h-8 items-center gap-1 rounded-full border px-2.5 text-[11px] " + (showCounties ? "border-line bg-surface text-ink" : "border-transparent text-faint")}
+              className={"flex h-8 items-center gap-1 rounded-full border px-2.5 text-[11px] " + (showCounties ? "border-line bg-surface text-ink" : "border-line/40 bg-surface/70 text-faint")}
             >
               <span className="size-2 rounded-full" style={{ background: countyColor }} />
               Counties
@@ -1878,6 +1895,7 @@ function AtlasShell() {
         {cardOnly && focus ? (
           <Detail
             solo
+            onSend={user?.id ? () => setSendPlace(focus) : undefined}
             mark={focus}
             saved={savedIds.has(focus.id)}
             stateName={meta?.states.find((state) => state.abbr === focus.state)?.name ?? focus.state}
@@ -1968,10 +1986,19 @@ function AtlasShell() {
                   key={id}
                   type="button"
                   aria-pressed={tab === id}
-                  onClick={() => setTab(id)}
+                  onClick={() => {
+                    setTab(id);
+                    // With the menu lowered only the tabs show; a tab opens it so you see what you picked.
+                    if (sheet < 40) setSheet(50);
+                  }}
                   className={"h-11 shrink-0 rounded-lg px-2.5 text-xs " + (tab === id ? "bg-elevated text-ink" : "text-faint")}
                 >
                   {label}
+                  {id === "friends" && unreadTotal ? (
+                    <span aria-label={`${unreadTotal} new`} className="ml-1 inline-grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] font-medium text-accent-ink">
+                      {unreadTotal > 99 ? "99+" : unreadTotal}
+                    </span>
+                  ) : null}
                 </button>
               ))}
             </div>
@@ -2109,9 +2136,56 @@ function AtlasShell() {
                 id: mark.id,
                 name: mark.name,
                 state: mark.state,
+                category: mark.category,
                 lat: mark.lat,
                 lon: mark.lon,
+                visitedOn: [...mark.visits].map((visit) => visit.visitedOn).filter(Boolean).sort().at(-1) ?? null,
               }))}
+              onOpenPlace={(place) => {
+                const mark: Mark = marks.find((item) => item.id === place.id) ?? {
+                  id: place.id,
+                  name: place.name,
+                  category: place.category,
+                  state: place.state,
+                  lat: place.lat,
+                  lon: place.lon,
+                  points: place.points,
+                  sys: "",
+                  paths: [],
+                  visitedOn: null,
+                  note: "",
+                  photo: "",
+                  visits: [],
+                };
+                chooseState(place.state);
+                openFromMap(mark);
+                if (place.lat != null && place.lon != null) setFitTo((cur) => ({ tick: (cur?.tick ?? 0) + 1, points: [[place.lon as number, place.lat as number]], maxZoom: 9 }));
+                setSheetInstant(true);
+                setSheet(8);
+                window.setTimeout(() => setSheetInstant(false), 80);
+              }}
+              onShowGroup={(ids) => {
+                const pins = livePins.filter((pin) => ids.includes(pin.id));
+                if (!pins.length) return 0;
+                setFitTo((cur) => ({ tick: (cur?.tick ?? 0) + 1, points: pins.map((pin) => [pin.lon, pin.lat]), maxZoom: 10 }));
+                setSheetInstant(true);
+                setSheet(8);
+                window.setTimeout(() => setSheetInstant(false), 80);
+                return pins.length;
+              }}
+              onShareLive={async (ids) => {
+                try {
+                  // The group first; anyone you were already sharing with keeps a spot if there's room.
+                  const shared = await useLiveShare.getState().setAll([...ids, ...useLiveShare.getState().viewers]);
+                  if (!trackTravel && !shareOnly) setShareOnly(true);
+                  const inGroup = shared.filter((id) => ids.includes(id)).length;
+                  return inGroup < ids.length
+                    ? `Sharing your location with ${inGroup} of them (3 friends at a time is the most).`
+                    : `Sharing your location with ${inGroup === 1 ? "them" : `all ${inGroup}`}. Turn it off in the Ghost trail panel.`;
+                } catch (err) {
+                  return err instanceof Error ? err.message : "Couldn't share your location.";
+                }
+              }}
               onAddToMap={async (photo, place) => {
                 const id = `ph-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
                 const row: PhotoInfo = {
@@ -2119,9 +2193,10 @@ function AtlasShell() {
                   poiId: place.id,
                   tripId: "",
                   caption: "",
-                  takenAt: Date.now(),
-                  lat: place.lat,
-                  lon: place.lon,
+                  // Where and when the photo was taken, when the chat kept that; else the place and now.
+                  takenAt: photo.takenAt ?? Date.now(),
+                  lat: photo.lat ?? place.lat,
+                  lon: photo.lon ?? place.lon,
                   shared: false,
                   thumb: photo.thumb,
                 };
@@ -2145,6 +2220,7 @@ function AtlasShell() {
 
         {focus && selected === focus.id && tab !== "badges" && tab !== "trips" && tab !== "friends" && tab !== "photos" ? (
           <Detail
+            onSend={user?.id ? () => setSendPlace(focus) : undefined}
             mark={focus}
             saved={savedIds.has(focus.id)}
             stateName={meta?.states.find((state) => state.abbr === focus.state)?.name ?? focus.state}
@@ -2958,6 +3034,7 @@ function Detail({
   onOpenPhoto,
   onDeletePhoto,
   onAddPhoto,
+  onSend,
   solo = false,
 }: {
   mark: Mark;
@@ -2975,6 +3052,8 @@ function Detail({
   onOpenPhoto?: (id: string) => void;
   onDeletePhoto?: (id: string) => void;
   onAddPhoto?: (file: File) => Promise<void>;
+  /** Send this place to a friend or a trip chat. */
+  onSend?: () => void;
   solo?: boolean;
 }) {
   const road = mark.category === "route" || mark.category === "drive";
@@ -3164,7 +3243,7 @@ function Detail({
         <Shield sys={mark.category === "route" ? ((mark.sys as System) || "SR") : "place"} label={mark.category === "route" ? mark.id.split(":")[3] || mark.sys : "P"} />
         <div className="min-w-0 flex-1">
           <p className="text-xs text-muted">
-            {mark.category} · {stateName}
+            {categoryName(mark.category, mark.name)} · {stateName}
           </p>
           <h2 className="truncate font-serif text-xl leading-tight">{mark.name}</h2>
           {onRegister && mark.category !== "register" ? (
@@ -3197,6 +3276,11 @@ function Detail({
           Find in Google Maps
         </a>
       </div>
+      {onSend ? (
+        <button type="button" onClick={onSend} className="mt-2 h-11 w-full rounded-card border border-line bg-bg text-sm">
+          Send to a friend
+        </button>
+      ) : null}
       <p className="mt-2 line-clamp-3 text-sm leading-snug text-muted">{about}</p>
       <p className="mt-1 text-xs text-faint">
         {score}

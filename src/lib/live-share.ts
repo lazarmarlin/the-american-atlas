@@ -194,6 +194,8 @@ type LiveState = {
   loaded: boolean;
   load: () => Promise<void>;
   toggle: (id: string) => Promise<void>;
+  /** Share with exactly these friends (the first few, up to the limit). */
+  setAll: (ids: string[]) => Promise<string[]>;
 };
 
 export const useLiveShare = create<LiveState>((set, get) => ({
@@ -209,5 +211,11 @@ export const useLiveShare = create<LiveState>((set, get) => ({
     if (next.length > MAX_LIVE_FRIENDS) throw new Error(`You can share the live trail with ${MAX_LIVE_FRIENDS} friends.`);
     const saved = await setLiveViewers({ data: next });
     set({ viewers: saved.ids });
+  },
+  setAll: async (ids) => {
+    const next = [...new Set(ids)].slice(0, MAX_LIVE_FRIENDS);
+    const saved = await setLiveViewers({ data: next });
+    set({ viewers: saved.ids });
+    return saved.ids;
   },
 }));

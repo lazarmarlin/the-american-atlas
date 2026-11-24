@@ -113,6 +113,28 @@ export function npsSite(name: string) {
   );
 }
 
+const ONE: Record<string, string> = {
+  route: "Road", county: "County", town: "Town", state: "State", park: "Park", reservation: "Reservation",
+  forest: "National forest", refuge: "Wildlife refuge", capitol: "State capitol", beach: "Beach", stadium: "Stadium",
+  museum: "Museum", historic: "Historic site", register: "National Register", zoo: "Zoo or aquarium", brewery: "Brewery",
+  lighthouse: "Lighthouse", bridge: "Covered bridge", span: "Famous bridge", airport: "Airport", garden: "Garden",
+  amusement: "Amusement park", chain: "Regional chain", market: "Grocery store", food: "Regional food", mall: "Mall",
+  roadside: "Roadside attraction", highpoint: "High point", seashore: "Shore", battlefield: "Battlefield",
+  drive: "Scenic drive", waterfall: "Waterfall", cave: "Cave", president: "Presidential site", fort: "Fort",
+  cemetery: "National cemetery", winery: "Winery", distillery: "Distillery", drivein: "Drive-in", diner: "Diner",
+  crossing: "River crossing", stateline: "State line", landmark: "Natural landmark", hotspring: "Hot spring",
+  peak: "Fourteener", pass: "Mountain pass", dam: "Dam", lake: "Lake", ship: "Museum ship", railroad: "Heritage railroad",
+  aviation: "Air & space museum", space: "Space center", observatory: "Observatory", geo: "Geographic oddity",
+  ghost: "Ghost town", unesco: "World Heritage site", ski: "Ski area", college: "College", ferry: "Ferry", tunnel: "Tunnel",
+};
+
+/** The kind of place in words, for a card: "Historic site", "National Park Service site", "Road". */
+export function categoryName(category: string, name = "") {
+  if (category !== "park" && npsSite(name)) return "National Park Service site";
+  if (category === "park") return /national park$/i.test(name) ? "National park" : /national/i.test(name) ? "National Park Service site" : "State park";
+  return ONE[category] ?? category.charAt(0).toUpperCase() + category.slice(1);
+}
+
 /** Map tier for one place: National Park Service sites show at every zoom, like national parks. */
 export function tierForPlace(kind: string, name: string) {
   return npsSite(name) ? 0 : tierForKind(kind);

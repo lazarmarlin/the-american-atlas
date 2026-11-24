@@ -1,30 +1,57 @@
 /**
- * A short conversation between two friends. Text, a Google Photos link, or a
- * photo. A photo stays in the chat. It is not a place photo until someone
- * adds it to the map themselves.
+ * Conversations: one friend, or a trip group (src/lib/chat-groups.ts). Text, a
+ * Google Photos link, a photo, or a place card. A photo stays in the chat until
+ * someone adds it to the map themselves; it keeps where and when it was taken,
+ * so the app can suggest the place.
  */
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 
+export type ChatPlace = {
+  id: string;
+  name: string;
+  category: string;
+  state: string;
+  lat: number | null;
+  lon: number | null;
+  points: number;
+  visitedOn: string | null;
+};
+
 export type ChatMessage = {
   id: string;
   fromId: string;
-  kind: "text" | "link" | "photo";
+  fromName: string;
+  kind: "text" | "link" | "photo" | "place";
   body: string;
   thumb: string;
   at: number;
+  lat: number | null;
+  lon: number | null;
+  takenAt: number | null;
+  place: ChatPlace | null;
 };
 
-const USER_RE = /^[A-Za-z0-9_-]{1,64}$/;
-const ID_RE = /^m-[a-z0-9]{6,24}$/;
-const JPEG = /^data:image\/jpeg;base64,/;
-const PHOTO_LINK =
-  /^https?:\/\/(?:photos\.app\.goo\.gl|photos\.google\.com|goo\.gl\/photos)\/[^\s]+$/i;
+export type Thread = { kind: "friend" | "group"; id: string };
 
-function parseUserId(value: unknown) {
-  const id = String(value ?? "");
+type Sql = Awaited<ReturnType<typeof import("@/lib/db").getSql>>;
+
+const USER_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const GROUP_RE = /^cg-[a-z0-9]{6,24}$/;
+const ID_RE = /^m-[a-z0-9]{6,24}$/;
+const PLACE_RE = /^[\w:._ -]{1,140}$/;
+const JPEG = /^data:image\/jpeg;base64,/;
+const PHOTO_LINK = /^https?:\/\/(?:photos\.app\.goo\.gl|photos\.google\.com|goo\.gl\/photos)\/[^\s]+$/i;
+
+function parseThread(value: unknown): Thread {
+  const row = (value ?? {}) as Record<string, unknown>;
+  const id = String(row.id ?? "");
+  if (row.kind === "group") {
+    if (!GROUP_RE.test(id)) throw new Error("Unknown chat");
+    return { kind: "group", id };
+  }
   if (!USER_RE.test(id)) throw new Error("Unknown friend");
-  return id;
+  return { kind: "friend", id };
 }
 
 function parseMessageId(value: unknown) {
@@ -39,92 +66,327 @@ function jpeg(value: unknown, max: number, label: string) {
   return text;
 }
 
+const num = (value: unknown, limit: number) => {
+  const n = value == null || value === "" ? NaN : Number(value);
+  return Number.isFinite(n) && Math.abs(n) <= limit ? n : null;
+};
+
 function toMs(value: unknown) {
   const t = value instanceof Date ? value.getTime() : new Date(String(value)).getTime();
   return Number.isFinite(t) ? t : Date.now();
 }
 
-async function assertFriend(userId: string, friendId: string) {
+const readKey = (thread: Thread) => (thread.kind === "group" ? `g:${thread.id}` : thread.id);
+
+/** Throws unless you may read and write this conversation. */
+async function openThread(userId: string, thread: Thread): Promise<Sql> {
   const { getSql } = await import("@/lib/db");
   const sql = await getSql();
-  const rows = await sql<{ ok: boolean }>`
-    select true as ok from friendships
-    where user_id = ${userId} and friend_id = ${friendId}
-    limit 1
-  `;
-  if (!rows[0]?.ok) throw new Error("You can only message a friend.");
+  const rows =
+    thread.kind === "group"
+      ? await sql<{ ok: boolean }>`select true as ok from chat_group_members where group_id = ${thread.id} and user_id = ${userId}`
+      : await sql<{ ok: boolean }>`select true as ok from friendships where user_id = ${userId} and friend_id = ${thread.id}`;
+  if (!rows[0]?.ok) throw new Error(thread.kind === "group" ? "You're not in that chat." : "You can only message a friend.");
   return sql;
 }
 
-export const listMessages = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
-  .validator((input: unknown) => parseUserId((input as { id?: unknown } | null)?.id))
-  .handler(async ({ context, data: friendId }): Promise<ChatMessage[]> => {
-    const sql = await assertFriend(context.userId, friendId);
-    const rows = await sql<{
-      id: string;
-      from_id: string;
-      kind: string;
-      body: string;
-      thumb: string | null;
-      created_at: unknown;
-    }>`
-      select id, from_id, kind, body, thumb, created_at
-      from messages
-      where (from_id = ${context.userId} and to_id = ${friendId})
-         or (from_id = ${friendId} and to_id = ${context.userId})
+export async function namesFor(sql: Sql, ids: string[]) {
+  if (!ids.length) return new Map<string, string>();
+  const rows = await sql<{ id: string; name: string }>`
+    select u.id, coalesce(nullif(p.name, ''), nullif(u.name, ''), 'Friend') as name
+    from "user" u left join profiles p on p.user_id = u.id
+    where u.id = any(${ids}::text[])
+  `;
+  return new Map(rows.map((row) => [row.id, row.name]));
+}
+
+function readPlace(body: string): ChatPlace | null {
+  try {
+    const row = JSON.parse(body) as Record<string, unknown>;
+    if (typeof row.id !== "string" || typeof row.name !== "string") return null;
+    return {
+      id: row.id,
+      name: row.name,
+      category: String(row.category ?? ""),
+      state: String(row.state ?? ""),
+      lat: num(row.lat, 90),
+      lon: num(row.lon, 180),
+      points: Number(row.points) || 0,
+      visitedOn: typeof row.visitedOn === "string" ? row.visitedOn : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+type Row = {
+  id: string;
+  from_id: string;
+  kind: string;
+  body: string;
+  thumb: string | null;
+  lat: number | null;
+  lon: number | null;
+  taken_at: number | null;
+  created_at: unknown;
+};
+
+async function listRows(sql: Sql, userId: string, thread: Thread): Promise<Row[]> {
+  if (thread.kind === "group") {
+    return sql<Row>`
+      select id, from_id, kind, body, thumb, lat, lon, taken_at, created_at
+      from group_messages m
+      where group_id = ${thread.id}
+        and not exists (select 1 from message_hidden h where h.user_id = ${userId} and h.message_id = m.id)
       order by created_at desc
-      limit 80
+      limit 100
     `;
-    return rows
-      .reverse()
-      .map((row) => ({
+  }
+  return sql<Row>`
+    select id, from_id, kind, body, thumb, lat, lon, taken_at, created_at
+    from messages m
+    where ((from_id = ${userId} and to_id = ${thread.id}) or (from_id = ${thread.id} and to_id = ${userId}))
+      and not exists (select 1 from message_hidden h where h.user_id = ${userId} and h.message_id = m.id)
+    order by created_at desc
+    limit 100
+  `;
+}
+
+/** The conversation, oldest first. Opening it marks it read. */
+export const listThread = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => parseThread((input as { thread?: unknown } | null)?.thread))
+  .handler(async ({ context, data: thread }): Promise<ChatMessage[]> => {
+    const sql = await openThread(context.userId, thread);
+    const rows = (await listRows(sql, context.userId, thread)).reverse();
+    const names = await namesFor(sql, [...new Set(rows.map((row) => row.from_id))]);
+    await sql`
+      insert into message_reads (user_id, thread, read_at) values (${context.userId}, ${readKey(thread)}, now())
+      on conflict (user_id, thread) do update set read_at = now()
+    `;
+    return rows.map((row) => {
+      const kind = row.kind === "link" || row.kind === "photo" || row.kind === "place" ? row.kind : "text";
+      return {
         id: row.id,
         fromId: row.from_id,
-        kind: row.kind === "link" || row.kind === "photo" ? row.kind : "text",
-        body: row.body || "",
+        fromName: names.get(row.from_id) ?? "Friend",
+        kind,
+        body: kind === "place" ? "" : row.body || "",
         thumb: row.thumb || "",
         at: toMs(row.created_at),
-      }));
+        lat: row.lat ?? null,
+        lon: row.lon ?? null,
+        takenAt: row.taken_at ?? null,
+        place: kind === "place" ? readPlace(row.body) : null,
+      };
+    });
   });
 
 function parseSend(input: unknown) {
   if (!input || typeof input !== "object") throw new Error("Missing message");
   const row = input as Record<string, unknown>;
-  const friendId = parseUserId(row.friendId);
+  // Older app builds send a friendId instead of a thread.
+  const thread = parseThread(row.thread ?? { kind: "friend", id: row.friendId });
   const id = parseMessageId(row.id);
-  const kind = row.kind === "link" || row.kind === "photo" ? row.kind : "text";
+  const kind = row.kind === "link" || row.kind === "photo" || row.kind === "place" ? row.kind : "text";
+  const base = { thread, id, kind, body: "", thumb: "", image: "", lat: null as number | null, lon: null as number | null, takenAt: null as number | null };
   if (kind === "photo") {
+    const taken = num(row.takenAt, 1e13);
     return {
-      friendId,
-      id,
-      kind,
-      body: "",
+      ...base,
       thumb: jpeg(row.thumb, 40000, "That thumbnail is too large"),
       image: jpeg(row.image, 160000, "Use a smaller photo"),
+      lat: num(row.lat, 90),
+      lon: num(row.lon, 180),
+      takenAt: taken && taken > 0 ? Math.round(taken) : null,
     };
+  }
+  if (kind === "place") {
+    const place = (row.place ?? {}) as Record<string, unknown>;
+    const poiId = String(place.id ?? "");
+    const state = String(place.state ?? "").toUpperCase();
+    if (!PLACE_RE.test(poiId) || !/^[A-Z]{2}$/.test(state)) throw new Error("Unknown place");
+    const visitedOn = /^\d{4}-\d{2}-\d{2}$/.test(String(place.visitedOn ?? "")) ? String(place.visitedOn) : null;
+    // Name, kind and points are filled in from the atlas by the handler.
+    const card: ChatPlace = { id: poiId, name: "", category: "", state, lat: num(place.lat, 90), lon: num(place.lon, 180), points: 0, visitedOn };
+    return { ...base, body: JSON.stringify(card), lat: card.lat, lon: card.lon };
   }
   const body = String(row.body ?? "").trim().slice(0, 500);
   if (!body) throw new Error("Write something first.");
   if (kind === "link" && !PHOTO_LINK.test(body)) throw new Error("That isn't a Google Photos link.");
-  return { friendId, id, kind, body, thumb: "", image: "" };
+  return { ...base, body };
 }
 
-export const sendMessage = createServerFn({ method: "POST" })
+export const sendToThread = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(parseSend)
   .handler(async ({ context, data }) => {
-    const sql = await assertFriend(context.userId, data.friendId);
+    const sql = await openThread(context.userId, data.thread);
+    if (data.kind === "place") {
+      // The atlas's own name, kind and points, not what the phone says.
+      const card = JSON.parse(data.body) as ChatPlace;
+      const { canonicalPlace } = await import("@/lib/catalog.server");
+      const real = await canonicalPlace(card.id, card.state);
+      if (!real) throw new Error("Unknown place");
+      data = { ...data, body: JSON.stringify({ ...card, name: real.name, category: real.category, points: real.points }) };
+    }
+    if (data.thread.kind === "group") {
+      await sql`
+        insert into group_messages (id, group_id, from_id, kind, body, thumb, image, lat, lon, taken_at)
+        values (${data.id}, ${data.thread.id}, ${context.userId}, ${data.kind}, ${data.body},
+          ${data.thumb || null}, ${data.image || null}, ${data.lat}, ${data.lon}, ${data.takenAt})
+        on conflict (id) do nothing
+      `;
+    } else {
+      await sql`
+        insert into messages (id, from_id, to_id, kind, body, thumb, image, lat, lon, taken_at)
+        values (${data.id}, ${context.userId}, ${data.thread.id}, ${data.kind}, ${data.body},
+          ${data.thumb || null}, ${data.image || null}, ${data.lat}, ${data.lon}, ${data.takenAt})
+        on conflict (id) do nothing
+      `;
+    }
+    // Sending counts as reading what came before.
     await sql`
-      insert into messages (id, from_id, to_id, kind, body, thumb, image)
-      values (
-        ${data.id}, ${context.userId}, ${data.friendId}, ${data.kind}, ${data.body},
-        ${data.thumb || null}, ${data.image || null}
-      )
-      on conflict (id) do nothing
+      insert into message_reads (user_id, thread, read_at) values (${context.userId}, ${readKey(data.thread)}, now())
+      on conflict (user_id, thread) do update set read_at = now()
     `;
     return { id: data.id };
   });
+
+export const loadThreadPhoto = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    const row = (input ?? {}) as Record<string, unknown>;
+    return { thread: parseThread(row.thread), id: parseMessageId(row.id) };
+  })
+  .handler(async ({ context, data }) => {
+    const sql = await openThread(context.userId, data.thread);
+    const rows =
+      data.thread.kind === "group"
+        ? await sql<{ image: string | null }>`select image from group_messages where id = ${data.id} and group_id = ${data.thread.id}`
+        : await sql<{ image: string | null }>`
+            select image from messages
+            where id = ${data.id} and (from_id = ${context.userId} or to_id = ${context.userId})
+          `;
+    const image = rows[0]?.image;
+    if (!image) throw new Error("That photo isn't in the chat.");
+    return { image };
+  });
+
+/** Your own message: gone for everyone. Someone else's: hidden for you. */
+export const deleteMessage = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    const row = (input ?? {}) as Record<string, unknown>;
+    return { thread: parseThread(row.thread), id: parseMessageId(row.id) };
+  })
+  .handler(async ({ context, data }) => {
+    const sql = await openThread(context.userId, data.thread);
+    const mine =
+      data.thread.kind === "group"
+        ? await sql<{ id: string }>`delete from group_messages where id = ${data.id} and from_id = ${context.userId} returning id`
+        : await sql<{ id: string }>`delete from messages where id = ${data.id} and from_id = ${context.userId} returning id`;
+    if (mine.length) {
+      await sql`delete from message_hidden where message_id = ${data.id}`;
+      return { removed: "everyone" as const };
+    }
+    await sql`
+      insert into message_hidden (user_id, message_id) values (${context.userId}, ${data.id})
+      on conflict do nothing
+    `;
+    return { removed: "you" as const };
+  });
+
+export type UnreadSummary = {
+  friends: Record<string, number>;
+  groups: Record<string, number>;
+  likes: number;
+  /** The newest unread messages, for phone notifications. */
+  latest: { id: string; thread: Thread; from: string; preview: string; at: number }[];
+};
+
+const preview = (kind: string, body: string) =>
+  kind === "photo" ? "Sent a photo" : kind === "place" ? `Shared ${readPlace(body)?.name ?? "a place"}` : kind === "link" ? "Sent a Google Photos link" : body.slice(0, 120);
+
+/** What's new since you last looked: messages per friend and group, and likes. */
+export const unreadSummary = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<UnreadSummary> => {
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    const me = context.userId;
+    const direct = await sql<{ id: string; from_id: string; kind: string; body: string; created_at: unknown }>`
+      select m.id, m.from_id, m.kind, m.body, m.created_at
+      from messages m
+      left join message_reads r on r.user_id = ${me} and r.thread = m.from_id
+      where m.to_id = ${me}
+        and m.created_at > coalesce(r.read_at, to_timestamp(0))
+        and exists (select 1 from friendships f where f.user_id = ${me} and f.friend_id = m.from_id)
+        and not exists (select 1 from message_hidden h where h.user_id = ${me} and h.message_id = m.id)
+      order by m.created_at desc
+      limit 200
+    `;
+    const group = await sql<{ id: string; group_id: string; from_id: string; kind: string; body: string; created_at: unknown }>`
+      select m.id, m.group_id, m.from_id, m.kind, m.body, m.created_at
+      from group_messages m
+      join chat_group_members g on g.group_id = m.group_id and g.user_id = ${me}
+      left join message_reads r on r.user_id = ${me} and r.thread = 'g:' || m.group_id
+      where m.from_id <> ${me}
+        and m.created_at > coalesce(r.read_at, to_timestamp(0))
+        and not exists (select 1 from message_hidden h where h.user_id = ${me} and h.message_id = m.id)
+      order by m.created_at desc
+      limit 200
+    `;
+    const likes = await sql<{ n: number }>`
+      select count(*)::int as n from reactions x
+      left join message_reads r on r.user_id = ${me} and r.thread = 'likes'
+      where x.owner_id = ${me} and x.created_at > coalesce(r.read_at, to_timestamp(0))
+    `;
+    const friends: Record<string, number> = {};
+    for (const row of direct) friends[row.from_id] = (friends[row.from_id] ?? 0) + 1;
+    const groups: Record<string, number> = {};
+    for (const row of group) groups[row.group_id] = (groups[row.group_id] ?? 0) + 1;
+    const newest = [
+      ...direct.map((row) => ({ ...row, thread: { kind: "friend" as const, id: row.from_id } })),
+      ...group.map((row) => ({ ...row, thread: { kind: "group" as const, id: row.group_id } })),
+    ]
+      .sort((a, b) => toMs(b.created_at) - toMs(a.created_at))
+      .slice(0, 5);
+    const names = await namesFor(sql, [...new Set(newest.map((row) => row.from_id))]);
+    return {
+      friends,
+      groups,
+      likes: Number(likes[0]?.n) || 0,
+      latest: newest.map((row) => ({
+        id: row.id,
+        thread: row.thread,
+        from: names.get(row.from_id) ?? "A friend",
+        preview: preview(row.kind, row.body),
+        at: toMs(row.created_at),
+      })),
+    };
+  });
+
+// ---------------------------------------------------------------- older app builds
+// Phones that haven't updated yet still call these.
+
+export const listMessages = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => parseThread({ kind: "friend", id: (input as { id?: unknown } | null)?.id }))
+  .handler(async ({ context, data: thread }) => {
+    const sql = await openThread(context.userId, thread);
+    const rows = (await listRows(sql, context.userId, thread)).reverse().filter((row) => row.kind !== "place");
+    return rows.map((row) => ({
+      id: row.id,
+      fromId: row.from_id,
+      kind: (row.kind === "link" || row.kind === "photo" ? row.kind : "text") as "text" | "link" | "photo",
+      body: row.body || "",
+      thumb: row.thumb || "",
+      at: toMs(row.created_at),
+    }));
+  });
+
+export const sendMessage = sendToThread;
 
 export const loadMessagePhoto = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -134,8 +396,7 @@ export const loadMessagePhoto = createServerFn({ method: "POST" })
     const sql = await getSql();
     const rows = await sql<{ image: string | null }>`
       select image from messages
-      where id = ${id}
-        and (from_id = ${context.userId} or to_id = ${context.userId})
+      where id = ${id} and (from_id = ${context.userId} or to_id = ${context.userId})
     `;
     const image = rows[0]?.image;
     if (!image) throw new Error("That photo isn't in the chat.");
