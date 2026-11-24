@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as ApiTrackRouteImport } from './routes/api/track'
 import { Route as AuthNativeRouteImport } from './routes/auth/native'
 import { Route as AuthNativeExchangeRouteImport } from './routes/auth/native-exchange'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
@@ -23,6 +24,11 @@ const IndexRoute = IndexRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTrackRoute = ApiTrackRouteImport.update({
+  id: '/api/track',
+  path: '/api/track',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthNativeRoute = AuthNativeRouteImport.update({
@@ -44,6 +50,7 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/api/track': typeof ApiTrackRoute
   '/auth/native': typeof AuthNativeRoute
   '/auth/native-exchange': typeof AuthNativeExchangeRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -51,6 +58,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/api/track': typeof ApiTrackRoute
   '/auth/native': typeof AuthNativeRoute
   '/auth/native-exchange': typeof AuthNativeExchangeRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -59,6 +67,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/api/track': typeof ApiTrackRoute
   '/auth/native': typeof AuthNativeRoute
   '/auth/native-exchange': typeof AuthNativeExchangeRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -66,13 +75,25 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/login' | '/auth/native' | '/auth/native-exchange' | '/api/auth/$'
+    | '/'
+    | '/login'
+    | '/api/track'
+    | '/auth/native'
+    | '/auth/native-exchange'
+    | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/auth/native' | '/auth/native-exchange' | '/api/auth/$'
+  to:
+    | '/'
+    | '/login'
+    | '/api/track'
+    | '/auth/native'
+    | '/auth/native-exchange'
+    | '/api/auth/$'
   id:
     | '__root__'
     | '/'
     | '/login'
+    | '/api/track'
     | '/auth/native'
     | '/auth/native-exchange'
     | '/api/auth/$'
@@ -81,6 +102,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
+  ApiTrackRoute: typeof ApiTrackRoute
   AuthNativeRoute: typeof AuthNativeRoute
   AuthNativeExchangeRoute: typeof AuthNativeExchangeRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -100,6 +122,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/track': {
+      id: '/api/track'
+      path: '/api/track'
+      fullPath: '/api/track'
+      preLoaderRoute: typeof ApiTrackRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth/native': {
@@ -129,6 +158,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
+  ApiTrackRoute: ApiTrackRoute,
   AuthNativeRoute: AuthNativeRoute,
   AuthNativeExchangeRoute: AuthNativeExchangeRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

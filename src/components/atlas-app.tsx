@@ -23,6 +23,7 @@ import { fallbackBlurb, lookupPlace, mapsUrl, type PlaceBlurb } from "@/lib/plac
 import { kindFor, kindVisible, placeKinds, tierForKind } from "@/lib/place-kinds";
 import { placeToMark, placesNear, readDeviceLocation, roadToMark, stateToMark, stopsAlong, milesBetween, type Fix, type NearMark } from "@/lib/nearby";
 import { collectPassed, takeNativeFixes } from "@/lib/travel";
+import { missedFixes, nativeDelivery, noteHandledFix } from "@/lib/native-tracking";
 import { AtlasSplash, LoginScreen } from "@/components/login-screen";
 import { SettingsPage } from "@/components/settings-page";
 import { GhostPanel } from "@/components/ghost-panel";
@@ -598,6 +599,8 @@ function AtlasShell() {
   recordingRef.current = recordingId;
   const metaRef = useRef(meta);
   metaRef.current = meta;
+  const userIdRef = useRef("");
+  userIdRef.current = user?.id ?? "";
 
   function noteTrip(poiId: string) {
     const tripId = recordingRef.current;
@@ -704,7 +707,15 @@ function AtlasShell() {
       });
     }
 
+    // While the app reads back what the phone logged while it was closed,
+    // new fixes wait, so the trail and the places stay in order.
+    let catchingUp = false;
+    const held: Fix[] = [];
     function push(fixes: Fix[], forceDot = false) {
+      if (catchingUp) {
+        held.push(...fixes);
+        return;
+      }
       const latest = fixes[fixes.length - 1];
       if (latest) paintTracker(latest, forceDot);
       useGhost.getState().record(fixes);
@@ -728,11 +739,31 @@ function AtlasShell() {
           },
           { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 },
         );
+    async function catchUp() {
+      if (!nativeApp || catchingUp || dead) return;
+      catchingUp = true;
+      let missed: Fix[] = [];
+      try {
+        missed = await missedFixes();
+      } catch {
+        missed = [];
+      }
+      catchingUp = false;
+      if (dead) return;
+      if (missed.length) push(missed, true);
+      if (held.length) push(held.splice(0), true);
+    }
     if (nativeApp) {
-      void import("@capgo/background-geolocation").then(({ BackgroundGeolocation }) => {
+      void Promise.all([import("@capgo/background-geolocation"), nativeDelivery(userIdRef.current, deviceId())]).then(([{ BackgroundGeolocation }, delivery]) => {
         if (dead) return;
         void BackgroundGeolocation.start(
           {
+            // Posting natively (delivery.url) is what keeps the location service
+            // running after Android closes the app; every fix also goes into the
+            // phone's log, which catchUp() reads when the app opens again.
+            ...delivery,
+            locationLog: true,
+            locationLogMaxEntries: 60000,
             backgroundTitle: "The American Atlas",
             backgroundMessage: adding
               ? "Adding towns, reservations, counties, roads, and places as you go."
@@ -752,7 +783,9 @@ function AtlasShell() {
               return;
             }
             if (!location) return;
-            push([{ lat: location.latitude, lon: location.longitude }]);
+            const t = Number(location.time) || Date.now();
+            if (!catchingUp) noteHandledFix(t);
+            push([{ lat: location.latitude, lon: location.longitude, t }]);
           },
         );
       });
@@ -761,11 +794,16 @@ function AtlasShell() {
     host.atlasPushFixes = (fixes) => push(fixes);
     const refreshDot = () => {
       if (document.visibilityState === "hidden") return;
+      void catchUp();
       const queued = takeNativeFixes();
       if (queued.length) push(queued, true);
       void readDeviceLocation()
         .then((fix) => {
           if (dead) return;
+          if (catchingUp) {
+            held.push(fix);
+            return;
+          }
           paintTracker(fix, true);
           useGhost.getState().record([fix]);
           shareLive();

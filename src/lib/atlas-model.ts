@@ -133,9 +133,29 @@ export async function loadMeta(): Promise<AtlasMeta> {
   return (await res.json()) as AtlasMeta;
 }
 
+/**
+ * Whole-state place files are big (tens of thousands of places). A long drive
+ * through many states would keep every one in memory, and Android closes an
+ * app's web view when it gets too big, which used to end tracking. Only the
+ * few most recently used states stay loaded.
+ */
+const BUNDLE_LIMIT = 5;
+function keepBundle(state: string, data: Record<string, CatalogPlace[]>) {
+  bundleCache.delete(state);
+  bundleCache.set(state, data);
+  while (bundleCache.size > BUNDLE_LIMIT) {
+    const oldest = bundleCache.keys().next().value as string;
+    bundleCache.delete(oldest);
+    for (const key of [...placeCache.keys()]) if (key.endsWith(`/${oldest}`)) placeCache.delete(key);
+  }
+}
+
 async function stateBundle(state: string) {
   const saved = bundleCache.get(state);
-  if (saved) return saved;
+  if (saved) {
+    keepBundle(state, saved);
+    return saved;
+  }
   let task = bundleTasks.get(state);
   if (!task) {
     task = (async () => {
@@ -144,7 +164,7 @@ async function stateBundle(state: string) {
         if (!res.ok) return null;
         const data = (await res.json()) as Record<string, CatalogPlace[]>;
         if (!data || typeof data !== "object" || Array.isArray(data)) return null;
-        bundleCache.set(state, data);
+        keepBundle(state, data);
         return data;
       } catch {
         return null;
