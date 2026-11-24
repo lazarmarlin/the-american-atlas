@@ -1,22 +1,62 @@
 name: Fetch place data
 
 # Downloads raw OpenStreetMap / Wikidata place data for scripts/import-places.mjs
-# and uploads it as an artifact. Nothing is committed; import runs locally.
+# and uploads it as artifacts. Nothing is committed; the import runs locally.
+#  - osm:      one job per Geofabrik US region, filtered with osmium (no Overpass server needed)
+#  - wikidata: SPARQL queries (plus Overpass jobs when the OVERPASS_KEY secret is set
+#              and listed in .github/fetch-jobs)
 on:
   workflow_dispatch:
-    inputs:
-      jobs:
-        description: "Space-separated job names (blank = all)"
-        required: false
-        default: ""
   push:
     branches: ["data/fetch-places"]
-    paths: ["scripts/fetch-places.mjs", ".github/workflows/fetch-places.yml", ".github/fetch-jobs"]
+    paths: ["scripts/fetch-places.mjs", "scripts/osm-extract.mjs", ".github/workflows/fetch-places.yml", ".github/fetch-jobs"]
 
 jobs:
-  fetch:
+  osm:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        region: [us-midwest, us-northeast, us-pacific, us-south, us-west, us/alaska, us/hawaii]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install osmium
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq osmium-tool
+      - name: Download extract
+        run: curl -sSfL -o region.osm.pbf "https://download.geofabrik.de/north-america/${{ matrix.region }}-latest.osm.pbf" && ls -lh region.osm.pbf
+      - name: Filter
+        run: |
+          osmium tags-filter region.osm.pbf \
+            nwr/craft=winery,distillery,spirits nwr/tourism=winery,attraction nwr/shop=winery nwr/industrial=distillery \
+            nwr/natural=cave_entrance,hot_spring,arch,volcano,geyser,dune,peak,waterfall,rock,stone,cliff nwr/show_cave \
+            nwr/historic=fort,battlefield,boundary_stone,castle nwr/amenity=cinema,university,ferry_terminal \
+            "nwr/cuisine=diner,diner;american,american;diner" nwr/waterway=waterfall nwr/mountain_pass=yes \
+            nwr/landuse=winter_sports w/covered=yes \
+            -o pois.osm.pbf --overwrite
+          osmium tags-filter region.osm.pbf w/boundary=administrative w/highway=motorway,trunk,primary w/waterway=river \
+            -o lines.osm.pbf --overwrite
+          rm region.osm.pbf
+          osmium export pois.osm.pbf -f geojsonseq -a type,id -o pois.geojsonseq --overwrite
+          osmium export lines.osm.pbf -f geojsonseq -a type,id -o lines.geojsonseq --overwrite
+          ls -lh *.geojsonseq
+      - name: Extract
+        run: node --max-old-space-size=6000 scripts/osm-extract.mjs pois.geojsonseq lines.geojsonseq raw-places
+      - name: Artifact name
+        id: name
+        run: echo "name=raw-osm-$(echo '${{ matrix.region }}' | tr '/' '-')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.name }}
+          path: raw-places
+          retention-days: 7
+
+  wikidata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,10 +66,10 @@ jobs:
         env:
           OVERPASS_KEY: ${{ secrets.OVERPASS_KEY }}
           OUT_DIR: raw-places
-        run: node scripts/fetch-places.mjs ${{ github.event.inputs.jobs }} $(cat .github/fetch-jobs 2>/dev/null)
+        run: node scripts/fetch-places.mjs $(cat .github/fetch-jobs 2>/dev/null)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: raw-places
+          name: raw-wikidata
           path: raw-places
           retention-days: 7
