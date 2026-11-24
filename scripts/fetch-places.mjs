@@ -158,6 +158,45 @@ for (const [name, query] of Object.entries(OSM)) {
   if (!done) summary[`osm-${name}`] = "FAILED";
 }
 
+/** Jobs that run one query per state or per river and merge the results. */
+const STATE_CODES = "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split(" ");
+const ROAD = `["highway"~"^(motorway|trunk|primary)$"]["ref"~"(^|;) *(I|US)[ -]?[0-9]"]`;
+const LOOPS = {
+  // Each state's border plus the Interstate / U.S. route ways that touch it.
+  statelines: STATE_CODES.filter((c) => c !== "HI" && c !== "AK").map((c) => [
+    c,
+    `rel["ISO3166-2"="US-${c}"]["admin_level"="4"];way(r)->.b;.b out geom;way(around.b:0)${ROAD};out geom;`,
+  ]),
+  // Interstate / U.S. route bridges over each big river.
+  riverbridges: RIVERS.map((r) => [
+    r,
+    `${US}rel["waterway"="river"]["name"="${r}"](area.us)->.rr;way(r.rr)->.rw;way(around.rw:25)["bridge"]${ROAD};out center tags;`,
+  ]),
+};
+for (const [name, parts] of Object.entries(LOOPS)) {
+  if (!want(`osm-${name}`) && !want(name)) continue;
+  const all = {};
+  for (const [part, query] of parts) {
+    let done = false;
+    for (let attempt = 0; attempt < 3 && !done; attempt++) {
+      for (const ep of working) {
+        try {
+          all[part] = (await overpass(ep, query, 600)).elements;
+          done = true;
+          break;
+        } catch (e) {
+          console.log(`osm-${name} ${part} failed on ${ep.url.replace(KEY, "***")}: ${String(e.message).slice(0, 160)}`);
+          await sleep(5000);
+        }
+      }
+      if (!done) await sleep(20000);
+    }
+    console.log(`osm-${name} ${part}: ${all[part]?.length ?? "FAILED"}`);
+  }
+  fs.writeFileSync(path.join(OUT, `osm-${name}.json`), JSON.stringify(all));
+  summary[`osm-${name}`] = Object.keys(all).length + "/" + parts.length;
+}
+
 for (const [name, query] of Object.entries(WD)) {
   if (!want(`wd-${name}`) && !want(name)) continue;
   let done = false;

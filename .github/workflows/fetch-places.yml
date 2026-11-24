@@ -11,7 +11,7 @@ on:
         default: ""
   push:
     branches: ["data/fetch-places"]
-    paths: ["scripts/fetch-places.mjs", ".github/workflows/fetch-places.yml"]
+    paths: ["scripts/fetch-places.mjs", ".github/workflows/fetch-places.yml", ".github/fetch-jobs"]
 
 jobs:
   fetch:
@@ -26,7 +26,7 @@ jobs:
         env:
           OVERPASS_KEY: ${{ secrets.OVERPASS_KEY }}
           OUT_DIR: raw-places
-        run: node scripts/fetch-places.mjs ${{ github.event.inputs.jobs }}
+        run: node scripts/fetch-places.mjs ${{ github.event.inputs.jobs }} $(cat .github/fetch-jobs 2>/dev/null)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
