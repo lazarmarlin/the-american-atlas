@@ -78,6 +78,7 @@ export function FriendsPanel({
   const [shown, setShown] = useState<string | null>(null);
   const [shots, setShots] = useState<PhotoInfo[]>([]);
   const [bigShot, setBigShot] = useState<{ id: string; image: string | null; thumb: string } | null>(null);
+  const [part, setPart] = useState<"badges" | "photos" | "trails">("badges");
   const [board, setBoard] = useState<LeaderRow[] | null>(null);
   const month = periodRange("month");
 
@@ -117,12 +118,14 @@ export function FriendsPanel({
       setShown(null);
       setShots([]);
       setBigShot(null);
+      setPart("badges");
       return;
     }
     let dead = false;
     setPage(null);
     setShots([]);
     setBigShot(null);
+    setPart("badges");
     setError(null);
     loadFriend({ data: { id: openId } })
       .then((next) => {
@@ -238,6 +241,30 @@ export function FriendsPanel({
               <p className="mt-4 px-2 text-sm text-muted">They aren't sharing a live trail right now.</p>
             )}
 
+            <div className="mt-4 flex gap-1 px-2">
+              {(
+                [
+                  ["badges", "Badges"],
+                  ["photos", shots.length ? `Photos · ${shots.length}` : "Photos"],
+                  ["trails", "Trails"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => {
+                    setPart(id);
+                    setBigShot(null);
+                  }}
+                  className={"h-11 flex-1 rounded-lg text-sm " + (part === id ? "bg-elevated text-ink" : "text-faint")}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {part === "badges" ? (
+              <>
             <h3 className="mt-5 px-2 font-serif text-xl">Badges</h3>
             {page.badges.length ? (
               <ul className="mt-2 grid gap-2">
@@ -254,7 +281,11 @@ export function FriendsPanel({
             ) : (
               <p className="mt-2 px-2 text-sm text-muted">No badges yet.</p>
             )}
+              </>
+            ) : null}
 
+            {part === "photos" ? (
+              <>
             <h3 className="mt-5 px-2 font-serif text-xl">Photos</h3>
             <p className="mt-1 px-2 text-sm text-muted">Pictures they chose to share. A gold edge on the map is one of theirs.</p>
             {shots.length ? (
@@ -290,7 +321,11 @@ export function FriendsPanel({
                 <span className="mt-1 block text-xs text-faint">Tap to close</span>
               </button>
             ) : null}
+              </>
+            ) : null}
 
+            {part === "trails" ? (
+              <>
             <h3 className="mt-5 px-2 font-serif text-xl">Ghost trails</h3>
             <p className="mt-1 px-2 text-sm text-muted">Saved trails they chose to share. The ends and the times are left off.</p>
             {page.trails.length ? (
@@ -310,6 +345,8 @@ export function FriendsPanel({
             ) : (
               <p className="mt-2 px-2 text-sm text-muted">Nothing shared yet.</p>
             )}
+              </>
+            ) : null}
 
             {drop ? (
               <div className="mt-4 rounded-lg border border-line bg-bg px-3 py-3">
