@@ -64,9 +64,9 @@ export async function markUploaded(id: string) {
   if (row) await saveLocalPhoto({ ...row, uploaded: true });
 }
 
-export async function setLocalShared(id: string, shared: boolean) {
+export async function setLocalShared(id: string, shared: boolean, sharedWith: string[] = []) {
   const row = await getLocalPhoto(id);
-  if (row) await saveLocalPhoto({ ...row, shared });
+  if (row) await saveLocalPhoto({ ...row, shared, sharedWith });
 }
 
 export async function deleteLocalPhoto(id: string) {

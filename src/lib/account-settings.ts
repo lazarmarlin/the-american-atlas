@@ -18,6 +18,7 @@ export type AccountSettings = {
   showReservations?: boolean;
   followState?: boolean;
   showPhotos?: boolean;
+  showFriendPhotos?: boolean;
   townColor?: string;
   reservationColor?: string;
   ghostHours?: number;
@@ -48,6 +49,7 @@ export function cleanAccountSettings(input: unknown): AccountSettings {
   if (typeof row.showTowns === "boolean") next.showTowns = row.showTowns;
   if (typeof row.showReservations === "boolean") next.showReservations = row.showReservations;
   if (typeof row.showPhotos === "boolean") next.showPhotos = row.showPhotos;
+  if (typeof row.showFriendPhotos === "boolean") next.showFriendPhotos = row.showFriendPhotos;
   if (typeof row.followState === "boolean") next.followState = row.followState;
   if (typeof row.keepGhost === "boolean") next.keepGhost = row.keepGhost;
   const stateBorder = border(row.stateBorder);
