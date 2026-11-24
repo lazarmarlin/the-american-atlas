@@ -89,12 +89,15 @@ export function ChatThread({
   places,
   onAddToMap,
   onOpenPlace,
+  fill = false,
 }: {
   thread: Thread;
   meId: string;
   places: ChatPlaceOption[];
   onAddToMap: (photo: ChatPhoto, place: ChatPlaceOption) => Promise<void>;
   onOpenPlace?: (place: ChatPlace) => void;
+  /** Fill a full-screen chat: messages take the space, the box sits at the bottom. */
+  fill?: boolean;
 }) {
   const [rows, setRows] = useState<ChatMessage[] | null>(null);
   const [draft, setDraft] = useState("");
@@ -141,6 +144,17 @@ export function ChatThread({
     const node = scroller.current;
     if (node) node.scrollTop = node.scrollHeight;
   }, [rows?.length]);
+  // The keyboard opening shrinks the screen: keep the newest message in view.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const keep = () => {
+      const node = scroller.current;
+      if (node) node.scrollTop = node.scrollHeight;
+    };
+    vv.addEventListener("resize", keep);
+    return () => vv.removeEventListener("resize", keep);
+  }, []);
 
   // Back closes whatever is on top: the photo, a picker, the menu.
   useEffect(() => {
@@ -298,13 +312,19 @@ export function ChatThread({
   }
 
   return (
-    <div className="mt-4">
-      <p className="px-2 text-sm text-muted">
-        {group ? "Everyone in this chat sees what you send." : "Text, a photo, a place, or a Google Photos link."} Hold a message for more.
-      </p>
-      <div ref={scroller} className="mt-2 flex max-h-[46dvh] flex-col gap-2 overflow-y-auto px-2">
+    <div className={fill ? "flex min-h-0 flex-1 flex-col" : "mt-4"}>
+      {fill ? null : (
+        <p className="px-2 text-sm text-muted">
+          {group ? "Everyone in this chat sees what you send." : "Text, a photo, a place, or a Google Photos link."} Hold a message for more.
+        </p>
+      )}
+      <div ref={scroller} className={"flex flex-col gap-2 overflow-y-auto px-3 " + (fill ? "min-h-0 flex-1 py-3" : "mt-2 max-h-[46dvh]")}>
         {rows === null ? <p className="text-sm text-muted">Loading…</p> : null}
-        {rows && rows.length === 0 ? <p className="text-sm text-muted">Nothing yet. Say hi, or share a place you've been.</p> : null}
+        {rows && rows.length === 0 ? (
+          <p className="m-auto max-w-xs text-center text-sm text-muted">
+            Nothing yet. Say hi, send a photo, or share a place you've been with the + button. Hold a message for more.
+          </p>
+        ) : null}
         {rows?.map((row) => {
           const mine = row.fromId === meId;
           return (
@@ -358,9 +378,9 @@ export function ChatThread({
           );
         })}
       </div>
-      {note ? <p className="mt-2 px-2 text-sm text-muted">{note}</p> : null}
+      {note ? <p className="mt-2 px-3 text-sm text-muted">{note}</p> : null}
       <form
-        className="mt-2 flex items-end gap-2 px-2"
+        className={"flex items-end gap-2 px-3 " + (fill ? "border-t border-line bg-surface pt-2 safe-bottom" : "mt-2")}
         onSubmit={(event) => {
           event.preventDefault();
           void sendText();
@@ -389,7 +409,8 @@ export function ChatThread({
         <input
           value={draft}
           onChange={(event) => setDraft(event.target.value.slice(0, 500))}
-          placeholder="Text or a Google Photos link"
+          onFocus={() => window.setTimeout(() => scroller.current?.scrollTo({ top: scroller.current.scrollHeight }), 300)}
+          placeholder="Message"
           enterKeyHint="send"
           className="h-11 min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 text-base text-ink outline-none placeholder:text-faint"
         />
@@ -574,6 +595,114 @@ export function Sheet({ label, onClose, children }: { label: string; onClose: ()
           Close
         </button>
       </div>
+    </div>,
+    document.body,
+  );
+}
+
+/** The part of the screen not covered by the keyboard (top and height, in px). */
+function useVisibleArea() {
+  const read = () => {
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    return vv ? { top: vv.offsetTop, height: vv.height } : { top: 0, height: typeof window !== "undefined" ? window.innerHeight : 0 };
+  };
+  const [area, setArea] = useState(read);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const update = () => setArea(read());
+    update();
+    vv?.addEventListener("resize", update);
+    vv?.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
+    return () => {
+      vv?.removeEventListener("resize", update);
+      vv?.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+  return area;
+}
+
+export type ChatAction = { label: string; onClick: () => void; danger?: boolean };
+
+/**
+ * A conversation on its own screen: a header with the name, the messages, and
+ * the message box at the bottom, which stays just above the keyboard. Back (or
+ * the arrow) returns to where you were.
+ */
+export function ChatScreen({
+  title,
+  subtitle,
+  note,
+  actions = [],
+  onClose,
+  ...chat
+}: {
+  title: string;
+  subtitle?: string;
+  note?: string | null;
+  actions?: ChatAction[];
+  onClose: () => void;
+} & React.ComponentProps<typeof ChatThread>) {
+  const area = useVisibleArea();
+  const [more, setMore] = useState(false);
+  useEffect(
+    () =>
+      pushBack(() => {
+        onClose();
+        return true;
+      }),
+    [onClose],
+  );
+  useEffect(() => {
+    if (!more) return;
+    return pushBack(() => {
+      setMore(false);
+      return true;
+    });
+  }, [more]);
+  return createPortal(
+    <div
+      role="dialog"
+      aria-label={`Chat with ${title}`}
+      className="fixed inset-x-0 z-40 flex flex-col bg-bg"
+      style={{ top: area.top, height: area.height || "100dvh" }}
+    >
+      <header className="screen-top flex shrink-0 items-center gap-2 border-b border-line bg-surface px-2 pb-2">
+        <button type="button" onClick={onClose} aria-label="Back" className="grid h-11 w-11 place-items-center rounded-full text-xl text-ink">
+          ‹
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-serif text-xl leading-tight">{title}</p>
+          {subtitle ? <p className="truncate text-xs text-muted">{subtitle}</p> : null}
+        </div>
+        {actions.length ? (
+          <button type="button" onClick={() => setMore(true)} aria-label="More" className="grid h-11 w-11 place-items-center rounded-full text-lg text-muted">
+            ···
+          </button>
+        ) : null}
+      </header>
+      {note ? <p className="shrink-0 border-b border-line px-3 py-2 text-sm text-muted">{note}</p> : null}
+      <ChatThread {...chat} fill />
+      {more ? (
+        <Sheet label={title} onClose={() => setMore(false)}>
+          <div className="grid gap-2">
+            {actions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                onClick={() => {
+                  setMore(false);
+                  action.onClick();
+                }}
+                className={"h-11 w-full rounded-lg border border-line text-sm " + (action.danger ? "text-accent" : "")}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        </Sheet>
+      ) : null}
     </div>,
     document.body,
   );
