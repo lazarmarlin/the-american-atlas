@@ -7,12 +7,23 @@ name: Fetch place data
 #              and listed in .github/fetch-jobs)
 on:
   workflow_dispatch:
+    inputs:
+      regions:
+        description: "Geofabrik region jobs: all, or none to skip them"
+        default: "all"
+      jobs:
+        description: "fetch-places.mjs jobs for the Wikidata/Overpass job (blank = .github/fetch-jobs)"
+        default: ""
+      out:
+        description: "Branch the results are pushed to"
+        default: "data/raw-places"
   push:
     branches: ["data/fetch-places"]
     paths: ["scripts/fetch-places.mjs", "scripts/osm-extract.mjs", ".github/workflows/fetch-places.yml", ".github/fetch-jobs"]
 
 jobs:
   osm:
+    if: github.event.inputs.regions != 'none'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -70,7 +81,7 @@ jobs:
         env:
           OVERPASS_KEY: ${{ secrets.OVERPASS_KEY }}
           OUT_DIR: raw-places
-        run: node scripts/fetch-places.mjs $(cat .github/fetch-jobs 2>/dev/null)
+        run: node scripts/fetch-places.mjs ${{ github.event.inputs.jobs || '' }} $([ -z "${{ github.event.inputs.jobs }}" ] && cat .github/fetch-jobs 2>/dev/null)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -93,9 +104,10 @@ jobs:
       - name: Push to data/raw-places
         run: |
           cd raw
-          git init -q -b data/raw-places
+          OUT="${{ github.event.inputs.out || 'data/raw-places' }}"
+          git init -q -b "$OUT"
           git config user.name "atlas-data-bot"
           git config user.email "actions@users.noreply.github.com"
           git add -A
           git commit -q -m "Raw place data from run ${{ github.run_id }}"
-          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data/raw-places
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" "$OUT"
