@@ -113,6 +113,19 @@ async function cachedFetch(url: string) {
   }
 }
 
+let registerAlso: Promise<Record<string, string>> | null = null;
+
+/**
+ * Places that are also National Register listings: the Register copy was
+ * merged into them (scripts/fix-atlas-data.mjs). Place id → Register id.
+ */
+export function loadRegisterAlso() {
+  registerAlso ??= import("@/lib/register-also.json")
+    .then((mod) => mod.default as Record<string, string>)
+    .catch(() => ({}));
+  return registerAlso;
+}
+
 export async function loadMeta(): Promise<AtlasMeta> {
   const res = await cachedFetch("/atlas/meta.json");
   if (!res.ok) throw new Error("The atlas didn't load.");

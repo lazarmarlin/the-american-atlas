@@ -114,6 +114,27 @@ function wave(g: CanvasRenderingContext2D, color: string) {
   g.stroke();
 }
 
+/** A beach umbrella over a strip of sand. */
+function umbrella(g: CanvasRenderingContext2D, color: string) {
+  g.fillStyle = color;
+  g.beginPath();
+  g.moveTo(5, 15);
+  g.quadraticCurveTo(16, 1, 27, 15);
+  g.closePath();
+  g.fill();
+  g.strokeStyle = color;
+  g.lineWidth = 2;
+  g.beginPath();
+  g.moveTo(16, 14);
+  g.lineTo(16, 26);
+  g.stroke();
+  g.lineWidth = 2.5;
+  g.beginPath();
+  g.moveTo(6, 27);
+  g.quadraticCurveTo(16, 24, 26, 27);
+  g.stroke();
+}
+
 function arrowhead(g: CanvasRenderingContext2D) {
   g.beginPath();
   g.moveTo(16, 3);
@@ -535,7 +556,8 @@ function drawKind(g: CanvasRenderingContext2D, kind: string, color: string) {
   else if (kind.startsWith("span") || kind === "bridge") bridge(g, color);
   else if (kind.startsWith("airport")) plane(g);
   else if (kind === "capitol" || kind === "president") dome(g);
-  else if (kind === "beach" || kind === "seashore") wave(g, color);
+  else if (kind === "seashore") wave(g, color);
+  else if (kind === "beach") umbrella(g, color);
   else if (kind === "stadium") oval(g, color);
   else if (kind === "lighthouse") tower(g);
   else if (kind === "garden") flower(g);

@@ -82,11 +82,43 @@ function pathsFrom(raw: string | null): number[][][] {
   }
 }
 
+/**
+ * National Register listings that turned out to be places already in the
+ * atlas were merged into them (src/lib/register-also.json, place id →
+ * Register id). Anyone who saved the Register copy gets it moved onto the
+ * place, with its trip stops and photos; if they saved both, the place's own
+ * entry wins and the Register copy goes, so it's never counted twice.
+ */
+async function foldMergedRegister(sql: Awaited<ReturnType<typeof import("@/lib/db").getSql>>, userId: string) {
+  const saved = await sql<{ poi_id: string }>`
+    select poi_id from marks where user_id = ${userId} and poi_id like 'p:register:%'
+  `;
+  if (!saved.length) return;
+  const also = (await import("@/lib/register-also.json")).default as Record<string, string>;
+  const placeFor = new Map(Object.entries(also).map(([place, register]) => [register, place]));
+  for (const { poi_id: from } of saved) {
+    const to = placeFor.get(from);
+    if (!to) continue;
+    const both = await sql<{ n: number }>`select 1 as n from marks where user_id = ${userId} and poi_id = ${to}`;
+    if (both.length) {
+      await sql`delete from marks where user_id = ${userId} and poi_id = ${from}`;
+      await sql`delete from trip_stops where user_id = ${userId} and poi_id = ${from}`;
+    } else {
+      await sql`update marks set poi_id = ${to} where user_id = ${userId} and poi_id = ${from}`;
+      await sql`update trip_stops set poi_id = ${to} where user_id = ${userId} and poi_id = ${from} and not exists (
+        select 1 from trip_stops t where t.user_id = ${userId} and t.trip_id = trip_stops.trip_id and t.poi_id = ${to})`;
+      await sql`delete from trip_stops where user_id = ${userId} and poi_id = ${from}`;
+    }
+    await sql`update photos set poi_id = ${to} where user_id = ${userId} and poi_id = ${from}`;
+  }
+}
+
 export const listMarks = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
+    await foldMergedRegister(sql, context.userId);
     const rows = await sql<{
       poi_id: string;
       name: string;
