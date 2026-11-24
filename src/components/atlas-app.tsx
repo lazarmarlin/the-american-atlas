@@ -20,7 +20,7 @@ import { badgeViewsFromMarks, listBadgeProgress, type BadgeView } from "@/lib/ba
 import { type Mark } from "@/lib/marks";
 import { type Trip, type TripStop } from "@/lib/trips";
 import { fallbackBlurb, lookupPlace, mapsUrl, type PlaceBlurb } from "@/lib/place-info";
-import { kindFor, kindVisible, placeKinds, tierForKind, tierForPlace } from "@/lib/place-kinds";
+import { categoryName, kindFor, kindVisible, placeKinds, tierForKind, tierForPlace } from "@/lib/place-kinds";
 import { placeToMark, placesNear, readDeviceLocation, roadToMark, stateToMark, stopsAlong, milesBetween, type Fix, type NearMark } from "@/lib/nearby";
 import { collectPassed, takeNativeFixes } from "@/lib/travel";
 import { missedFixes, nativeDelivery, noteHandledFix } from "@/lib/native-tracking";
@@ -1781,7 +1781,7 @@ function AtlasShell() {
               type="button"
               aria-pressed={showRoads}
               onClick={toggleRoads}
-              className={"flex h-8 items-center gap-1 rounded-full border px-2.5 text-[11px] " + (showRoads ? "border-line bg-surface text-ink" : "border-transparent text-faint")}
+              className={"flex h-8 items-center gap-1 rounded-full border px-2.5 text-[11px] " + (showRoads ? "border-line bg-surface text-ink" : "border-line/40 bg-surface/70 text-faint")}
             >
               <span className="size-2 rounded-full bg-[#3d7ab5]" />
               Roads
@@ -1790,7 +1790,7 @@ function AtlasShell() {
               type="button"
               aria-pressed={showCounties}
               onClick={toggleCounties}
-              className={"flex h-8 items-center gap-1 rounded-full border px-2.5 text-[11px] " + (showCounties ? "border-line bg-surface text-ink" : "border-transparent text-faint")}
+              className={"flex h-8 items-center gap-1 rounded-full border px-2.5 text-[11px] " + (showCounties ? "border-line bg-surface text-ink" : "border-line/40 bg-surface/70 text-faint")}
             >
               <span className="size-2 rounded-full" style={{ background: countyColor }} />
               Counties
@@ -1968,7 +1968,11 @@ function AtlasShell() {
                   key={id}
                   type="button"
                   aria-pressed={tab === id}
-                  onClick={() => setTab(id)}
+                  onClick={() => {
+                    setTab(id);
+                    // With the menu lowered only the tabs show; a tab opens it so you see what you picked.
+                    if (sheet < 40) setSheet(50);
+                  }}
                   className={"h-11 shrink-0 rounded-lg px-2.5 text-xs " + (tab === id ? "bg-elevated text-ink" : "text-faint")}
                 >
                   {label}
@@ -3164,7 +3168,7 @@ function Detail({
         <Shield sys={mark.category === "route" ? ((mark.sys as System) || "SR") : "place"} label={mark.category === "route" ? mark.id.split(":")[3] || mark.sys : "P"} />
         <div className="min-w-0 flex-1">
           <p className="text-xs text-muted">
-            {mark.category} · {stateName}
+            {categoryName(mark.category, mark.name)} · {stateName}
           </p>
           <h2 className="truncate font-serif text-xl leading-tight">{mark.name}</h2>
           {onRegister && mark.category !== "register" ? (
