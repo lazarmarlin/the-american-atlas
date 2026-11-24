@@ -39,7 +39,10 @@ type Saved = {
   showParks: boolean;
   showTowns: boolean;
   showReservations: boolean;
+  /** Your own photo pins on the map. */
   showPhotos: boolean;
+  /** Photos friends shared with you, as pins on the map. */
+  showFriendPhotos: boolean;
   /** Zoomed in, moving the map into another state picks that state. Off until turned on. */
   followState: boolean;
   townColor: string;
@@ -64,6 +67,7 @@ type Settings = Saved & {
   setShowReservations: (showReservations: boolean) => void;
   setFollowState: (followState: boolean) => void;
   setShowPhotos: (showPhotos: boolean) => void;
+  setShowFriendPhotos: (showFriendPhotos: boolean) => void;
   setTownColor: (townColor: string) => void;
   setReservationColor: (reservationColor: string) => void;
   setMarkerIcon: (markerIcon: string) => void;
@@ -87,6 +91,7 @@ const DEFAULTS: Saved = {
   showReservations: true,
   followState: false,
   showPhotos: true,
+  showFriendPhotos: true,
   townColor: "#c4a484",
   reservationColor: "#3d7ab5",
   markerIcon: DEFAULT_MARKER_ICON,
@@ -118,6 +123,7 @@ function readSaved(): Saved {
       showReservations: raw.showReservations !== false,
       followState: raw.followState === true,
       showPhotos: raw.showPhotos !== false,
+      showFriendPhotos: raw.showFriendPhotos !== false,
       townColor: typeof raw.townColor === "string" ? raw.townColor : DEFAULTS.townColor,
       reservationColor: typeof raw.reservationColor === "string" ? raw.reservationColor : DEFAULTS.reservationColor,
       markerIcon: isMarkerIcon(raw.markerIcon) ? raw.markerIcon : DEFAULTS.markerIcon,
@@ -206,6 +212,10 @@ export const useSettings = create<Settings>((set) => ({
     write({ showPhotos });
     set({ showPhotos });
   },
+  setShowFriendPhotos: (showFriendPhotos) => {
+    write({ showFriendPhotos });
+    set({ showFriendPhotos });
+  },
   setTownColor: (townColor) => {
     write({ townColor });
     set({ townColor });
@@ -244,6 +254,7 @@ export const useSettings = create<Settings>((set) => ({
     if (typeof saved.showTowns === "boolean") next.showTowns = saved.showTowns;
     if (typeof saved.showReservations === "boolean") next.showReservations = saved.showReservations;
     if (typeof saved.showPhotos === "boolean") next.showPhotos = saved.showPhotos;
+    if (typeof saved.showFriendPhotos === "boolean") next.showFriendPhotos = saved.showFriendPhotos;
     if (typeof saved.followState === "boolean") next.followState = saved.followState;
     if (typeof saved.keepGhost === "boolean") next.keepGhost = saved.keepGhost;
     if (typeof saved.stateBorder === "string") next.stateBorder = saved.stateBorder;

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { matchPlace, readPhotoFile, tripFor, type RecordingTrip } from "@/lib/photo-file";
 import { loadParkShapes, matchPark, choosePhotoPlace } from "@/lib/park-photo";
-import { deletePhoto, loadPhoto, savePhoto, setPhotoShared, type PhotoInfo } from "@/lib/photos";
+import { deletePhoto, loadPhoto, savePhoto, setPhotoAudience, type PhotoAudience, type PhotoInfo } from "@/lib/photos";
+import { listFriends } from "@/lib/friends";
 import { canScanLibrary, forgetAdded, lastScanAt, loadLibraryPhoto, rememberAdded, scanAllowed, scanLibrary } from "@/lib/photo-scan";
 import { nativeApp } from "@/lib/native";
 import { deleteLocalPhoto, getLocalPhoto, listLocalPhotos, markUploaded, saveLocalPhoto, setLocalShared, type LocalPhoto } from "@/lib/photo-local";
@@ -368,6 +369,110 @@ function PhotoReview({
   );
 }
 
+/** "Only you", "All friends", or the names of the friends it's shared with. */
+function audienceLabel(photo: PhotoInfo, names: Map<string, string>) {
+  if (photo.shared) return "All your friends";
+  const picked = photo.sharedWith ?? [];
+  if (!picked.length) return "Only you";
+  const shown = picked.map((id) => names.get(id) ?? "a friend");
+  return shown.length <= 2 ? shown.join(" and ") : `${shown.slice(0, 2).join(", ")} and ${shown.length - 2} more`;
+}
+
+/** Pick who sees a photo: only you, all friends, or the friends you check. */
+function ShareSheet({
+  photo,
+  friends,
+  onClose,
+  onSave,
+}: {
+  photo: PhotoInfo;
+  friends: Map<string, string>;
+  onClose: () => void;
+  onSave: (audience: PhotoAudience, friends: string[]) => Promise<void>;
+}) {
+  const [audience, setAudience] = useState<PhotoAudience>(photo.shared ? "all" : photo.sharedWith?.length ? "some" : "private");
+  const [picked, setPicked] = useState<string[]>(photo.sharedWith ?? []);
+  const [busy, setBusy] = useState(false);
+  useEffect(
+    () =>
+      pushBack(() => {
+        onClose();
+        return true;
+      }),
+    [onClose],
+  );
+  const list = [...friends.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const option = (id: PhotoAudience, label: string, hint: string) => (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={audience === id}
+      onClick={() => setAudience(id)}
+      className={"block w-full rounded-lg border px-3 py-2 text-left " + (audience === id ? "border-ink bg-elevated" : "border-line")}
+    >
+      <span className="block text-sm">{label}</span>
+      <span className="block text-xs text-muted">{hint}</span>
+    </button>
+  );
+  const ready = audience !== "some" || picked.length > 0;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end bg-black/50" role="dialog" aria-label="Share photo" onClick={onClose}>
+      <div
+        className="max-h-[85dvh] w-full overflow-y-auto rounded-t-2xl border-t border-line bg-surface px-4 pt-4 safe-bottom"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <p className="font-serif text-xl">Who can see this photo?</p>
+        <div role="radiogroup" className="mt-3 grid gap-2">
+          {option("private", "Only you", "Not shared with anyone.")}
+          {option("all", "All friends", "Everyone you're friends with, including friends you add later.")}
+          {option("some", "Friends I pick", "Only the friends you check below.")}
+        </div>
+        {audience === "some" ? (
+          list.length ? (
+            <ul className="mt-3 grid gap-1">
+              {list.map(([id, name]) => {
+                const on = picked.includes(id);
+                return (
+                  <li key={id}>
+                    <button
+                      type="button"
+                      role="checkbox"
+                      aria-checked={on}
+                      onClick={() => setPicked((cur) => (on ? cur.filter((x) => x !== id) : [...cur, id]))}
+                      className={"flex h-11 w-full items-center gap-3 rounded-lg border px-3 text-sm " + (on ? "border-ink bg-elevated" : "border-line")}
+                    >
+                      <span className={"grid size-5 place-items-center rounded border text-xs " + (on ? "border-ink" : "border-line")}>{on ? "✓" : ""}</span>
+                      <span className="truncate">{name}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="mt-3 text-sm text-muted">Add a friend first, from the Friends tab.</p>
+          )
+        ) : null}
+        <div className="mt-4 mb-3 flex gap-2">
+          <button
+            type="button"
+            disabled={!ready || busy}
+            onClick={() => {
+              setBusy(true);
+              void onSave(audience, audience === "some" ? picked : []).finally(() => setBusy(false));
+            }}
+            className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
+          >
+            {busy ? "Saving…" : "Save"}
+          </button>
+          <button type="button" onClick={onClose} className="h-11 flex-1 rounded-lg border border-line text-sm">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PhotoFinder({
   marks,
   trip,
@@ -703,6 +808,13 @@ export function PhotosPanel({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [group, setGroup] = useState<"place" | "trip" | "month">("place");
   const [open, setOpen] = useState<PhotoInfo | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [friendNames, setFriendNames] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    void listFriends()
+      .then((rows) => setFriendNames(new Map(rows.map((row) => [row.id, row.name]))))
+      .catch(() => {});
+  }, []);
   const [full, setFull] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [local, setLocal] = useState<LocalPhoto[]>([]);
@@ -792,7 +904,7 @@ export function PhotosPanel({
         image: lp.image,
       },
     });
-    if (shared) await setPhotoShared({ data: { id: lp.id, shared: true } });
+    if (shared) await setPhotoAudience({ data: { id: lp.id, audience: "all", friends: [] } });
     await markUploaded(lp.id);
   }
 
@@ -808,26 +920,37 @@ export function PhotosPanel({
     setMenu(null);
   }
 
-  async function share(photo: PhotoInfo) {
-    const shared = !photo.shared;
+  /** Set who sees a photo. A phone-only photo is uploaded first, since friends only see photos on the account. */
+  async function setAudience(photo: PhotoInfo, audience: PhotoAudience, friends: string[]) {
     const lp = local.find((p) => p.id === photo.id);
-    onChange(photos.map((item) => (item.id === photo.id ? { ...item, shared } : item)));
-    setLocal((prev) => prev.map((p) => (p.id === photo.id ? { ...p, shared } : p)));
-    setOpen({ ...photo, shared });
+    const shared = audience === "all";
+    const sharedWith = audience === "some" ? friends : [];
     try {
-      if (lp && !lp.uploaded && shared) {
-        // Friends can only see photos on the account, so sharing uploads it.
-        await upload(lp, true);
-        setLocal((prev) => prev.map((p) => (p.id === photo.id ? { ...p, uploaded: true } : p)));
-        setNote("Uploaded and shared with friends.");
-      } else if (!lp || lp.uploaded) {
-        await setPhotoShared({ data: { id: photo.id, shared } });
+      if (lp && !lp.uploaded) {
+        if (audience === "private") {
+          await setLocalShared(photo.id, false, []);
+        } else {
+          await upload(lp, false);
+          setLocal((prev) => prev.map((p) => (p.id === photo.id ? { ...p, uploaded: true } : p)));
+        }
       }
-      if (lp) await setLocalShared(photo.id, shared);
+      if (!lp || lp.uploaded || audience !== "private") {
+        const saved = await setPhotoAudience({ data: { id: photo.id, audience, friends } });
+        if (lp) await setLocalShared(photo.id, saved.shared, saved.sharedWith);
+      }
+      const next = { ...photo, shared, sharedWith };
+      onChange(photos.map((item) => (item.id === photo.id ? next : item)));
+      setLocal((prev) => prev.map((p) => (p.id === photo.id ? { ...p, shared, sharedWith } : p)));
+      setOpen(next);
+      setNote(
+        audience === "private"
+          ? "Only you can see it."
+          : audience === "all"
+            ? "Shared with all your friends."
+            : `Shared with ${friends.length} ${friends.length === 1 ? "friend" : "friends"}.`,
+      );
+      setSharing(false);
     } catch (err) {
-      onChange(photos);
-      setLocal((prev) => prev.map((p) => (p.id === photo.id ? { ...p, shared: !shared } : p)));
-      setOpen({ ...photo, shared: !shared });
       setNote(err instanceof Error ? err.message : "Couldn't update sharing.");
     }
   }
@@ -881,13 +1004,27 @@ export function PhotosPanel({
           {open.tripId && tripNames.get(open.tripId) ? ` · ${tripNames.get(open.tripId)}` : ""}
         </p>
         {note ? <p className="mt-2 px-2 text-sm text-accent">{note}</p> : null}
-        <button
-          type="button"
-          onClick={() => void share(open)}
-          className={"mt-3 h-11 w-full rounded-lg border text-sm " + (open.shared ? "border-ink bg-elevated" : "border-line")}
-        >
-          {open.shared ? "Shared with friends" : "Share with friends"}
-        </button>
+        <div className="mt-3 flex items-center gap-2 rounded-lg border border-line px-3 py-2">
+          <p className="min-w-0 flex-1 text-sm">
+            <span className="block text-xs text-faint">Who can see it</span>
+            <span className="block truncate">{audienceLabel(open, friendNames)}</span>
+          </p>
+          <button
+            type="button"
+            onClick={() => setSharing(true)}
+            className="h-11 shrink-0 rounded-lg border border-ink bg-elevated px-4 text-sm"
+          >
+            {open.shared || open.sharedWith?.length ? "Change" : "Share"}
+          </button>
+        </div>
+        {sharing ? (
+          <ShareSheet
+            photo={open}
+            friends={friendNames}
+            onClose={() => setSharing(false)}
+            onSave={(audience, picked) => setAudience(open, audience, picked)}
+          />
+        ) : null}
         {nativeApp && local.some((p) => p.id === open.id && !p.uploaded) ? (
           <>
             <p className="mt-2 px-2 text-xs text-faint">Only on this phone. Upload it to keep it with your account.</p>
@@ -973,7 +1110,11 @@ export function PhotosPanel({
                     {nativeApp && !uploaded ? (
                       <span className="absolute right-1 top-1 rounded-full bg-black/60 px-1 text-[9px] text-white">local</span>
                     ) : null}
-                    {photo.shared ? <span className="mt-1 block text-[10px] tracking-wide text-faint uppercase">Shared</span> : null}
+                    {photo.shared || photo.sharedWith?.length ? (
+                      <span className="absolute bottom-1 left-1 rounded-full bg-black/65 px-1.5 py-0.5 text-[10px] text-white">
+                        {photo.shared ? "Shared" : `Shared · ${photo.sharedWith!.length}`}
+                      </span>
+                    ) : null}
                   </button>
                 </li>
               );
@@ -1057,7 +1198,7 @@ export function PhotoViewer({
             ? new Date(photo.takenAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
             : "No date"}
           {photos.length > 1 ? ` · ${index + 1} of ${photos.length}` : ""}
-          {photo.shared ? " · Shared" : ""}
+          {photo.shared || photo.sharedWith?.length ? " · Shared" : ""}
         </p>
         {note ? <p className="mt-1 text-center text-xs text-accent">{note}</p> : null}
         {photos.length > 1 ? (

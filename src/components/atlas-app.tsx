@@ -128,6 +128,7 @@ function pickSettings(state: AccountSettings): AccountSettings {
     showTowns: state.showTowns,
     showReservations: state.showReservations,
     showPhotos: state.showPhotos,
+    showFriendPhotos: state.showFriendPhotos,
     followState: state.followState,
     townColor: state.townColor,
     reservationColor: state.reservationColor,
@@ -234,6 +235,7 @@ function AtlasShell() {
   const showReservations = useSettings((s) => s.showReservations);
   const followState = useSettings((s) => s.followState);
   const showPhotos = useSettings((s) => s.showPhotos);
+  const showFriendPhotos = useSettings((s) => s.showFriendPhotos);
   const townColor = useSettings((s) => s.townColor);
   const reservationColor = useSettings((s) => s.reservationColor);
   const markerIcon = useSettings((s) => s.markerIcon);
@@ -977,6 +979,8 @@ function AtlasShell() {
         if (lat == null || lon == null) continue;
         pins.push({ id: photo.id, poiId: photo.poiId, lat, lon, thumb: photo.thumb });
       }
+    }
+    if (showFriendPhotos) {
       const seen = new Set<string>();
       for (const photo of sharedShots) {
         const key = `${photo.friendId}:${photo.poiId}`;
@@ -986,7 +990,7 @@ function AtlasShell() {
       }
     }
     return pins;
-  }, [marks, photos, sharedShots, showPhotos]);
+  }, [marks, photos, sharedShots, showPhotos, showFriendPhotos]);
 
   async function addPlacePhoto(mark: Mark, file: File) {
     const read = await readPhotoFile(file);
@@ -1339,13 +1343,35 @@ function AtlasShell() {
         setPhotos([...rows, ...phoneOnly]);
       })
       .catch(() => {});
-    friendPhotoPins()
-      .then((rows) => {
-        if (!dead) setSharedShots(rows);
-      })
-      .catch(() => {});
     return () => {
       dead = true;
+    };
+  }, [user?.id]);
+
+  // Friends' shared photos on the map: fetched when the app opens, every two
+  // minutes while it's on screen, and whenever you come back to it, so a photo
+  // a friend shares (or stops sharing) shows up without restarting.
+  useEffect(() => {
+    if (!user?.id) return;
+    let dead = false;
+    const pull = () => {
+      if (document.visibilityState === "hidden") return;
+      friendPhotoPins()
+        .then((rows) => {
+          if (!dead) setSharedShots(rows);
+        })
+        .catch(() => {});
+    };
+    pull();
+    const timer = window.setInterval(pull, 120_000);
+    const onShow = () => {
+      if (document.visibilityState === "visible") pull();
+    };
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      dead = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onShow);
     };
   }, [user?.id]);
 

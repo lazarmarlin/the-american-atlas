@@ -68,6 +68,8 @@ export function SettingsPage({
   const setShowTowns = useSettings((s) => s.setShowTowns);
   const setShowReservations = useSettings((s) => s.setShowReservations);
   const setShowPhotos = useSettings((s) => s.setShowPhotos);
+  const showFriendPhotos = useSettings((s) => s.showFriendPhotos);
+  const setShowFriendPhotos = useSettings((s) => s.setShowFriendPhotos);
   const setTownColor = useSettings((s) => s.setTownColor);
   const setReservationColor = useSettings((s) => s.setReservationColor);
   const markerIcon = useSettings((s) => s.markerIcon);
@@ -485,14 +487,25 @@ export function SettingsPage({
           <div className="mt-3">
             <PhotoFinder marks={marks} trip={trip} onSaved={onPhotosSaved} onRemoved={onPhotoRemoved} />
           </div>
-          <button
-            type="button"
-            aria-pressed={showPhotos}
-            onClick={() => setShowPhotos(!showPhotos)}
-            className={"mt-6 h-12 w-full rounded-lg border text-sm " + (showPhotos ? "border-ink bg-elevated" : "border-line")}
-          >
-            {showPhotos ? "Photos on the map" : "Photos hidden on the map"}
-          </button>
+          <p className="mt-6 text-sm text-muted">Photo pins on the map</p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              aria-pressed={showPhotos}
+              onClick={() => setShowPhotos(!showPhotos)}
+              className={"h-12 rounded-lg border text-sm " + (showPhotos ? "border-ink bg-elevated" : "border-line text-muted")}
+            >
+              {showPhotos ? "Your photos: shown" : "Your photos: hidden"}
+            </button>
+            <button
+              type="button"
+              aria-pressed={showFriendPhotos}
+              onClick={() => setShowFriendPhotos(!showFriendPhotos)}
+              className={"h-12 rounded-lg border text-sm " + (showFriendPhotos ? "border-ink bg-elevated" : "border-line text-muted")}
+            >
+              {showFriendPhotos ? "Friends' photos: shown" : "Friends' photos: hidden"}
+            </button>
+          </div>
         </section>
       ) : null}
 

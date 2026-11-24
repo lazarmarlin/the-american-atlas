@@ -257,6 +257,11 @@ export const removeFriend = createServerFn({ method: "POST" })
          or (user_id = ${friendId} and friend_id = ${context.userId})
     `;
     await sql`
+      delete from photo_shares
+      where (user_id = ${context.userId} and friend_id = ${friendId})
+         or (user_id = ${friendId} and friend_id = ${context.userId})
+    `;
+    await sql`
       delete from live_trails
       where user_id in (${context.userId}, ${friendId})
         and not exists (select 1 from live_viewers v where v.user_id = live_trails.user_id)
