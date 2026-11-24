@@ -297,6 +297,8 @@ for (const st of Object.keys(STATES)) {
 // everyday stops that number in the thousands are worth the least. Each rule
 // is safe to re-run: it maps both the old and the new values to the new ones.
 const big = (row, oldBig, newBig) => row.pts >= oldBig || row.pts === newBig;
+/** Added from OpenStreetMap / Wikidata by scripts/import-places.mjs (not the hand-picked starter list). */
+const imported = (row) => /:(node|way|rel)\d+$|:wdQ\d+$/.test(row.id);
 const POINTS = {
   highpoint: () => 50,
   capitol: () => 40,
@@ -306,7 +308,8 @@ const POINTS = {
   battlefield: () => 40,
   drive: () => 30,
   cave: () => 25,
-  waterfall: () => 25,
+  // The famous falls 25; the thousands of other named falls 15.
+  waterfall: (row) => (imported(row) ? 15 : 25),
   refuge: () => 25,
   fort: () => 25,
   span: (row) => (big(row, 50, 30) ? 30 : 15),
@@ -320,7 +323,8 @@ const POINTS = {
   cemetery: () => 15,
   bridge: () => 15,
   roadside: () => 15,
-  diner: () => 15,
+  // Classic diners 15; every other diner 10.
+  diner: (row) => (imported(row) ? 10 : 15),
   drivein: () => 15,
   // Historic districts and larger listings (30 before) 15, single buildings 10.
   register: (row) => (row.pts === 30 || row.pts === 15 ? 15 : 10),
@@ -333,6 +337,26 @@ const POINTS = {
   mall: () => 5,
   market: () => 5,
   chain: () => 5,
+  unesco: () => 50,
+  peak: () => 30,
+  space: () => 30,
+  geo: (row) => (row.pts === 20 ? 20 : 30), // marked tri-state corners 20
+  landmark: () => 20,
+  dam: () => 20,
+  ship: () => 20,
+  hotspring: () => 15,
+  pass: () => 15,
+  lake: () => 15,
+  railroad: () => 15,
+  aviation: () => 15,
+  observatory: () => 15,
+  ghost: () => 15,
+  ski: () => 15,
+  tunnel: () => 15,
+  crossing: (row) => (row.pts === 15 ? 15 : 10), // the six biggest rivers 15
+  stateline: () => 10,
+  college: () => 10,
+  ferry: () => 10,
 };
 let repriced = 0;
 for (const bundle of Object.values(places)) {

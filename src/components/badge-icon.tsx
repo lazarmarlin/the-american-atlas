@@ -1,4 +1,4 @@
-import { Anchor, Award, Castle, Clapperboard, Coffee, Droplets, Flag, Landmark, Mountain, Plane, Route, ShoppingBag, ShoppingCart, Star, Trees, Trophy, Utensils, Waves, Wine } from "lucide-react";
+import { Anchor, Award, Castle, Clapperboard, Coffee, Compass, Droplets, Flag, Ghost, GraduationCap, Landmark, Milestone, Mountain, MountainSnow, Plane, Rocket, Route, Ship, ShoppingBag, ShoppingCart, Snowflake, Star, Telescope, TrainFront, Trees, Trophy, Utensils, Waves, Wine } from "lucide-react";
 
 const ICONS: Record<string, typeof Award> = {
   Milestones: Trophy,
@@ -23,6 +23,26 @@ const ICONS: Record<string, typeof Award> = {
   Distilleries: Wine,
   "Drive-ins": Clapperboard,
   Diners: Coffee,
+  "River crossings": Waves,
+  "State lines": Milestone,
+  "Natural landmarks": Mountain,
+  "Hot springs": Droplets,
+  Fourteeners: MountainSnow,
+  "Mountain passes": MountainSnow,
+  Dams: Waves,
+  Lakes: Waves,
+  "Museum ships": Ship,
+  "Heritage railroads": TrainFront,
+  "Air & space museums": Plane,
+  "Space centers": Rocket,
+  Observatories: Telescope,
+  "Geographic oddities": Compass,
+  "Ghost towns": Ghost,
+  "World Heritage": Landmark,
+  "Ski areas": Snowflake,
+  Colleges: GraduationCap,
+  Ferries: Ship,
+  Tunnels: Route,
 };
 
 export function BadgeIcon({ group, earned }: { group: string; earned?: boolean }) {

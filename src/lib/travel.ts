@@ -38,9 +38,30 @@ const PASS_CATS = [
   "drivein",
   "diner",
   "food",
+  "crossing",
+  "stateline",
+  "landmark",
+  "hotspring",
+  "peak",
+  "pass",
+  "dam",
+  "ship",
+  "railroad",
+  "aviation",
+  "space",
+  "observatory",
+  "geo",
+  "ghost",
+  "unesco",
+  "ski",
+  "college",
+  "ferry",
+  "tunnel",
 ];
 
 const PLACE_MILES = 0.25;
+/** Places spread over a big area count from farther out than their one map point. */
+const WIDE_MILES: Record<string, number> = { unesco: 2, space: 1, ski: 0.75, college: 0.5, dam: 0.5, landmark: 0.5, ghost: 0.4 };
 const ROAD_MILES = 0.35;
 /** Register listings count only when you're at the spot: 10 feet. There are 87,000 of them, many on the same street. */
 const REGISTER_MILES = 10 / 5280;
@@ -115,7 +136,7 @@ export async function collectPassed(fix: Fix, states: StateInfo[], saved: Set<st
         item.cat === "drive" && item.row.paths?.length
           ? milesToPaths(fix.lat, fix.lon, item.row.paths)
           : milesBetween(fix.lat, fix.lon, item.row.lat, item.row.lon);
-      const limit = item.cat === "drive" ? ROAD_MILES : item.cat === "register" ? REGISTER_MILES : PLACE_MILES;
+      const limit = item.cat === "drive" ? ROAD_MILES : item.cat === "register" ? REGISTER_MILES : (WIDE_MILES[item.cat] ?? PLACE_MILES);
       if (miles > limit) continue;
       if (saved.has(item.row.id)) {
         remember(visited, placeToMark(item.row, item.cat, item.state));

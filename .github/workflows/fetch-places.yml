@@ -27,7 +27,7 @@ jobs:
       - name: Install osmium
         run: sudo apt-get update -qq && sudo apt-get install -y -qq osmium-tool
       - name: Download extract
-        run: curl -sSfL -o region.osm.pbf "https://download.geofabrik.de/north-america/${{ matrix.region }}-latest.osm.pbf" && ls -lh region.osm.pbf
+        run: curl -sSfL --retry 6 --retry-all-errors --retry-delay 30 -o region.osm.pbf "https://download.geofabrik.de/north-america/${{ matrix.region }}-latest.osm.pbf" && ls -lh region.osm.pbf
       - name: Filter
         run: |
           osmium tags-filter region.osm.pbf \

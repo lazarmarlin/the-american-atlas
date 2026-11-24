@@ -36,11 +36,15 @@ async function* features(file) {
   if (!file || !fs.existsSync(file)) return;
   const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
   for await (let line of rl) {
-    line = line.replace(/^\x1e/, "").trim();
+    // geojsonseq lines may start with an RS (0x1e) separator.
+    if (line.charCodeAt(0) === 30) line = line.slice(1);
+    line = line.trim();
     if (!line) continue;
     try {
       yield JSON.parse(line);
-    } catch {}
+    } catch {
+      // A line osmium couldn't write cleanly; skip it.
+    }
   }
 }
 

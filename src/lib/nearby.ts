@@ -38,6 +38,26 @@ const NEAR_CATS = [
   "distillery",
   "drivein",
   "diner",
+  "crossing",
+  "stateline",
+  "landmark",
+  "hotspring",
+  "peak",
+  "pass",
+  "dam",
+  "lake",
+  "ship",
+  "railroad",
+  "aviation",
+  "space",
+  "observatory",
+  "geo",
+  "ghost",
+  "unesco",
+  "ski",
+  "college",
+  "ferry",
+  "tunnel",
 ];
 
 export function milesBetween(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -202,7 +222,7 @@ export function placeToMark(
   };
 }
 
-const ALONG_CATS = ["park", "town", "roadside", "waterfall", "cave", "diner", "drivein", "highpoint", "seashore", "battlefield", "fort", "lighthouse"];
+const ALONG_CATS = ["park", "town", "roadside", "waterfall", "cave", "diner", "drivein", "highpoint", "seashore", "battlefield", "fort", "lighthouse", "hotspring", "landmark", "ghost", "geo", "unesco", "space", "peak", "dam", "ship", "railroad"];
 
 /** Places within 12 miles of a road or scenic drive. */
 export async function stopsAlong(mark: Mark, limit = 10): Promise<Mark[]> {
