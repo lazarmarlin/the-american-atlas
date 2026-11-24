@@ -1,7 +1,8 @@
 import { loadPlaces, loadRoads, type RoadRec, type StateInfo } from "@/lib/atlas-model";
 import type { Mark } from "@/lib/marks";
 
-export type Fix = { lat: number; lon: number };
+/** A location; `t` (ms) when it was taken, if not just now. */
+export type Fix = { lat: number; lon: number; t?: number };
 
 const NEAR_CATS = [
   "beach",

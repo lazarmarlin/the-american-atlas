@@ -123,14 +123,17 @@ export function appendTrail(points: GhostPoint[], fixes: Fix[], now = Date.now()
   let next = points;
   for (const fix of fixes) {
     if (!validFix(fix.lat, fix.lon)) continue;
+    // Fixes read back from the phone's log keep the time they were taken.
+    const t = fix.t && fix.t <= now ? fix.t : now;
     const last = next[next.length - 1];
     if (!last) {
-      next = [{ lat: fix.lat, lon: fix.lon, t: now }];
+      next = [{ lat: fix.lat, lon: fix.lon, t }];
       continue;
     }
+    if (t < last.t) continue;
     const miles = milesBetween(last.lat, last.lon, fix.lat, fix.lon);
     if (miles * 1609.344 < MIN_METERS) continue;
-    const point: GhostPoint = miles > BREAK_MILES ? { lat: fix.lat, lon: fix.lon, t: now, brk: true } : { lat: fix.lat, lon: fix.lon, t: now };
+    const point: GhostPoint = miles > BREAK_MILES ? { lat: fix.lat, lon: fix.lon, t, brk: true } : { lat: fix.lat, lon: fix.lon, t };
     next = next.length > 3400 ? thinTrail([...next, point], 55) : [...next, point];
   }
   return next;
