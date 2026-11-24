@@ -1,0 +1,35 @@
+name: Fetch place data
+
+# Downloads raw OpenStreetMap / Wikidata place data for scripts/import-places.mjs
+# and uploads it as an artifact. Nothing is committed; import runs locally.
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: "Space-separated job names (blank = all)"
+        required: false
+        default: ""
+  push:
+    branches: ["data/fetch-places"]
+    paths: ["scripts/fetch-places.mjs", ".github/workflows/fetch-places.yml"]
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch
+        env:
+          OVERPASS_KEY: ${{ secrets.OVERPASS_KEY }}
+          OUT_DIR: raw-places
+        run: node scripts/fetch-places.mjs ${{ github.event.inputs.jobs }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: raw-places
+          path: raw-places
+          retention-days: 7
