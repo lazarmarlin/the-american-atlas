@@ -202,6 +202,8 @@ function AtlasShell() {
   const [sheet, setSheet] = useState(50);
   const [sheetInstant, setSheetInstant] = useState(false);
   const [mapCard, setMapCard] = useState(false);
+  /** The map's place card tucked down to just its name. */
+  const [cardSmall, setCardSmall] = useState(false);
   /** A place opened from a chat: shown alone on the map; closing it goes back to the chat. */
   const [spot, setSpot] = useState<{ id: string; lon: number; lat: number; from: Thread | null; sheet: number } | null>(null);
   const [resumeChat, setResumeChat] = useState<Thread | null>(null);
@@ -492,6 +494,8 @@ function AtlasShell() {
 
   const stateName = meta?.states.find((state) => state.abbr === stateAbbr)?.name ?? stateAbbr;
   const preview = focus && focus.id === selected ? focus : null;
+  // A different place opens with its whole card showing.
+  useEffect(() => setCardSmall(false), [focus?.id]);
 
   function noteBadges(next: BadgeView[]) {
     const ids = new Set(next.filter((badge) => badge.earned).map((badge) => badge.id));
@@ -1944,6 +1948,8 @@ function AtlasShell() {
         {cardOnly && focus ? (
           <Detail
             solo
+            small={cardSmall}
+            onShrink={setCardSmall}
             onSend={user?.id ? () => setSendPlace(focus) : undefined}
             mark={focus}
             saved={savedIds.has(focus.id)}
@@ -3089,6 +3095,8 @@ function Detail({
   onAddPhoto,
   onSend,
   solo = false,
+  small = false,
+  onShrink,
 }: {
   mark: Mark;
   saved: boolean;
@@ -3108,6 +3116,9 @@ function Detail({
   /** Send this place to a friend or a trip chat. */
   onSend?: () => void;
   solo?: boolean;
+  /** Tucked down to just its name (with the chevrons, like the main menu). */
+  small?: boolean;
+  onShrink?: (small: boolean) => void;
 }) {
   const road = mark.category === "route" || mark.category === "drive";
   const line = road ? (mark.paths.length ? "Drawn as a thin line along the road." : "This road's line isn't in the atlas yet.") : null;
@@ -3291,7 +3302,30 @@ function Detail({
     );
   }
   return (
-    <div className={(solo ? "safe-bottom bg-surface px-4 pt-3 pb-3" : "safe-bottom max-h-[58%] shrink-0 overflow-y-auto border-t border-line bg-elevated px-4 py-3")}>
+    <div className={(solo ? "safe-bottom bg-surface px-4 pb-3" + (onShrink ? "" : " pt-3") : "safe-bottom max-h-[58%] shrink-0 overflow-y-auto border-t border-line bg-elevated px-4 py-3")}>
+      {onShrink ? (
+        // Like the main menu: down tucks the card away to just its name, up brings it back.
+        <div className="sheet-handle -mb-1">
+          <button
+            type="button"
+            aria-label="Show the whole card"
+            disabled={!small}
+            onClick={() => onShrink(false)}
+            className="flex h-11 w-11 items-center justify-center rounded-full text-ink disabled:text-faint"
+          >
+            <ChevronUp className="size-5" />
+          </button>
+          <button
+            type="button"
+            aria-label="Shrink the card"
+            disabled={small}
+            onClick={() => onShrink(true)}
+            className="flex h-11 w-11 items-center justify-center rounded-full text-ink disabled:text-faint"
+          >
+            <ChevronDown className="size-5" />
+          </button>
+        </div>
+      ) : null}
       <div className="flex items-start gap-3">
         <Shield sys={mark.category === "route" ? ((mark.sys as System) || "SR") : "place"} label={mark.category === "route" ? mark.id.split(":")[3] || mark.sys : "P"} />
         <div className="min-w-0 flex-1">
@@ -3309,6 +3343,7 @@ function Detail({
           Close
         </button>
       </div>
+      <div className={small ? "hidden" : ""}>
       <div className={"mt-3 grid gap-2 " + (blurb?.url ? "grid-cols-2" : "grid-cols-1")}>
         {blurb?.url ? (
           <a
@@ -3480,6 +3515,7 @@ function Detail({
           </ul>
         </div>
       ) : null}
+      </div>
     </div>
   );
 }
