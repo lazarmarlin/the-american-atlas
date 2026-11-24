@@ -360,7 +360,7 @@ export function SettingsPage({
           {keepGhost ? "Live trail kept on your account" : "Keep the live trail on your account"}
         </button>
         <p className="mt-2 text-sm text-muted">
-          Off unless you turn it on. The last 24 hours of the fading trail stays with your account, so a reinstall can pick it up. Saved trails are separate and always stay.
+          Off unless you turn it on. The last 24 hours of the fading trail stays with your account, so a reinstall can pick it up. Friends don't use this. They see you when you pick them under Live with friends. Saved trails are separate and always stay.
         </p>
       </section>
 

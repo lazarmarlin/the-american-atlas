@@ -43,7 +43,8 @@ import { clearLiveTrail, incomingLive, pullLiveTrail, pushLiveTrail, useLiveShar
 import { loadAccountSettings, saveAccountSettings, type AccountSettings } from "@/lib/account-settings";
 import { clearGhostCache, pullGhostCache, pushGhostCache } from "@/lib/ghost-cache";
 import { setTripRecording } from "@/lib/trips";
-import { friendPhotoPins, listPhotos, savePhoto, type FriendPhotoPin, type PhotoInfo } from "@/lib/photos";
+import { friendPhotoPins, listPhotos, savePhoto, deletePhoto, type FriendPhotoPin, type PhotoInfo } from "@/lib/photos";
+import { deleteLocalPhoto } from "@/lib/photo-local";
 import { readPhotoFile } from "@/lib/photo-file";
 import { listLocalPhotos, setLocalPhotoOwner } from "@/lib/photo-local";
 import { requestTrackingPermission } from "@/lib/background-location";
@@ -242,6 +243,7 @@ function AtlasShell() {
   const [ghostOpen, setGhostOpen] = useState(false);
   const [friendId, setFriendId] = useState<string | null>(null);
   const [friendLines, setFriendLines] = useState<GhostLines>([]);
+  const [friendFix, setFriendFix] = useState<{ id: string; lat: number; lon: number } | null>(null);
   const [friendLook, setFriendLook] = useState(0);
   const [friendLive, setFriendLive] = useState<{ id: string; name: string } | null>(null);
   const [friendNote, setFriendNote] = useState<string | null>(null);
@@ -631,7 +633,7 @@ function AtlasShell() {
     }
 
     let lastShare = 0;
-    function shareLive() {
+    function shareLive(force = false) {
       if (!useLiveShare.getState().viewers.length) {
         if (lastShare) {
           lastShare = 0;
@@ -640,9 +642,12 @@ function AtlasShell() {
         return;
       }
       const now = Date.now();
-      if (now - lastShare < 12000) return;
-      const points = thinTrail(freshPoints(useGhost.getState().live, useSettings.getState().ghostHours), 90);
-      if (points.length < 2) return;
+      if (!force && now - lastShare < 12000) return;
+      const trail = thinTrail(freshPoints(useGhost.getState().live, useSettings.getState().ghostHours), 90);
+      // One fix is enough for the marker. The line appears once there's a second point.
+      const here = useGhost.getState().live.at(-1);
+      const points = trail.length >= 1 ? trail : here ? [here] : [];
+      if (!points.length) return;
       lastShare = now;
       const packed = points.slice(-600).map((point) =>
         point.brk ? ([point.lat, point.lon, point.t, 1] as const) : ([point.lat, point.lon, point.t] as const),
@@ -732,6 +737,10 @@ function AtlasShell() {
     };
     push(takeNativeFixes());
     refreshDot();
+    const beat = window.setInterval(() => shareLive(), 12000);
+    const unsubLive = useLiveShare.subscribe((state, prev) => {
+      if (state.viewers.join() !== prev.viewers.join()) shareLive(true);
+    });
     window.addEventListener("focus", refreshDot);
     document.addEventListener("visibilitychange", refreshDot);
     return () => {
@@ -742,6 +751,8 @@ function AtlasShell() {
       delete host.atlasPushFixes;
       window.removeEventListener("focus", refreshDot);
       document.removeEventListener("visibilitychange", refreshDot);
+      window.clearInterval(beat);
+      unsubLive();
       void clearLiveTrail({ data: { deviceId: deviceId() } }).catch(() => {});
     };
   }, [setTrackTravel, trackTravel]);
@@ -979,6 +990,25 @@ function AtlasShell() {
     setPhotos((prev) => [row, ...prev]);
   }
 
+  async function removePlacePhoto(id: string) {
+    const previous = photos;
+    setPhotos((prev) => prev.filter((photo) => photo.id !== id));
+    setViewing((cur) => {
+      if (!cur) return cur;
+      const list = cur.list.filter((photo) => photo.id !== id);
+      if (!list.length) return null;
+      const still = list.some((photo) => photo.id === cur.id);
+      return { list, id: still ? cur.id : list[0]!.id };
+    });
+    try {
+      if (nativeApp) await deleteLocalPhoto(id).catch(() => {});
+      await deletePhoto({ data: id });
+    } catch (err) {
+      setPhotos(previous);
+      setError(err instanceof Error ? err.message : "Couldn't remove that photo.");
+    }
+  }
+
   async function locate() {
     if (!meta) return;
     setNearBusy(true);
@@ -1151,8 +1181,9 @@ function AtlasShell() {
   useEffect(() => pushBack(() => sheetBack.current()), []);
 
   useEffect(() => {
+    if (!user?.id) return;
     void useLiveShare.getState().load().catch(() => {});
-  }, []);
+  }, [user?.id]);
 
   const settingsReady = useRef(false);
   useEffect(() => {
@@ -1259,22 +1290,34 @@ function AtlasShell() {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!friendLive) return;
+    if (!friendLive) {
+      setFriendFix(null);
+      return;
+    }
     let dead = false;
     const pull = () => {
       pullLiveTrail({ data: friendLive.id })
         .then((points) => {
           if (dead) return;
-          setFriendLines(
-            trailLines(
-              points.map((point) =>
-                point[3] === 1
-                  ? { lat: point[0], lon: point[1], t: point[2], brk: true }
-                  : { lat: point[0], lon: point[1], t: point[2] },
-              ),
-              300,
-            ),
+          const ghosts = points.map((point) =>
+            point[3] === 1
+              ? { lat: point[0], lon: point[1], t: point[2], brk: true }
+              : { lat: point[0], lon: point[1], t: point[2] },
           );
+          const last = ghosts.at(-1);
+          let lines = trailLines(ghosts, 300);
+          if (last) {
+            const tip: [number, number] = [last.lon, last.lat];
+            const end = lines.at(-1);
+            const prev = end?.at(-1);
+            if (end && (!prev || prev[0] !== tip[0] || prev[1] !== tip[1])) {
+              lines = [...lines.slice(0, -1), [...end, tip]];
+            }
+            setFriendFix({ id: friendLive.id, lat: last.lat, lon: last.lon });
+          } else {
+            setFriendFix(null);
+          }
+          setFriendLines(lines);
         })
         .catch(() => {
           if (!dead) setFriendLines([]);
@@ -1310,6 +1353,11 @@ function AtlasShell() {
       dead = true;
     };
   }, [friendCode, navigate, setTab]);
+
+  const shownPins = useMemo(() => {
+    if (!friendFix) return livePins;
+    return livePins.map((pin) => (pin.id === friendFix.id ? { ...pin, lat: friendFix.lat, lon: friendFix.lon } : pin));
+  }, [livePins, friendFix]);
 
   if (settingsOpen) {
     return (
@@ -1404,7 +1452,7 @@ function AtlasShell() {
               friendLines={friendLines}
               friendLook={friendLook}
               friendLive={friendLive != null}
-              friendPins={livePins}
+              friendPins={shownPins}
               photoPins={photoPins}
               you={you}
               dot={trackTravel ? (tracker ?? you) : you}
@@ -1489,6 +1537,7 @@ function AtlasShell() {
             onClick={() => {
               setFriendLines([]);
               setFriendLive(null);
+              setFriendFix(null);
             }}
             className="absolute bottom-16 left-3 z-10 h-11 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
           >
@@ -1680,6 +1729,7 @@ function AtlasShell() {
             onClose={closeCard}
             placePhotos={photos.filter((photo) => photo.poiId === focus.id)}
             onOpenPhoto={(id) => setViewing({ list: photos.filter((photo) => photo.poiId === focus.id), id })}
+            onDeletePhoto={(id) => void removePlacePhoto(id)}
             onAddPhoto={(file) => addPlacePhoto(focus, file)}
           />
         ) : (
@@ -1922,6 +1972,7 @@ function AtlasShell() {
             onClose={closeCard}
             placePhotos={photos.filter((photo) => photo.poiId === focus.id)}
             onOpenPhoto={(id) => setViewing({ list: photos.filter((photo) => photo.poiId === focus.id), id })}
+            onDeletePhoto={(id) => void removePlacePhoto(id)}
             onAddPhoto={(file) => addPlacePhoto(focus, file)}
           />
         ) : null}
@@ -2716,6 +2767,7 @@ function Detail({
   onClose,
   placePhotos = [],
   onOpenPhoto,
+  onDeletePhoto,
   onAddPhoto,
   solo = false,
 }: {
@@ -2732,6 +2784,7 @@ function Detail({
   onClose: () => void;
   placePhotos?: PhotoInfo[];
   onOpenPhoto?: (id: string) => void;
+  onDeletePhoto?: (id: string) => void;
   onAddPhoto?: (file: File) => Promise<void>;
   solo?: boolean;
 }) {
@@ -2743,6 +2796,8 @@ function Detail({
   const [which, setWhich] = useState(0);
   const [detailNote, setDetailNote] = useState<string | null>(null);
   const [addingPhoto, setAddingPhoto] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [dropPhoto, setDropPhoto] = useState<string | null>(null);
   const [onRegister, setOnRegister] = useState(mark.category === "register");
   const visitKey = mark.visits.map((visit) => visit.id).join(",");
 
@@ -2750,6 +2805,8 @@ function Detail({
     setDraft(mark.visits.length ? mark.visits : [freshVisit()]);
     setWhich((mark.visits.length ? mark.visits : [freshVisit()]).length - 1);
     setDetailNote(null);
+    setEditing(false);
+    setDropPhoto(null);
   }, [mark.id, visitKey]);
 
   useEffect(() => {
@@ -2796,6 +2853,120 @@ function Detail({
     : `${mark.points} pts`;
   function patchVisit(patch: Partial<Visit>) {
     setDraft((prev) => prev.map((visit, index) => (index === which ? { ...visit, ...patch } : visit)));
+  }
+  useEffect(() => {
+    if (!editing) return;
+    return pushBack(() => {
+      setEditing(false);
+      return true;
+    });
+  }, [editing]);
+  const shell = solo ? "safe-bottom bg-surface px-4 pt-3 pb-3" : "safe-bottom max-h-[58%] shrink-0 overflow-y-auto border-t border-line bg-elevated px-4 py-3";
+  if (editing && saved && current) {
+    return (
+      <div className={shell}>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setEditing(false)} className="h-11 shrink-0 px-1 text-sm text-muted">
+            ‹ Place
+          </button>
+          <h2 className="min-w-0 flex-1 truncate text-right font-serif text-xl leading-tight">Visit details</h2>
+        </div>
+        <p className="mt-1 truncate text-xs text-muted">{mark.name}</p>
+        <p className="mt-3 text-xs text-faint">First visit 100%, then 85%, 50%, 25%, 10%, then none.</p>
+        {draft.length > 1 ? (
+          <label className="mt-3 block text-xs text-muted">
+            Visit
+            <select
+              value={which}
+              onChange={(event) => setWhich(Number(event.target.value))}
+              className="mt-1 h-11 w-full rounded-lg border border-line bg-surface px-2 text-sm text-ink"
+            >
+              {draft.map((visit, index) => (
+                <option key={visit.id} value={index}>
+                  Visit {index + 1} · {pointsForVisit(mark.points, index)} pts
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <label className="mt-3 block text-xs text-muted">
+          Date
+          <input
+            type="date"
+            value={current.visitedOn ?? ""}
+            onChange={(event) => patchVisit({ visitedOn: event.target.value || null })}
+            className="mt-1 h-11 w-full rounded-lg border border-line bg-surface px-2 text-sm text-ink"
+          />
+        </label>
+        <label className="mt-3 block text-xs text-muted">
+          Note
+          <textarea
+            value={current.note}
+            onChange={(event) => patchVisit({ note: event.target.value.slice(0, 500) })}
+            rows={3}
+            placeholder="What you remember"
+            className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-2 text-sm text-ink outline-none"
+          />
+        </label>
+        <p className="mt-3 text-xs text-muted">Photo for this visit</p>
+        <label className="mt-1 flex h-11 cursor-pointer items-center justify-center rounded-lg border border-line text-sm text-muted">
+          {current.photo ? "Change the visit photo" : "Choose a visit photo"}
+          <input
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (!file) return;
+              shrinkPhoto(file).then((url) => patchVisit({ photo: url })).catch((err: unknown) => {
+                setDetailNote(err instanceof Error ? err.message : "Couldn't use that photo");
+              });
+            }}
+          />
+        </label>
+        {current.photo ? <img src={current.photo} alt="" className="mt-2 h-28 w-full rounded-lg object-cover" /> : null}
+        {current.photo ? (
+          <button type="button" onClick={() => patchVisit({ photo: "" })} className="mt-1 text-xs text-faint">
+            Remove photo
+          </button>
+        ) : null}
+        {trips.length ? (
+          <label className="mt-3 block text-xs text-muted">
+            Trip
+            <select
+              value={trips.find((trip) => trip.stops.some((stop) => stop.poiId === mark.id))?.id ?? ""}
+              onChange={(event) => {
+                const next = event.target.value;
+                for (const trip of trips) {
+                  if (trip.stops.some((stop) => stop.poiId === mark.id) && trip.id !== next) onTrip(trip.id, false);
+                }
+                if (next) onTrip(next, true);
+              }}
+              className="mt-1 h-11 w-full rounded-lg border border-line bg-surface px-2 text-sm text-ink"
+            >
+              <option value="">Not on a trip</option>
+              {trips.map((trip) => (
+                <option key={trip.id} value={trip.id}>
+                  {trip.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => {
+            onSave(draft.map((visit, index) => (index === which ? { ...current, note: current.note.trim() } : visit)));
+            setEditing(false);
+          }}
+          className="mt-4 flex h-11 w-full items-center justify-center rounded-lg border border-ink bg-elevated text-sm"
+        >
+          Save details
+        </button>
+        {detailNote ? <p className="mt-2 text-xs text-accent">{detailNote}</p> : null}
+      </div>
+    );
   }
   return (
     <div className={(solo ? "safe-bottom bg-surface px-4 pt-3 pb-3" : "safe-bottom max-h-[58%] shrink-0 overflow-y-auto border-t border-line bg-elevated px-4 py-3")}>
@@ -2870,149 +3041,95 @@ function Detail({
           {nextPoints > 0 ? `Visit again · ${nextPoints} pts` : "Visit again · 0 pts"}
         </button>
       ) : null}
-      {placePhotos.length ? (
-        <div className="mt-3">
-          <p className="text-xs text-muted">
-            {placePhotos.length} {placePhotos.length === 1 ? "photo" : "photos"} in your gallery
-          </p>
+      <div className="mt-3">
+        <p className="text-xs text-muted">
+          {placePhotos.length
+            ? `${placePhotos.length} ${placePhotos.length === 1 ? "photo" : "photos"} in your gallery`
+            : "No photos of this place yet"}
+        </p>
+        {placePhotos.length ? (
           <div className="mt-1 flex gap-2 overflow-x-auto pb-1">
             {placePhotos.map((photo) => (
-              <button
-                key={photo.id}
-                type="button"
-                aria-label="Open photo"
-                onClick={() => onOpenPhoto?.(photo.id)}
-                className="shrink-0 overflow-hidden rounded-md"
-              >
-                <img src={photo.thumb} alt="" className="size-20 object-cover" />
-              </button>
+              <div key={photo.id} className="relative shrink-0">
+                <button
+                  type="button"
+                  aria-label="Open photo"
+                  onClick={() => onOpenPhoto?.(photo.id)}
+                  className="block overflow-hidden rounded-md"
+                >
+                  <img src={photo.thumb} alt="" className="size-20 object-cover" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Remove photo"
+                  onClick={() => setDropPhoto(photo.id)}
+                  className="absolute top-1 right-1 grid size-6 place-items-center rounded-full bg-bg/90 text-sm leading-none"
+                >
+                  ×
+                </button>
+              </div>
             ))}
           </div>
-        </div>
-      ) : null}
-      {saved && current ? (
-        <details className="mt-3 rounded-card border border-line bg-bg px-3 py-2">
-          <summary className="cursor-pointer text-sm">Visit details, optional</summary>
-          <p className="mt-2 text-xs text-faint">First visit 100%, then 85%, 50%, 25%, 10%, then none.</p>
-          {draft.length > 1 ? (
-            <label className="mt-2 block text-xs text-muted">
-              Visit
-              <select
-                value={which}
-                onChange={(event) => setWhich(Number(event.target.value))}
-                className="mt-1 h-10 w-full rounded-lg border border-line bg-surface px-2 text-sm text-ink"
+        ) : null}
+        {dropPhoto ? (
+          <div className="mt-2 rounded-lg border border-line px-3 py-2">
+            <p className="text-sm">Remove this photo? It leaves your gallery too.</p>
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  onDeletePhoto?.(dropPhoto);
+                  setDropPhoto(null);
+                }}
+                className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm"
               >
-                {draft.map((visit, index) => (
-                  <option key={visit.id} value={index}>
-                    Visit {index + 1} · {pointsForVisit(mark.points, index)} pts
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <label className="mt-2 block text-xs text-muted">
-            Date
-            <input
-              type="date"
-              value={current.visitedOn ?? ""}
-              onChange={(event) => patchVisit({ visitedOn: event.target.value || null })}
-              className="mt-1 h-10 w-full rounded-lg border border-line bg-surface px-2 text-sm text-ink"
-            />
-          </label>
-          <label className="mt-2 block text-xs text-muted">
-            Note
-            <textarea
-              value={current.note}
-              onChange={(event) => patchVisit({ note: event.target.value.slice(0, 500) })}
-              rows={2}
-              placeholder="What you remember"
-              className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1 text-sm text-ink outline-none"
-            />
-          </label>
-          <p className="mt-2 text-xs text-muted">Photo for this visit</p>
-          <label className="mt-1 flex h-11 cursor-pointer items-center justify-center rounded-lg border border-line text-sm text-muted">
-            {current.photo ? "Change the visit photo" : "Choose a visit photo"}
+                Remove
+              </button>
+              <button type="button" onClick={() => setDropPhoto(null)} className="h-11 flex-1 rounded-lg border border-line text-sm">
+                Keep
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {onAddPhoto ? (
+          <label
+            className={
+              "mt-2 flex h-11 cursor-pointer items-center justify-center rounded-lg border border-line text-sm " +
+              (addingPhoto ? "text-faint" : "text-muted")
+            }
+          >
+            {addingPhoto ? "Adding the photo…" : "Add a photo of this place"}
             <input
               type="file"
               accept="image/*"
+              disabled={addingPhoto}
               className="sr-only"
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.target.value = "";
                 if (!file) return;
-                shrinkPhoto(file).then((url) => patchVisit({ photo: url })).catch((err: unknown) => {
-                  setDetailNote(err instanceof Error ? err.message : "Couldn't use that photo");
-                });
+                setAddingPhoto(true);
+                setDetailNote(null);
+                void onAddPhoto(file)
+                  .then(() => setDetailNote("Added to your photos. It stays private until you share it."))
+                  .catch((err: unknown) => {
+                    setDetailNote(err instanceof Error ? err.message : "Couldn't add that photo");
+                  })
+                  .finally(() => setAddingPhoto(false));
               }}
             />
           </label>
-          {current.photo ? <img src={current.photo} alt="" className="mt-2 h-24 w-full rounded-lg object-cover" /> : null}
-          {current.photo ? (
-            <button type="button" onClick={() => patchVisit({ photo: "" })} className="mt-1 text-xs text-faint">
-              Remove photo
-            </button>
-          ) : null}
-          {onAddPhoto ? (
-            <label
-              className={
-                "mt-2 flex h-11 cursor-pointer items-center justify-center rounded-lg border border-line text-sm " +
-                (addingPhoto ? "text-faint" : "text-muted")
-              }
-            >
-              {addingPhoto ? "Adding the photo…" : "Add a photo of this place"}
-              <input
-                type="file"
-                accept="image/*"
-                disabled={addingPhoto}
-                className="sr-only"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = "";
-                  if (!file) return;
-                  setAddingPhoto(true);
-                  setDetailNote(null);
-                  void onAddPhoto(file)
-                    .then(() => setDetailNote("Added to your photos. It stays private until you share it."))
-                    .catch((err: unknown) => {
-                      setDetailNote(err instanceof Error ? err.message : "Couldn't add that photo");
-                    })
-                    .finally(() => setAddingPhoto(false));
-                }}
-              />
-            </label>
-          ) : null}
-          {trips.length ? (
-            <label className="mt-2 block text-xs text-muted">
-              Trip
-              <select
-                value={trips.find((trip) => trip.stops.some((stop) => stop.poiId === mark.id))?.id ?? ""}
-                onChange={(event) => {
-                  const next = event.target.value;
-                  for (const trip of trips) {
-                    if (trip.stops.some((stop) => stop.poiId === mark.id) && trip.id !== next) onTrip(trip.id, false);
-                  }
-                  if (next) onTrip(next, true);
-                }}
-                className="mt-1 h-10 w-full rounded-lg border border-line bg-surface px-2 text-sm text-ink"
-              >
-                <option value="">Not on a trip</option>
-                {trips.map((trip) => (
-                  <option key={trip.id} value={trip.id}>
-                    {trip.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => onSave(draft.map((visit, index) => (index === which ? { ...current, note: current.note.trim() } : visit)))}
-            className="mt-3 flex h-10 w-full items-center justify-center rounded-lg border border-line text-sm"
-          >
-            Save details
-          </button>
-          {detailNote ? <p className="mt-1 text-xs text-accent">{detailNote}</p> : null}
-        </details>
+        ) : null}
+        {detailNote && !editing ? <p className="mt-1 text-xs text-accent">{detailNote}</p> : null}
+      </div>
+      {saved ? (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="mt-2 flex h-11 w-full items-center justify-center rounded-card border border-line bg-bg text-sm"
+        >
+          Visit details
+        </button>
       ) : null}
       {along.length ? (
         <div className="mt-3">

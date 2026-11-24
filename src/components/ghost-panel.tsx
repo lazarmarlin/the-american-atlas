@@ -317,8 +317,8 @@ function LiveFriends() {
     <div className="mt-5">
       <h3 className="font-serif text-xl">Live with friends</h3>
       <p className="mt-1 text-xs text-muted">
-        Pick up to {MAX_LIVE_FRIENDS}. While tracking is on they see this trail, including where you are. It drops off a
-        few minutes after you stop.
+        Pick up to {MAX_LIVE_FRIENDS}. While tracking is on, your marker shows on their map right away, even if you
+        haven't moved. It drops off a few minutes after you stop. Saving the trail is separate and isn't required.
       </p>
       <p className="mt-2 text-sm text-muted">
         {viewers.length} of {MAX_LIVE_FRIENDS}

@@ -24,7 +24,7 @@ function parseIds(value: unknown) {
 }
 
 function parsePoints(value: unknown): PackedPoint[] {
-  if (!Array.isArray(value) || value.length < 2) throw new Error("The live trail is too short.");
+  if (!Array.isArray(value) || value.length < 1) throw new Error("The live trail is too short.");
   const rows = value.slice(-MAX_POINTS);
   return rows.map((row) => {
     if (!Array.isArray(row)) throw new Error("Bad trail point");
