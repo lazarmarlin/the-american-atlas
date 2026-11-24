@@ -70,6 +70,8 @@ type Props = {
   onView: (zoom: number, base: number | null) => void;
   /** Bumped to fly back out to the whole country (Android back). */
   homeTick?: number;
+  /** Bumped to fit the chosen state again (Android back from zoomed in). */
+  focusTick?: number;
   /** Fit the view to these points ([lon, lat]) each time the tick changes. */
   fitTo?: { tick: number; points: [number, number][]; maxZoom: number } | null;
   /** Whether the map is zoomed in past the whole-country view. */
@@ -122,8 +124,19 @@ const SPOT_HIDE = [
   "photo-pins", "you-dot", "friend-people",
 ];
 
-/** How far past the whole-country view a tap still just opens the state. */
+/** How far past the whole-country view a tap still just opens the state (if a state's box is unknown). */
 const COUNTRY_TAP_ZOOM = 1.2;
+
+/** The camera that shows a whole state (the same fit as choosing it). */
+function stateCamera(map: MlMap, box: { w: number; s: number; e: number; n: number }) {
+  return map.cameraForBounds(
+    [
+      [box.w, box.s],
+      [box.e, box.n],
+    ],
+    { padding: 36, maxZoom: 7.2 },
+  );
+}
 
 function duration() {
   if (typeof window === "undefined") return 0;
@@ -246,6 +259,7 @@ export function AtlasMap({
   onFriend,
   onView,
   homeTick = 0,
+  focusTick = 0,
   fitTo = null,
   onAway,
   spotlight = null,
@@ -254,6 +268,8 @@ export function AtlasMap({
   const mapRef = useRef<MlMap | null>(null);
   const propsRef = useRef({ onState, onCounty, onPark, onSelect, onOffer, onPress, onFriend, onView, onAway });
   propsRef.current = { onState, onCounty, onPark, onSelect, onOffer, onPress, onFriend, onView, onAway };
+  const statesRef = useRef(states);
+  statesRef.current = states;
   const viewRef = useRef({ stateAbbr, showCounties, followState });
   viewRef.current = { stateAbbr, showCounties, followState };
   /** Set when the map picks a state itself (following the view), so the camera stays put. */
@@ -828,12 +844,32 @@ export function AtlasMap({
             [event.point.x - pad, event.point.y - pad],
             [event.point.x + pad, event.point.y + pad],
           ];
-          // Zoomed out to the whole country, everything is crowded together:
-          // a tap just zooms into the state underneath instead of picking a place.
-          if (map.getZoom() < (map.cameraForBounds(USA, { padding: 28 })?.zoom ?? 3) + COUNTRY_TAP_ZOOM) {
-            const abbr = map.queryRenderedFeatures(event.point, { layers: ["states-fill"] })[0]?.properties?.abbr;
-            if (typeof abbr === "string") {
-              propsRef.current.onState(abbr);
+          // Zoomed out past a state's own view, everything is crowded together: a tap on
+          // a state goes to that state (fitting it) instead of picking a place. At or past
+          // a state's view, taps pick places, except a tap on a different state nearby,
+          // which moves over to it.
+          const tapped = map.queryRenderedFeatures(event.point, { layers: ["states-fill"] })[0]?.properties?.abbr;
+          if (typeof tapped === "string") {
+            const box = statesRef.current.find((state) => state.abbr === tapped);
+            const fit = box ? stateCamera(map, box) : null;
+            const zoom = map.getZoom();
+            const current = viewRef.current.stateAbbr;
+            const stateTap = fit
+              ? zoom < (fit.zoom ?? 0) - 0.25 || (tapped !== current && zoom < (fit.zoom ?? 0) + 0.6)
+              : zoom < (map.cameraForBounds(USA, { padding: 28 })?.zoom ?? 3) + COUNTRY_TAP_ZOOM;
+            if (stateTap) {
+              if (box) {
+                keepView.current = true;
+                map.fitBounds(
+                  [
+                    [box.w, box.s],
+                    [box.e, box.n],
+                  ],
+                  { padding: 36, duration: duration(), maxZoom: 7.2 },
+                );
+              }
+              if (tapped !== current) propsRef.current.onState(tapped);
+              else keepView.current = false;
               return;
             }
           }
@@ -1321,6 +1357,21 @@ export function AtlasMap({
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spotlight?.id, spotlight?.lon, spotlight?.lat, ready]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map || !focusTick || !stateAbbr) return;
+    const box = states.find((state) => state.abbr === stateAbbr);
+    if (box)
+      map.fitBounds(
+        [
+          [box.w, box.s],
+          [box.e, box.n],
+        ],
+        { padding: 36, duration: duration(), maxZoom: 7.2 },
+      );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTick, ready]);
 
   useEffect(() => {
     const map = mapRef.current;
