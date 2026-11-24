@@ -53,6 +53,11 @@ const OSM = {
   ferry: `${US}nwr["amenity"="ferry_terminal"]["name"](area.us);out center tags;`,
   tristate: `${US}nwr["historic"="boundary_stone"]["name"~"tri|corner|four",i](area.us);out center tags;`,
   lincoln: `${US}relation["route"="road"]["name"~"^(Lincoln Highway|Dixie Highway|Great River Road|Natchez Trace Parkway|Blue Ridge Parkway|Pacific Coast Highway|Overseas Highway|Oregon Trail|Santa Fe Trail|Mormon Trail|Lewis and Clark Trail|Historic Columbia River Highway|Going-to-the-Sun Road|Beartooth Highway|Pony Express)"](area.us);out geom;`,
+  // Overpass-only: name patterns (osmium can only match exact names).
+  byway: `${US}relation["route"="road"]["name"~"Scenic Byway|Scenic Highway|Scenic Drive|All-American Road|Scenic Route|Scenic Loop|Byway$",i](area.us);out geom;`,
+  historic: `${US}relation["route"~"^(road|hiking|historic|foot|bicycle)$"]["name"~"^(Historic )?(Lincoln Highway|Dixie Highway|Santa Fe Trail|Santa Fe National Historic Trail|Oregon Trail|Oregon National Historic Trail|California Trail|California National Historic Trail|Mormon (Pioneer )?Trail|Mormon Pioneer National Historic Trail|Pony Express|Lewis (and|&) Clark|Trail of Tears|Old Spanish (Trail|National Historic Trail)|El Camino Real|Jefferson Highway|Yellowstone Trail|National Road|Historic National Road|Great River Road|Bankhead Highway|Lee Highway|Victory Highway|Arrow Highway|Meridian Highway|Atlantic Highway|Mohawk Trail|Natchez Trace)",i](area.us);out geom;`,
+  ship: `${US}nwr["historic"="ship"]["name"](area.us);out center tags;`,
+  preslib: `${US}nwr["name"~"Presidential (Library|Center|Museum)|Presidential Library|Presidential Site|Birthplace of President",i](area.us);out center tags;`,
   rivers: `${US}relation["waterway"="river"]["name"~"^(${RIVERS.join("|")})$"](area.us);out geom;`,
 };
 
@@ -93,6 +98,26 @@ const WD = {
   fort: base(`${ofClass("fort")} ?item wikibase:sitelinks ?sl . FILTER(?sl >= 1)`),
   battlefield: base(`${ofClass("battlefield")}`),
   waterfall: base(`?item wdt:P31/wdt:P279* wd:Q34038 .`),
+  // Byway names and states (most byways have no point on Wikidata); lines come from Overpass.
+  bywaynames: `
+SELECT DISTINCT ?item ?itemLabel ?stateLabel ?desLabel WHERE {
+  VALUES ?dl { "National Scenic Byway"@en "All-American Road"@en }
+  ?des rdfs:label ?dl .
+  { ?item wdt:P31 ?des } UNION { ?item wdt:P1435 ?des } .
+  OPTIONAL { ?item wdt:P131 ?state . }
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+}`,
+  preslib2: `
+SELECT DISTINCT ?item ?itemLabel ?coord ?links WHERE {
+  VALUES ?q { "presidential library" "presidential center" "presidential museum" "presidential library and museum" }
+  SERVICE wikibase:mwapi {
+    bd:serviceParam wikibase:endpoint "www.wikidata.org"; wikibase:api "EntitySearch"; mwapi:search ?q; mwapi:language "en"; mwapi:limit "50" .
+    ?item wikibase:apiOutputItem mwapi:item .
+  }
+  ?item wdt:P17 wd:Q30 ; wdt:P625 ?coord .
+  OPTIONAL { ?item wikibase:sitelinks ?links . }
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+}`,
 };
 
 const ENDPOINTS = [
