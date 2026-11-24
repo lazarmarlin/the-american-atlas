@@ -281,8 +281,11 @@ function AtlasShell() {
   const friendCode = (useSearch({ strict: false }) as { friend?: string }).friend;
   const navigate = useNavigate();
 
+  /** Saved places and trips have loaded (from the account, or the device when offline). */
+  const loadedRef = useRef(false);
   useEffect(() => {
     let dead = false;
+    loadedRef.current = false;
     const apply = (snap: { marks: Mark[]; trips: Trip[]; profile: Profile; pending: number }, badges = true) => {
       setMarks(snap.marks);
       setTrips(snap.trips);
@@ -300,6 +303,7 @@ function AtlasShell() {
         if (dead) return;
         if (remote) {
           apply(remote, false);
+          loadedRef.current = true;
           setOffline(false);
           maybeTour(remote);
           const rows = await listBadgeProgress().catch(() => badgeViewsFromMarks(remote.marks));
@@ -308,6 +312,7 @@ function AtlasShell() {
         }
         const local = await readVault();
         if (!dead) apply(local);
+        loadedRef.current = true;
       })
       .catch(async () => {
         if (dead) return;
@@ -315,6 +320,8 @@ function AtlasShell() {
         const local = await readVault().catch(() => null);
         if (!dead && local) apply(local);
         else if (!dead) setError("Your saved places didn't load.");
+        // Don't hold up tracking forever; a place that's already saved is still never re-added (add()).
+        loadedRef.current = !!local;
       });
     const onOnline = () => {
       setOffline(false);
@@ -542,7 +549,13 @@ function AtlasShell() {
     setAddedFlash(mark);
   }
 
+  /** Save a new place. Returns false if it was already saved or the save failed. */
   async function add(mark: Mark, quiet = false, visitedOn: string | null = null) {
+    // Already saved: saving it again would replace its visits with one new one.
+    if (marksRef.current.some((item) => item.id === mark.id)) {
+      if (!quiet) choose(marksRef.current.find((item) => item.id === mark.id) as Mark);
+      return false;
+    }
     const clean: Mark = {
       id: mark.id,
       name: mark.name,
@@ -559,15 +572,19 @@ function AtlasShell() {
       visits: [{ ...freshVisit(), visitedOn }],
     };
     setMarks((prev) => (prev.some((item) => item.id === clean.id) ? prev : [clean, ...prev]));
+    marksRef.current = [clean, ...marksRef.current];
     if (!quiet) choose(clean);
     try {
       await vaultSaveMark(clean);
       noteBadges(badgeViewsFromMarks([clean, ...marks.filter((item) => item.id !== clean.id)]));
       setPendingSync((await readVault()).pending);
-      noteTrip(clean.id);
+      await noteTrip(clean.id);
+      return true;
     } catch {
       setMarks((prev) => prev.filter((item) => item.id !== clean.id));
+      marksRef.current = marksRef.current.filter((item) => item.id !== clean.id);
       setError("Couldn't save that place.");
+      return false;
     }
   }
 
@@ -622,7 +639,7 @@ function AtlasShell() {
   const [sendPlace, setSendPlace] = useState<Mark | null>(null);
   const [fitTo, setFitTo] = useState<{ tick: number; points: [number, number][]; maxZoom: number } | null>(null);
 
-  function noteTrip(poiId: string) {
+  async function noteTrip(poiId: string) {
     const tripId = recordingRef.current;
     if (!tripId) return;
     const trip = tripsRef.current.find((item) => item.id === tripId);
@@ -630,7 +647,7 @@ function AtlasShell() {
     const stop = { id: `stop:${crypto.randomUUID()}`, poiId };
     tripsRef.current = tripsRef.current.map((item) => (item.id === tripId ? { ...item, stops: [...item.stops, stop] } : item));
     setTrips(tripsRef.current);
-    void vaultTripStop(tripId, poiId, true).catch(() => setError("Couldn't add that place to the trip."));
+    await vaultTripStop(tripId, poiId, true).catch(() => setError("Couldn't add that place to the trip."));
   }
 
   useEffect(() => {
@@ -665,19 +682,32 @@ function AtlasShell() {
       const visited: Mark[] = [];
       const found = await collectPassed(fix, atlas.states, saved, recordingRef.current ? visited : undefined);
       if (dead || (!found.length && !visited.length)) return;
+      // A fix read back from the phone's log keeps the day it was taken.
+      const day = fix.t && localDay(fix.t) !== localDay(Date.now()) ? localDay(fix.t) : null;
+      const added: Mark[] = [];
       for (const mark of found) {
         saved.add(mark.id);
-        await addRef.current(mark, true);
+        if (await addRef.current(mark, true, day)) added.push(mark);
       }
-      for (const mark of visited) noteTrip(mark.id);
-      if (!found.length) return;
-      const label = found.length === 1 ? `Added ${found[0]?.name}` : `Added ${found.length} places from the drive`;
+      for (const mark of visited) await noteTrip(mark.id);
+      if (!added.length) return;
+      const label = added.length === 1 ? `Added ${added[0]?.name}` : `Added ${added.length} places from the drive`;
       setPassedNote(label);
-      void notifyPlacesAdded(found);
+      void notifyPlacesAdded(added);
     }
 
+    let waited = 0;
     async function pump() {
       if (busy || dead) return;
+      // Not before saved places and trips have loaded, and a trip that was
+      // recording is recording again: otherwise places already saved look new
+      // and the trip misses its stops.
+      const resuming = tripsRef.current.some((trip) => trip.recording) && !recordingRef.current && waited < 50;
+      if (!loadedRef.current || resuming) {
+        waited += 1;
+        window.setTimeout(() => void pump(), 400);
+        return;
+      }
       const next = pending.shift();
       if (!next) return;
       busy = true;
