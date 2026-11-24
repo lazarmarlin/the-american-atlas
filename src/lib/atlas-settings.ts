@@ -33,6 +33,8 @@ type Saved = {
   stateBorder: string;
   countyColor: string;
   trackTravel: boolean;
+  /** Share location with picked friends while tracking is off (no places added). This device only. */
+  shareOnly: boolean;
   fastAdd: boolean;
   showParks: boolean;
   showTowns: boolean;
@@ -53,6 +55,7 @@ type Settings = Saved & {
   setStateBorder: (stateBorder: string) => void;
   setCountyColor: (countyColor: string) => void;
   setTrackTravel: (trackTravel: boolean) => void;
+  setShareOnly: (shareOnly: boolean) => void;
   setFastAdd: (fastAdd: boolean) => void;
   setShowParks: (showParks: boolean) => void;
   setShowTowns: (showTowns: boolean) => void;
@@ -74,6 +77,7 @@ const DEFAULTS: Saved = {
   stateBorder: "#f3f0e6",
   countyColor: "#e23d2b",
   trackTravel: false,
+  shareOnly: false,
   fastAdd: false,
   showParks: true,
   showTowns: true,
@@ -103,6 +107,7 @@ function readSaved(): Saved {
       stateBorder: typeof raw.stateBorder === "string" ? raw.stateBorder : DEFAULTS.stateBorder,
       countyColor: typeof raw.countyColor === "string" ? raw.countyColor : DEFAULTS.countyColor,
       trackTravel: raw.trackTravel === true,
+      shareOnly: raw.shareOnly === true,
       fastAdd: raw.fastAdd === true,
       showParks: raw.showParks !== false,
       showTowns: raw.showTowns !== false,
@@ -146,7 +151,7 @@ export function setSettingsOwner(userId: string) {
 
 /** Account-kept choices back to their defaults. Tracking and the location marker are left alone. */
 export function resetAccountChoices() {
-  const { trackTravel: _track, markerIcon: _icon, markerColor: _color, ...rest } = DEFAULTS;
+  const { trackTravel: _track, shareOnly: _share, markerIcon: _icon, markerColor: _color, ...rest } = DEFAULTS;
   useSettings.getState().apply(rest);
 }
 
@@ -167,6 +172,10 @@ export const useSettings = create<Settings>((set) => ({
   setTrackTravel: (trackTravel) => {
     write({ trackTravel });
     set({ trackTravel });
+  },
+  setShareOnly: (shareOnly) => {
+    write({ shareOnly });
+    set({ shareOnly });
   },
   setFastAdd: (fastAdd) => {
     write({ fastAdd });

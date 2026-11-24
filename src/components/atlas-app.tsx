@@ -33,7 +33,7 @@ import { choosePhotoPlace, loadParkShapes, matchPark } from "@/lib/park-photo";
 import { UpdatePrompt } from "@/components/update-prompt";
 import { RecapPanel } from "@/components/recap-panel";
 import { deviceId, flushDriveLog, localDay, logDrive, switchDriveLog } from "@/lib/drive-log";
-import { acceptFriend } from "@/lib/friends";
+import { acceptFriend, listFriends } from "@/lib/friends";
 import { useSettingsRoute } from "@/lib/settings-route";
 import { Tour } from "@/components/tour";
 import { BadgeIcon } from "@/components/badge-icon";
@@ -52,6 +52,7 @@ import { pushBack } from "@/lib/sheet-back";
 import { isMarkerColor, isMarkerIcon } from "@/lib/you-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
 import { nativeApp } from "@/lib/native";
+import { askNotifyOnce, notifyFriendLive } from "@/lib/live-notify";
 import { notifyPlacesAdded } from "@/lib/place-notifications";
 import { countyToMark } from "@/lib/counties";
 import { glyphUrl } from "@/lib/map-glyphs";
@@ -219,6 +220,12 @@ function AtlasShell() {
   const stateBorder = useSettings((s) => s.stateBorder);
   const countyColor = useSettings((s) => s.countyColor);
   const trackTravel = useSettings((s) => s.trackTravel);
+  const shareOnly = useSettings((s) => s.shareOnly);
+  const setShareOnly = useSettings((s) => s.setShareOnly);
+  const liveViewers = useLiveShare((s) => s.viewers);
+  // Location runs for tracking, or just to share it with picked friends.
+  const sharingOnly = !trackTravel && shareOnly && liveViewers.length > 0;
+  const locating = trackTravel || sharingOnly;
   const setTrackTravel = useSettings((s) => s.setTrackTravel);
   const fastAdd = useSettings((s) => s.fastAdd);
   const showParks = useSettings((s) => s.showParks);
@@ -580,9 +587,12 @@ function AtlasShell() {
   }
 
   useEffect(() => {
-    if (!trackTravel) return;
+    if (!locating) return;
+    // Sharing only: the position goes to friends, but no places are added and no miles logged.
+    const adding = trackTravel;
     if (!nativeApp && (typeof navigator === "undefined" || !navigator.geolocation)) {
       setTrackTravel(false);
+      setShareOnly(false);
       setError("This device can't share a location.");
       return;
     }
@@ -674,8 +684,9 @@ function AtlasShell() {
       const latest = fixes[fixes.length - 1];
       if (latest) paintTracker(latest, forceDot);
       useGhost.getState().record(fixes);
-      logDrive(fixes);
       shareLive();
+      if (!adding) return;
+      logDrive(fixes);
       shareCache();
       pending.push(...fixes);
       void pump();
@@ -688,6 +699,7 @@ function AtlasShell() {
           (err) => {
             if (dead || err.code !== 1) return;
             setTrackTravel(false);
+            setShareOnly(false);
             setError("Location is blocked. Allow it for The American Atlas, then turn tracking back on.");
           },
           { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 },
@@ -698,7 +710,9 @@ function AtlasShell() {
         void BackgroundGeolocation.start(
           {
             backgroundTitle: "The American Atlas",
-            backgroundMessage: "Adding towns, reservations, counties, roads, and places as you go.",
+            backgroundMessage: adding
+              ? "Adding towns, reservations, counties, roads, and places as you go."
+              : "Sharing your location with the friends you picked.",
             requestPermissions: true,
             stale: false,
             distanceFilter: 80,
@@ -708,6 +722,7 @@ function AtlasShell() {
             if (error) {
               if (error.code === "NOT_AUTHORIZED" || error.code === "PERMISSION_DENIED") {
                 setTrackTravel(false);
+                setShareOnly(false);
                 setError("Location is blocked. Allow it all the time for The American Atlas, then turn tracking back on.");
               }
               return;
@@ -729,8 +744,9 @@ function AtlasShell() {
           if (dead) return;
           paintTracker(fix, true);
           useGhost.getState().record([fix]);
-          logDrive([fix]);
           shareLive();
+          if (!adding) return;
+          logDrive([fix]);
           shareCache();
         })
         .catch(() => {});
@@ -755,7 +771,7 @@ function AtlasShell() {
       unsubLive();
       void clearLiveTrail({ data: { deviceId: deviceId() } }).catch(() => {});
     };
-  }, [setTrackTravel, trackTravel]);
+  }, [setTrackTravel, setShareOnly, trackTravel, locating]);
 
   async function remove(id: string) {
     const previous = marks;
@@ -1016,7 +1032,7 @@ function AtlasShell() {
     try {
       const fix = await readDeviceLocation();
       setYou(fix);
-      if (trackTravel) setTracker(fix);
+      if (locating) setTracker(fix);
       const rows = await placesNear(fix, meta.states);
       setNear(rows);
       setNearNote(rows.length ? null : "Nothing in the atlas within 80 miles.");
@@ -1246,24 +1262,66 @@ function AtlasShell() {
     setActiveTrip(live.id);
   }, [trips]);
 
+  // Friends sharing with me. Checked every 12 seconds while someone is live
+  // and the app is on screen, every 45 seconds otherwise, every 90 in the
+  // background. A friend who starts sharing gets a phone notification.
   useEffect(() => {
+    if (!user?.id) return;
     let dead = false;
+    let timer = 0;
+    let first = true;
+    let seen = new Set<string>();
+    let anyone = false;
+    const schedule = () => {
+      window.clearTimeout(timer);
+      if (dead) return;
+      const hidden = document.visibilityState === "hidden";
+      timer = window.setTimeout(pull, hidden ? 90_000 : anyone ? 12_000 : 45_000);
+    };
     const pull = () => {
       incomingLive()
         .then((rows) => {
-          if (!dead) setLivePins(rows);
+          if (dead) return;
+          setLivePins(rows);
+          anyone = rows.length > 0;
+          const now = new Set(rows.map((row) => row.id));
+          // Not on the first check: friends already live when the app opens show on the map.
+          if (!first) for (const row of rows) if (!seen.has(row.id)) void notifyFriendLive(row.name);
+          seen = now;
+          first = false;
         })
         .catch(() => {
           if (!dead) setLivePins([]);
-        });
+        })
+        .finally(schedule);
+    };
+    const onShow = () => {
+      if (document.visibilityState === "visible") pull();
     };
     pull();
-    const id = window.setInterval(pull, 12000);
+    document.addEventListener("visibilitychange", onShow);
     return () => {
       dead = true;
-      window.clearInterval(id);
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onShow);
     };
   }, [user?.id]);
+
+  // Anyone with friends is asked once for notifications, so "X is sharing their location" can reach them.
+  useEffect(() => {
+    if (!user?.id || !nativeApp) return;
+    void listFriends()
+      .then((rows) => {
+        if (rows.length) void askNotifyOnce();
+      })
+      .catch(() => {});
+  }, [user?.id]);
+
+  // Picking nobody turns "share without tracking" off, so picking someone later doesn't start it silently.
+  const liveLoaded = useLiveShare((s) => s.loaded);
+  useEffect(() => {
+    if (liveLoaded && shareOnly && !liveViewers.length) setShareOnly(false);
+  }, [liveLoaded, shareOnly, liveViewers.length, setShareOnly]);
 
   useEffect(() => {
     let dead = false;
@@ -1338,6 +1396,7 @@ function AtlasShell() {
       .then((friend) => {
         if (dead) return;
         setFriendNote(friend.already ? `You and ${friend.name} are already friends.` : `${friend.name} is a friend now.`);
+        void askNotifyOnce();
         setFriendId(friend.id);
         setTab("friends");
       })
@@ -1455,7 +1514,7 @@ function AtlasShell() {
               friendPins={shownPins}
               photoPins={photoPins}
               you={you}
-              dot={trackTravel ? (tracker ?? you) : you}
+              dot={locating ? (tracker ?? you) : you}
               onPress={() => {
                 if (mapCard) closeCard();
                 else setSheet(50);
@@ -1528,9 +1587,23 @@ function AtlasShell() {
           }}
           className="absolute bottom-3 left-3 z-10 flex h-11 items-center gap-2 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
         >
-          <span className={"ghost-dot size-2 rounded-full " + (trackTravel ? "is-live" : "opacity-60")} style={{ background: ghostColor }} />
+          <span className={"ghost-dot size-2 rounded-full " + (locating ? "is-live" : "opacity-60")} style={{ background: ghostColor }} />
           Ghost trail
         </button>
+        {locating && liveViewers.length ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (sheet > 8) setSheet(8);
+              setGhostOpen(true);
+            }}
+            aria-label={`Sharing your location with ${liveViewers.length} ${liveViewers.length === 1 ? "friend" : "friends"}. Open to change.`}
+            className="absolute bottom-3 left-[8.75rem] z-10 flex h-11 items-center gap-2 rounded-full border border-accent/60 bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+          >
+            <span className="size-2 animate-pulse rounded-full bg-accent" />
+            Live to {liveViewers.length}
+          </button>
+        ) : null}
         {friendLive || friendLines.length ? (
           <button
             type="button"

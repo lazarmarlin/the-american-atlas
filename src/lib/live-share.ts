@@ -190,15 +190,18 @@ export const pullLiveTrail = createServerFn({ method: "POST" })
 
 type LiveState = {
   viewers: string[];
+  /** The account's picks have been read (until then `viewers` is just empty). */
+  loaded: boolean;
   load: () => Promise<void>;
   toggle: (id: string) => Promise<void>;
 };
 
 export const useLiveShare = create<LiveState>((set, get) => ({
   viewers: [],
+  loaded: false,
   load: async () => {
     const row = await liveViewers();
-    set({ viewers: row.ids });
+    set({ viewers: row.ids, loaded: true });
   },
   toggle: async (id) => {
     const current = get().viewers;
