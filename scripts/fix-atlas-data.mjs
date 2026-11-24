@@ -297,6 +297,10 @@ for (const st of Object.keys(STATES)) {
 // everyday stops that number in the thousands are worth the least. Each rule
 // is safe to re-run: it maps both the old and the new values to the new ones.
 const big = (row, oldBig, newBig) => row.pts >= oldBig || row.pts === newBig;
+/** A National Park Service site by its name; kept in step with npsSite() in src/lib/place-kinds.ts. */
+const npsSite = (name) =>
+  /\bNational (Historic(al)? Site|Historical Park|Monument|Memorial|Battlefield( Park| Site)?|Military Park|Preserve|Recreation Area|Seashore|Lakeshore|Scenic River|River|Riverway|Reserve|Park)\b/.test(name) &&
+  !/visitor|center|centre|plaque|kiosk|terminus|museum|shrine|dedication|marker|sign\b|airport|lowe mill|entrance|peace and justice|distinguished flying|military ascent|hanson national|forefathers|silent heroes|memorial arch|soldiers. national|working dog|mays national|uss indianapolis|mckinley national/i.test(name);
 /** Added from OpenStreetMap / Wikidata by scripts/import-places.mjs (not the hand-picked starter list). */
 const imported = (row) => /:(node|way|rel)\d+$|:wdQ\d+$/.test(row.id);
 const POINTS = {
@@ -317,8 +321,10 @@ const POINTS = {
   lighthouse: () => 20,
   amusement: (row) => (big(row, 40, 20) ? 20 : 10),
   airport: (row) => (big(row, 50, 20) ? 20 : 10),
-  historic: () => 15,
-  museum: () => 15,
+  // A National Park Service site counts the same wherever it is filed (40, as
+  // battlefields and presidential sites do); other historic sites and museums 15.
+  historic: (row) => (npsSite(row.name) ? 40 : 15),
+  museum: (row) => (npsSite(row.name) ? 40 : 15),
   garden: () => 15,
   cemetery: () => 15,
   bridge: () => 15,
@@ -415,13 +421,19 @@ for (const bundle of Object.values(places)) {
   const kept = [];
   for (const reg of bundle.register ?? []) {
     const key = normName(reg.name);
+    // Some listings carry two names ("Nicodemus Historic District; Nicodemus
+    // National Historic Site"): either one can match.
+    const keys = [key, ...reg.name.split(";").map((part) => normName(part)).filter((k) => k && k !== key)];
     let match = null;
     if (reg.lat != null && reg.lon != null) {
-      for (const other of byName.get(key) ?? []) {
-        if (milesApart(reg, other.row) <= 0.75) {
-          match = other.row;
-          break;
+      for (const k of keys) {
+        for (const other of byName.get(k) ?? []) {
+          if (milesApart(reg, other.row) <= 0.75) {
+            match = other.row;
+            break;
+          }
         }
+        if (match) break;
       }
       // The same name plus only generic words, very close by ("Hammond
       // Castle" / "Hammond Castle Museum", "Bass Harbor Head Light" / "... Light Station").
