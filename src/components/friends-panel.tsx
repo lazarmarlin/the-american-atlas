@@ -19,7 +19,7 @@ import { friendPhotos, loadFriendPhoto, type PhotoInfo } from "@/lib/photos";
 import { ChatScreen, Sheet, type ChatPhoto, type ChatPlaceOption } from "@/components/friend-chat";
 import { useChat } from "@/lib/chat-store";
 import { createGroup, leaveGroup, listGroups, type ChatGroup } from "@/lib/chat-groups";
-import type { ChatPlace } from "@/lib/messages";
+import type { ChatPlace, Thread } from "@/lib/messages";
 import { reactionsOn, react, recentLikes, type Like } from "@/lib/reactions";
 import { pushBack } from "@/lib/sheet-back";
 import { type LiveFriend } from "@/lib/live-share";
@@ -60,6 +60,8 @@ export function FriendsPanel({
   onOpenPlace,
   onShowGroup,
   onShareLive,
+  resume = null,
+  onResumed,
 }: {
   openId: string | null;
   note: string | null;
@@ -71,7 +73,11 @@ export function FriendsPanel({
   meId: string;
   places: ChatPlaceOption[];
   onAddToMap: (photo: ChatPhoto, place: ChatPlaceOption) => Promise<void>;
-  onOpenPlace: (place: ChatPlace) => void;
+  /** Show a place from a chat; `from` is the chat to come back to. */
+  onOpenPlace: (place: ChatPlace, from?: Thread) => void;
+  /** A chat to reopen (coming back from a place shown on the map). */
+  resume?: Thread | null;
+  onResumed?: () => void;
   /** Fit the map to these friends' live dots; returns how many are sharing. */
   onShowGroup: (memberIds: string[]) => number;
   /** Share your live location with these friends; returns a note to show. */
@@ -252,6 +258,14 @@ export function FriendsPanel({
       dead = true;
     };
   }, [openId]);
+  // Back from a place someone sent: straight back into that conversation.
+  useEffect(() => {
+    if (!resume) return;
+    if (resume.kind === "group") setGroupId(resume.id);
+    else if (resume.id === openId) setChatOpen(true);
+    onResumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resume, openId]);
 
   async function sendLink() {
     if (!code) return;
@@ -390,7 +404,7 @@ export function FriendsPanel({
                 onAddToMap={onAddToMap}
                 onOpenPlace={(place) => {
                   setChatOpen(false);
-                  onOpenPlace(place);
+                  onOpenPlace(place, { kind: "friend", id: openId });
                 }}
               />
             ) : null}
@@ -616,9 +630,11 @@ export function FriendsPanel({
 
       {friends && friends.length > 0 ? (
         <div className="mt-6 px-2">
-          <button type="button" onClick={showLikes} className="flex h-11 w-full items-center justify-between gap-2 rounded-lg border border-line px-3 text-sm">
-            <span>Thumbs-up on your badges and check-ins</span>
-            {unread.likes ? <Count n={unread.likes} label="new" /> : <span className="text-faint">{likesOpen ? "Hide" : "Show"}</span>}
+          <h3 className="font-serif text-xl">Thumbs-up</h3>
+          <p className="mt-1 text-xs text-muted">Friends can give a 👍 to your badges and check-ins from your page. They show up here.</p>
+          <button type="button" onClick={showLikes} className="mt-2 flex h-11 w-full items-center justify-between gap-2 rounded-lg border border-line px-3 text-sm">
+            <span>{likesOpen ? "Hide" : "See who gave you a thumbs-up"}</span>
+            {unread.likes ? <Count n={unread.likes} label="new" /> : null}
           </button>
           {likesOpen ? (
             likes === null ? (
@@ -669,8 +685,9 @@ export function FriendsPanel({
           places={places}
           onAddToMap={onAddToMap}
           onOpenPlace={(place) => {
+            const from = { kind: "group" as const, id: openGroup.id };
             setGroupId(null);
-            onOpenPlace(place);
+            onOpenPlace(place, from);
           }}
         />
       ) : null}

@@ -18,6 +18,7 @@ import {
 import { useAtlas } from "@/lib/atlas-store";
 import { badgeViewsFromMarks, listBadgeProgress, type BadgeView } from "@/lib/badges";
 import { type Mark } from "@/lib/marks";
+import type { Thread } from "@/lib/messages";
 import { type Trip, type TripStop } from "@/lib/trips";
 import { fallbackBlurb, lookupPlace, mapsUrl, type PlaceBlurb } from "@/lib/place-info";
 import { categoryName, kindFor, kindVisible, placeKinds, tierForKind, tierForPlace } from "@/lib/place-kinds";
@@ -201,6 +202,9 @@ function AtlasShell() {
   const [sheet, setSheet] = useState(50);
   const [sheetInstant, setSheetInstant] = useState(false);
   const [mapCard, setMapCard] = useState(false);
+  /** A place opened from a chat: shown alone on the map; closing it goes back to the chat. */
+  const [spot, setSpot] = useState<{ id: string; lon: number; lat: number; from: Thread | null; sheet: number } | null>(null);
+  const [resumeChat, setResumeChat] = useState<Thread | null>(null);
   const [viewZoom, setViewZoom] = useState(3);
   const [viewBase, setViewBase] = useState<number | null>(null);
   const [hiddenKinds, setHiddenKinds] = useState<string[]>([]);
@@ -1278,6 +1282,20 @@ function AtlasShell() {
     return () => window.clearTimeout(timer);
   }, [pops]);
 
+  // The spotlit place's card closed: back into the chat it came from. Another place picked: just drop it.
+  useEffect(() => {
+    if (!spot || selected === spot.id) return;
+    setSpot(null);
+    if (selected === null && spot.from) {
+      setTab("friends");
+      setResumeChat(spot.from);
+      setSheetInstant(true);
+      setSheet(spot.sheet);
+      window.setTimeout(() => setSheetInstant(false), 80);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, spot]);
+
   const sheetBack = useRef<() => boolean>(() => false);
   sheetBack.current = () => {
     // A place card (from the list or the map) closes first, at any sheet height.
@@ -1705,6 +1723,7 @@ function AtlasShell() {
               }}
               homeTick={homeTick}
               fitTo={fitTo}
+              spotlight={spot}
               onAway={setMapAway}
               onView={(zoom, base) => {
                 setViewZoom(zoom);
@@ -2171,7 +2190,9 @@ function AtlasShell() {
                 lon: mark.lon,
                 visitedOn: [...mark.visits].map((visit) => visit.visitedOn).filter(Boolean).sort().at(-1) ?? null,
               }))}
-              onOpenPlace={(place) => {
+              resume={resumeChat}
+              onResumed={() => setResumeChat(null)}
+              onOpenPlace={(place, from) => {
                 const mark: Mark = marks.find((item) => item.id === place.id) ?? {
                   id: place.id,
                   name: place.name,
@@ -2187,9 +2208,11 @@ function AtlasShell() {
                   photo: "",
                   visits: [],
                 };
+                const lat = place.lat ?? mark.lat;
+                const lon = place.lon ?? mark.lon;
+                setSpot(lat != null && lon != null ? { id: mark.id, lat, lon, from: from ?? null, sheet } : null);
                 chooseState(place.state);
                 openFromMap(mark);
-                if (place.lat != null && place.lon != null) setFitTo((cur) => ({ tick: (cur?.tick ?? 0) + 1, points: [[place.lon as number, place.lat as number]], maxZoom: 9 }));
                 setSheetInstant(true);
                 setSheet(8);
                 window.setTimeout(() => setSheetInstant(false), 80);

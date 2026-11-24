@@ -315,7 +315,7 @@ export function ChatThread({
     <div className={fill ? "flex min-h-0 flex-1 flex-col" : "mt-4"}>
       {fill ? null : (
         <p className="px-2 text-sm text-muted">
-          {group ? "Everyone in this chat sees what you send." : "Text, a photo, a place, or a Google Photos link."} Hold a message for more.
+          {group ? "Everyone in this chat sees what you send." : "Text, a photo, a place, or a Google Photos link."} Hold a message for options.
         </p>
       )}
       <div ref={scroller} className={"flex flex-col gap-2 overflow-y-auto px-3 " + (fill ? "min-h-0 flex-1 py-3" : "mt-2 max-h-[46dvh]")}>
@@ -339,7 +339,7 @@ export function ChatThread({
                   event.preventDefault();
                   setMenu(row);
                 }}
-                className={"max-w-[85%] rounded-lg px-3 py-2 text-sm select-none " + (mine ? "bg-elevated" : "border border-line")}
+                className={"max-w-[78%] rounded-2xl px-3 py-1.5 text-[15px] leading-snug select-none " + (row.kind === "text" ? "" : "w-64 ") + (mine ? "rounded-br-md bg-elevated" : "rounded-bl-md border border-line")}
               >
                 {row.kind === "photo" && row.thumb ? (
                   <button type="button" onClick={() => view(row)} className="block w-full" aria-label="See the photo">
@@ -363,16 +363,13 @@ export function ChatThread({
                       {row.place.visitedOn ? ` · ${shortDate(row.place.visitedOn)}` : ""}
                     </span>
                     {onOpenPlace ? (
-                      <button type="button" onClick={() => onOpenPlace(row.place as ChatPlace)} className="mt-2 h-11 w-full rounded-lg border border-line text-sm">
+                      <button type="button" onClick={() => onOpenPlace(row.place as ChatPlace)} className="my-1.5 h-10 w-full rounded-lg border border-line text-sm">
                         Show on map
                       </button>
                     ) : null}
                   </div>
                 ) : null}
                 {row.kind === "text" ? <p className="break-words">{linkParts(row.body)}</p> : null}
-                <button type="button" aria-label="Message options" onClick={() => setMenu(row)} className="mt-0.5 h-8 px-1 text-xs text-faint">
-                  ···
-                </button>
               </div>
             </div>
           );
