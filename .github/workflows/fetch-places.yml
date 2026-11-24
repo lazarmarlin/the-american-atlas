@@ -1,0 +1,101 @@
+name: Fetch place data
+
+# Downloads raw OpenStreetMap / Wikidata place data for scripts/import-places.mjs
+# and uploads it as artifacts. Nothing is committed; the import runs locally.
+#  - osm:      one job per Geofabrik US region, filtered with osmium (no Overpass server needed)
+#  - wikidata: SPARQL queries (plus Overpass jobs when the OVERPASS_KEY secret is set
+#              and listed in .github/fetch-jobs)
+on:
+  workflow_dispatch:
+  push:
+    branches: ["data/fetch-places"]
+    paths: ["scripts/fetch-places.mjs", "scripts/osm-extract.mjs", ".github/workflows/fetch-places.yml", ".github/fetch-jobs"]
+
+jobs:
+  osm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        region: [us-midwest, us-northeast, us-pacific, us-south, us-west, us/alaska, us/hawaii]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install osmium
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq osmium-tool
+      - name: Download extract
+        run: curl -sSfL --retry 6 --retry-all-errors --retry-delay 30 -o region.osm.pbf "https://download.geofabrik.de/north-america/${{ matrix.region }}-latest.osm.pbf" && ls -lh region.osm.pbf
+      - name: Filter
+        run: |
+          osmium tags-filter region.osm.pbf \
+            nwr/craft=winery,distillery,spirits nwr/tourism=winery,attraction nwr/shop=winery nwr/industrial=distillery \
+            nwr/natural=cave_entrance,hot_spring,arch,volcano,geyser,dune,peak,waterfall,rock,stone,cliff nwr/show_cave \
+            nwr/historic=fort,battlefield,boundary_stone,castle nwr/amenity=cinema,university,ferry_terminal \
+            "nwr/cuisine=diner,diner;american,american;diner" nwr/waterway=waterfall nwr/mountain_pass=yes \
+            nwr/landuse=winter_sports w/covered=yes \
+            -o pois.osm.pbf --overwrite
+          osmium tags-filter region.osm.pbf r/boundary=administrative w/boundary=administrative w/highway=motorway,trunk,primary w/waterway=river \
+            -o lines.osm.pbf --overwrite
+          osmium tags-filter region.osm.pbf \
+            "r/name=Lincoln Highway,Dixie Highway,Great River Road,Jefferson Highway,Yellowstone Trail,Old Spanish Trail,National Road,Historic National Road,Lewis and Clark Trail,Santa Fe Trail,Oregon Trail,Mormon Trail,California Trail,Pony Express National Historic Trail,El Camino Real,Oregon National Historic Trail,Santa Fe National Historic Trail,California National Historic Trail,Mormon Pioneer National Historic Trail,Lewis and Clark National Historic Trail,Trail of Tears National Historic Trail" \
+            -o routes.osm.pbf --overwrite
+          osmium cat routes.osm.pbf -f opl -o routes.opl --overwrite
+          rm region.osm.pbf
+          osmium export pois.osm.pbf -f geojsonseq -a type,id -o pois.geojsonseq --overwrite
+          osmium export lines.osm.pbf -f geojsonseq -a type,id -o lines.geojsonseq --overwrite
+          ls -lh *.geojsonseq
+      - name: Extract
+        run: node --max-old-space-size=6000 scripts/osm-extract.mjs pois.geojsonseq lines.geojsonseq raw-places routes.opl
+      - name: Artifact name
+        id: name
+        run: echo "name=raw-osm-$(echo '${{ matrix.region }}' | tr '/' '-')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.name }}
+          path: raw-places
+          retention-days: 7
+
+  wikidata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch
+        env:
+          OVERPASS_KEY: ${{ secrets.OVERPASS_KEY }}
+          OUT_DIR: raw-places
+        run: node scripts/fetch-places.mjs $(cat .github/fetch-jobs 2>/dev/null)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: raw-wikidata
+          path: raw-places
+          retention-days: 7
+
+  # Artifacts can't be downloaded everywhere, so the results also go to the
+  # data/raw-places branch (raw data only; never merged).
+  collect:
+    needs: [osm, wikidata]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: raw
+      - name: Push to data/raw-places
+        run: |
+          cd raw
+          git init -q -b data/raw-places
+          git config user.name "atlas-data-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Raw place data from run ${{ github.run_id }}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data/raw-places

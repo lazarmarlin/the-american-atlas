@@ -544,6 +544,295 @@ function roadBend(g: CanvasRenderingContext2D, color: string) {
   g.stroke();
 }
 
+function riverCrossing(g: CanvasRenderingContext2D, color: string) {
+  g.fillRect(4, 11, 24, 3);
+  g.fillRect(8, 14, 2.4, 6);
+  g.fillRect(21.6, 14, 2.4, 6);
+  g.strokeStyle = color;
+  g.lineWidth = 2;
+  for (const y of [21, 26]) {
+    g.beginPath();
+    g.moveTo(4, y);
+    g.quadraticCurveTo(10, y - 4, 16, y);
+    g.quadraticCurveTo(22, y + 4, 28, y);
+    g.stroke();
+  }
+}
+
+function stateLine(g: CanvasRenderingContext2D) {
+  for (let y = 4; y < 28; y += 6) g.fillRect(15, y, 2, 4);
+  g.beginPath();
+  g.moveTo(4, 16);
+  g.lineTo(11, 11);
+  g.lineTo(11, 21);
+  g.closePath();
+  g.fill();
+  g.beginPath();
+  g.moveTo(28, 16);
+  g.lineTo(21, 11);
+  g.lineTo(21, 21);
+  g.closePath();
+  g.fill();
+}
+
+function rockArch(g: CanvasRenderingContext2D, color: string) {
+  g.strokeStyle = color;
+  g.lineWidth = 5;
+  g.beginPath();
+  g.moveTo(7, 27);
+  g.lineTo(7, 17);
+  g.quadraticCurveTo(16, 3, 25, 17);
+  g.lineTo(25, 27);
+  g.stroke();
+}
+
+function steam(g: CanvasRenderingContext2D, color: string) {
+  g.beginPath();
+  g.ellipse(16, 23, 11, 4.5, 0, 0, Math.PI * 2);
+  g.fill();
+  g.strokeStyle = color;
+  g.lineWidth = 2;
+  for (const x of [10, 16, 22]) {
+    g.beginPath();
+    g.moveTo(x, 17);
+    g.quadraticCurveTo(x - 3, 13, x, 10);
+    g.quadraticCurveTo(x + 3, 7, x, 4);
+    g.stroke();
+  }
+}
+
+function twinPeaks(g: CanvasRenderingContext2D) {
+  g.beginPath();
+  g.moveTo(3, 26);
+  g.lineTo(12, 9);
+  g.lineTo(16, 16);
+  g.lineTo(21, 5);
+  g.lineTo(29, 26);
+  g.closePath();
+  g.fill();
+}
+
+function passRoad(g: CanvasRenderingContext2D) {
+  g.beginPath();
+  g.moveTo(3, 22);
+  g.lineTo(10, 7);
+  g.lineTo(16, 15);
+  g.lineTo(22, 7);
+  g.lineTo(29, 22);
+  g.closePath();
+  g.fill();
+  g.fillRect(3, 24, 26, 3);
+}
+
+function damWall(g: CanvasRenderingContext2D, color: string) {
+  g.beginPath();
+  g.moveTo(13, 6);
+  g.lineTo(19, 6);
+  g.lineTo(26, 27);
+  g.lineTo(13, 27);
+  g.closePath();
+  g.fill();
+  g.strokeStyle = color;
+  g.lineWidth = 2;
+  for (const y of [11, 17, 23]) {
+    g.beginPath();
+    g.moveTo(3, y);
+    g.quadraticCurveTo(6, y - 2, 10, y);
+    g.stroke();
+  }
+}
+
+function lakeShape(g: CanvasRenderingContext2D) {
+  g.beginPath();
+  g.ellipse(16, 17, 12, 8, -0.2, 0, Math.PI * 2);
+  g.fill();
+  g.clearRect(10, 15, 7, 1.6);
+  g.clearRect(15, 19, 7, 1.6);
+}
+
+function shipHull(g: CanvasRenderingContext2D) {
+  g.beginPath();
+  g.moveTo(3, 19);
+  g.lineTo(29, 19);
+  g.lineTo(25, 26);
+  g.lineTo(7, 26);
+  g.closePath();
+  g.fill();
+  g.fillRect(10, 13, 12, 5);
+  g.fillRect(14, 8, 4, 5);
+  g.fillRect(19, 5, 1.6, 8);
+}
+
+function locomotive(g: CanvasRenderingContext2D) {
+  g.fillRect(4, 13, 16, 9);
+  g.fillRect(18, 8, 9, 14);
+  g.fillRect(7, 7, 4, 6);
+  for (const x of [8, 15, 23]) {
+    g.beginPath();
+    g.arc(x, 24, 3, 0, Math.PI * 2);
+    g.fill();
+  }
+}
+
+function planeOnStand(g: CanvasRenderingContext2D) {
+  g.save();
+  g.translate(16, 14);
+  g.scale(0.72, 0.72);
+  g.translate(-16, -16);
+  plane(g);
+  g.restore();
+  g.fillRect(15, 23, 2, 3);
+  g.fillRect(9, 26, 14, 2.4);
+}
+
+function rocket(g: CanvasRenderingContext2D) {
+  g.beginPath();
+  g.moveTo(16, 3);
+  g.quadraticCurveTo(22, 9, 21, 21);
+  g.lineTo(11, 21);
+  g.quadraticCurveTo(10, 9, 16, 3);
+  g.fill();
+  g.beginPath();
+  g.moveTo(11, 15);
+  g.lineTo(6, 24);
+  g.lineTo(11, 22);
+  g.fill();
+  g.beginPath();
+  g.moveTo(21, 15);
+  g.lineTo(26, 24);
+  g.lineTo(21, 22);
+  g.fill();
+  g.fillRect(13, 23, 6, 4);
+  g.clearRect(14.5, 10, 3, 3);
+}
+
+function observatoryDome(g: CanvasRenderingContext2D) {
+  g.beginPath();
+  g.arc(16, 18, 10, Math.PI, 0);
+  g.fill();
+  g.fillRect(6, 18, 20, 8);
+  g.clearRect(15, 8, 3, 10);
+  g.save();
+  g.translate(18, 11);
+  g.rotate(-0.7);
+  g.fillRect(-1.5, -9, 3.5, 9);
+  g.restore();
+}
+
+function compassRose(g: CanvasRenderingContext2D, color: string) {
+  g.strokeStyle = color;
+  g.lineWidth = 2;
+  g.beginPath();
+  g.arc(16, 16, 11, 0, Math.PI * 2);
+  g.stroke();
+  g.beginPath();
+  g.moveTo(16, 4);
+  g.lineTo(19, 16);
+  g.lineTo(16, 28);
+  g.lineTo(13, 16);
+  g.closePath();
+  g.fill();
+  g.beginPath();
+  g.moveTo(4, 16);
+  g.lineTo(16, 13.5);
+  g.lineTo(28, 16);
+  g.lineTo(16, 18.5);
+  g.closePath();
+  g.fill();
+}
+
+function ghostShape(g: CanvasRenderingContext2D) {
+  g.beginPath();
+  g.moveTo(7, 27);
+  g.lineTo(7, 14);
+  g.arc(16, 14, 9, Math.PI, 0);
+  g.lineTo(25, 27);
+  g.lineTo(22, 24);
+  g.lineTo(19, 27);
+  g.lineTo(16, 24);
+  g.lineTo(13, 27);
+  g.lineTo(10, 24);
+  g.closePath();
+  g.fill();
+  g.clearRect(11.5, 12, 3, 4);
+  g.clearRect(17.5, 12, 3, 4);
+}
+
+function heritageEmblem(g: CanvasRenderingContext2D, color: string) {
+  g.strokeStyle = color;
+  g.lineWidth = 2.2;
+  g.beginPath();
+  g.arc(16, 16, 11.5, 0, Math.PI * 2);
+  g.stroke();
+  g.beginPath();
+  g.moveTo(16, 7);
+  g.lineTo(25, 16);
+  g.lineTo(16, 25);
+  g.lineTo(7, 16);
+  g.closePath();
+  g.fill();
+}
+
+function snowflake(g: CanvasRenderingContext2D, color: string) {
+  g.strokeStyle = color;
+  g.lineWidth = 2.2;
+  g.lineCap = "round";
+  for (let i = 0; i < 3; i++) {
+    const a = (i * Math.PI) / 3;
+    g.beginPath();
+    g.moveTo(16 + Math.cos(a) * 12, 16 + Math.sin(a) * 12);
+    g.lineTo(16 - Math.cos(a) * 12, 16 - Math.sin(a) * 12);
+    g.stroke();
+  }
+  g.lineCap = "butt";
+}
+
+function mortarboard(g: CanvasRenderingContext2D) {
+  g.beginPath();
+  g.moveTo(16, 6);
+  g.lineTo(30, 13);
+  g.lineTo(16, 20);
+  g.lineTo(2, 13);
+  g.closePath();
+  g.fill();
+  g.fillRect(9, 16, 14, 7);
+  g.fillRect(26, 13, 1.6, 9);
+}
+
+function ferryBoat(g: CanvasRenderingContext2D, color: string) {
+  g.beginPath();
+  g.moveTo(4, 16);
+  g.lineTo(28, 16);
+  g.lineTo(25, 22);
+  g.lineTo(7, 22);
+  g.closePath();
+  g.fill();
+  g.fillRect(9, 10, 14, 5);
+  g.strokeStyle = color;
+  g.lineWidth = 2;
+  g.beginPath();
+  g.moveTo(3, 26);
+  g.quadraticCurveTo(9.5, 22, 16, 26);
+  g.quadraticCurveTo(22.5, 30, 29, 26);
+  g.stroke();
+}
+
+function tunnelPortal(g: CanvasRenderingContext2D) {
+  g.beginPath();
+  g.moveTo(3, 27);
+  g.lineTo(3, 15);
+  g.quadraticCurveTo(16, 0, 29, 15);
+  g.lineTo(29, 27);
+  g.lineTo(23, 27);
+  g.lineTo(23, 17);
+  g.quadraticCurveTo(16, 8, 9, 17);
+  g.lineTo(9, 27);
+  g.closePath();
+  g.fill();
+  g.fillRect(15, 21, 2, 3);
+  g.fillRect(15, 25.5, 2, 1.5);
+}
+
 function drawKind(g: CanvasRenderingContext2D, kind: string, color: string) {
   g.fillStyle = color;
   g.strokeStyle = color;
@@ -587,6 +876,26 @@ function drawKind(g: CanvasRenderingContext2D, kind: string, color: string) {
   else if (kind === "waterfall") falls(g);
   else if (kind === "cave") caveArch(g);
   else if (kind === "drive") roadBend(g, color);
+  else if (kind === "crossing") riverCrossing(g, color);
+  else if (kind === "stateline") stateLine(g);
+  else if (kind === "landmark") rockArch(g, color);
+  else if (kind === "hotspring") steam(g, color);
+  else if (kind === "peak") twinPeaks(g);
+  else if (kind === "pass") passRoad(g);
+  else if (kind === "dam") damWall(g, color);
+  else if (kind === "lake") lakeShape(g);
+  else if (kind === "ship") shipHull(g);
+  else if (kind === "railroad") locomotive(g);
+  else if (kind === "aviation") planeOnStand(g);
+  else if (kind === "space") rocket(g);
+  else if (kind === "observatory") observatoryDome(g);
+  else if (kind === "geo") compassRose(g, color);
+  else if (kind === "ghost") ghostShape(g);
+  else if (kind === "unesco") heritageEmblem(g, color);
+  else if (kind === "ski") snowflake(g, color);
+  else if (kind === "college") mortarboard(g);
+  else if (kind === "ferry") ferryBoat(g, color);
+  else if (kind === "tunnel") tunnelPortal(g);
   else diamond(g);
 }
 
