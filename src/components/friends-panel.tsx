@@ -16,6 +16,7 @@ import { formatMiles, trailLines, type GhostLines } from "@/lib/ghost-trail";
 import type { PackedPoint } from "@/lib/ghost-sync";
 import { apiOrigin, nativeApp } from "@/lib/native";
 import { friendPhotos, loadFriendPhoto, type PhotoInfo } from "@/lib/photos";
+import { FriendChat } from "@/components/friend-chat";
 import { type LiveFriend } from "@/lib/live-share";
 import { friendsLeaderboard, periodRange, type LeaderRow } from "@/lib/recap";
 
@@ -48,6 +49,9 @@ export function FriendsPanel({
   onClose,
   onShow,
   onWatch,
+  meId,
+  places,
+  onAddToMap,
 }: {
   openId: string | null;
   note: string | null;
@@ -56,6 +60,12 @@ export function FriendsPanel({
   onClose: () => void;
   onShow: (lines: GhostLines) => void;
   onWatch: (friend: { id: string; name: string }) => void;
+  meId: string;
+  places: { id: string; name: string; state?: string; lat: number | null; lon: number | null }[];
+  onAddToMap: (
+    photo: { thumb: string; image: string },
+    place: { id: string; name: string; state?: string; lat: number | null; lon: number | null },
+  ) => Promise<void>;
 }) {
   const [friends, setFriends] = useState<FriendRow[] | null>(null);
   const [code, setCode] = useState<string | null>(null);
@@ -78,7 +88,7 @@ export function FriendsPanel({
   const [shown, setShown] = useState<string | null>(null);
   const [shots, setShots] = useState<PhotoInfo[]>([]);
   const [bigShot, setBigShot] = useState<{ id: string; image: string | null; thumb: string } | null>(null);
-  const [part, setPart] = useState<"badges" | "photos" | "trails">("badges");
+  const [part, setPart] = useState<"chat" | "badges" | "photos" | "trails">("badges");
   const [board, setBoard] = useState<LeaderRow[] | null>(null);
   const month = periodRange("month");
 
@@ -244,6 +254,7 @@ export function FriendsPanel({
             <div className="mt-4 flex gap-1 px-2">
               {(
                 [
+                  ["chat", "Chat"],
                   ["badges", "Badges"],
                   ["photos", shots.length ? `Photos · ${shots.length}` : "Photos"],
                   ["trails", "Trails"],
@@ -262,6 +273,10 @@ export function FriendsPanel({
                 </button>
               ))}
             </div>
+
+            {part === "chat" && openId ? (
+              <FriendChat friendId={openId} meId={meId} places={places} onAddToMap={onAddToMap} />
+            ) : null}
 
             {part === "badges" ? (
               <>

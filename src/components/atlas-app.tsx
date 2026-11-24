@@ -2104,6 +2104,30 @@ function AtlasShell() {
                 setSheet(8);
                 window.setTimeout(() => setSheetInstant(false), 80);
               }}
+              meId={user?.id ?? ""}
+              places={marks.map((mark) => ({
+                id: mark.id,
+                name: mark.name,
+                state: mark.state,
+                lat: mark.lat,
+                lon: mark.lon,
+              }))}
+              onAddToMap={async (photo, place) => {
+                const id = `ph-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+                const row: PhotoInfo = {
+                  id,
+                  poiId: place.id,
+                  tripId: "",
+                  caption: "",
+                  takenAt: Date.now(),
+                  lat: place.lat,
+                  lon: place.lon,
+                  shared: false,
+                  thumb: photo.thumb,
+                };
+                await savePhoto({ data: { ...row, image: photo.image } });
+                setPhotos((prev) => [row, ...prev]);
+              }}
             />
           ) : null}
           {tab === "photos" ? (
