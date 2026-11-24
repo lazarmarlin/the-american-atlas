@@ -59,6 +59,8 @@ export function SettingsPage({
   const showParks = useSettings((s) => s.showParks);
   const showTowns = useSettings((s) => s.showTowns);
   const showReservations = useSettings((s) => s.showReservations);
+  const followState = useSettings((s) => s.followState);
+  const setFollowState = useSettings((s) => s.setFollowState);
   const showPhotos = useSettings((s) => s.showPhotos);
   const townColor = useSettings((s) => s.townColor);
   const reservationColor = useSettings((s) => s.reservationColor);
@@ -607,6 +609,22 @@ export function SettingsPage({
             </button>
           ))}
         </div>
+      </section>
+
+      <section className="mt-8">
+        <h2 className="font-serif text-2xl">Moving between states</h2>
+        <p className="mt-1 text-sm text-muted">
+          Zoomed in, tapping a neighboring state switches to it without zooming out. With this on, moving the map into
+          another state switches to it too.
+        </p>
+        <button
+          type="button"
+          aria-pressed={followState}
+          onClick={() => setFollowState(!followState)}
+          className={"mt-3 h-12 w-full rounded-lg border text-sm " + (followState ? "border-ink bg-elevated" : "border-line")}
+        >
+          {followState ? "Follow the map: on" : "Follow the map: off"}
+        </button>
       </section>
 
       <section className="mt-8">

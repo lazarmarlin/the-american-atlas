@@ -128,6 +128,7 @@ function pickSettings(state: AccountSettings): AccountSettings {
     showTowns: state.showTowns,
     showReservations: state.showReservations,
     showPhotos: state.showPhotos,
+    followState: state.followState,
     townColor: state.townColor,
     reservationColor: state.reservationColor,
     ghostHours: state.ghostHours,
@@ -231,6 +232,7 @@ function AtlasShell() {
   const showParks = useSettings((s) => s.showParks);
   const showTowns = useSettings((s) => s.showTowns);
   const showReservations = useSettings((s) => s.showReservations);
+  const followState = useSettings((s) => s.followState);
   const showPhotos = useSettings((s) => s.showPhotos);
   const townColor = useSettings((s) => s.townColor);
   const reservationColor = useSettings((s) => s.reservationColor);
@@ -1497,6 +1499,7 @@ function AtlasShell() {
               showParks={showParks}
               showTowns={showTowns}
               showReservations={showReservations}
+              followState={followState}
               townColor={townColor}
               reservationColor={reservationColor}
               markerIcon={markerIcon}
