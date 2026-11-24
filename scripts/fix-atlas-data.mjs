@@ -291,6 +291,143 @@ for (const st of Object.keys(STATES)) {
   for (const road of kept) roadPoint.set(road.id, road);
 }
 
+// ---------------------------------------------------------------- points
+// One scale for the whole atlas (see docs/points.md). Baseline: a county is 10.
+// Rare, hard-to-reach or nationally significant places are worth the most;
+// everyday stops that number in the thousands are worth the least. Each rule
+// is safe to re-run: it maps both the old and the new values to the new ones.
+const big = (row, oldBig, newBig) => row.pts >= oldBig || row.pts === newBig;
+const POINTS = {
+  highpoint: () => 50,
+  capitol: () => 40,
+  president: () => 40,
+  forest: () => 40,
+  seashore: () => 40,
+  battlefield: () => 40,
+  drive: () => 30,
+  cave: () => 25,
+  waterfall: () => 25,
+  refuge: () => 25,
+  fort: () => 25,
+  span: (row) => (big(row, 50, 30) ? 30 : 15),
+  zoo: () => 20,
+  lighthouse: () => 20,
+  amusement: (row) => (big(row, 40, 20) ? 20 : 10),
+  airport: (row) => (big(row, 50, 20) ? 20 : 10),
+  historic: () => 15,
+  museum: () => 15,
+  garden: () => 15,
+  cemetery: () => 15,
+  bridge: () => 15,
+  roadside: () => 15,
+  diner: () => 15,
+  drivein: () => 15,
+  // Historic districts and larger listings (30 before) 15, single buildings 10.
+  register: (row) => (row.pts === 30 || row.pts === 15 ? 15 : 10),
+  beach: () => 10,
+  stadium: () => 10,
+  brewery: () => 10,
+  winery: () => 10,
+  distillery: () => 10,
+  food: () => 10,
+  mall: () => 5,
+  market: () => 5,
+  chain: () => 5,
+};
+let repriced = 0;
+for (const bundle of Object.values(places)) {
+  for (const [cat, rows] of Object.entries(bundle)) {
+    const rule = POINTS[cat];
+    if (!rule) continue;
+    for (const row of rows) {
+      const next = rule(row);
+      if (row.pts !== next) {
+        row.pts = next;
+        repriced++;
+      }
+    }
+  }
+}
+if (repriced) note(`points: ${repriced} place(s) repriced`);
+
+// ---------------------------------------------------------------- register duplicates
+// A National Register listing that is already in the atlas under another
+// category (Fort Pulaski as a historic site, the Cannonball House as a
+// museum) is dropped, and the other entry is marked as listed, so it's one
+// pin, counted once, and its card says it's on the Register.
+const normName = (name) =>
+  name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/&/g, " and ")
+    .replace(/^the\s+/, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+const milesApart = (a, b) => {
+  const k = Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
+  return Math.hypot((a.lat - b.lat) * 69.05, (a.lon - b.lon) * 69.17 * k);
+};
+const GENERIC = new Set(
+  "museum house home mansion homestead castle station light lighthouse historic historical site park state national monument memorial district building center centre and of the farm".split(" "),
+);
+// Kept in src/lib so the server (marks.ts) and the app can both import it.
+const ALSO_FILE = path.join(ROOT, "src", "lib", "register-also.json");
+const also = {};
+let merged = 0;
+for (const bundle of Object.values(places)) {
+  const others = [];
+  for (const [cat, rows] of Object.entries(bundle)) {
+    // A town, county or store isn't the same thing as a listed building in it.
+    if (["register", "county", "town", "reservation", "chain", "market", "mall"].includes(cat)) continue;
+    for (const row of rows) if (row.lat != null && row.lon != null) others.push({ row, key: normName(row.name) });
+  }
+  const byName = new Map();
+  for (const other of others) {
+    const list = byName.get(other.key) ?? [];
+    list.push(other);
+    byName.set(other.key, list);
+  }
+  const kept = [];
+  for (const reg of bundle.register ?? []) {
+    const key = normName(reg.name);
+    let match = null;
+    if (reg.lat != null && reg.lon != null) {
+      for (const other of byName.get(key) ?? []) {
+        if (milesApart(reg, other.row) <= 0.75) {
+          match = other.row;
+          break;
+        }
+      }
+      // The same name plus only generic words, very close by ("Hammond
+      // Castle" / "Hammond Castle Museum", "Bass Harbor Head Light" / "... Light Station").
+      if (!match && key.length >= 8) {
+        for (const other of others) {
+          if (other.key.length < 8) continue;
+          const [short, long] = key.length <= other.key.length ? [key, other.key] : [other.key, key];
+          if (short === long || !long.startsWith(`${short} `)) continue;
+          const extra = long.slice(short.length).trim().split(" ");
+          if (!extra.every((word) => GENERIC.has(word))) continue;
+          if (milesApart(reg, other.row) <= 0.3) {
+            match = other.row;
+            break;
+          }
+        }
+      }
+    }
+    if (match) {
+      also[match.id] = reg.id;
+      merged++;
+    } else kept.push(reg);
+  }
+  if (bundle.register && kept.length !== bundle.register.length) bundle.register = kept;
+}
+// Earlier runs already removed their duplicates; keep what they found.
+const prevAlso = fs.existsSync(ALSO_FILE) ? readJson(ALSO_FILE) : {};
+const alsoAll = { ...prevAlso, ...also };
+if (merged) note(`register: ${merged} duplicate listing(s) merged into the existing place`);
+save(ALSO_FILE, Object.fromEntries(Object.entries(alsoAll).sort(([a], [b]) => (a < b ? -1 : 1))));
+
 // ---------------------------------------------------------------- write places + per-category copies
 for (const [st, bundle] of Object.entries(places)) {
   save(placeFile(st), bundle);

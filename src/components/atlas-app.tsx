@@ -5,6 +5,7 @@ import { useCurrentUser, useCurrentUserState } from "@/lib/auth/use-current-user
 import {
   loadMeta,
   loadPlaces,
+  loadRegisterAlso,
   loadRoads,
   placeMatches,
   refRank,
@@ -2742,6 +2743,7 @@ function Detail({
   const [which, setWhich] = useState(0);
   const [detailNote, setDetailNote] = useState<string | null>(null);
   const [addingPhoto, setAddingPhoto] = useState(false);
+  const [onRegister, setOnRegister] = useState(mark.category === "register");
   const visitKey = mark.visits.map((visit) => visit.id).join(",");
 
   useEffect(() => {
@@ -2749,6 +2751,19 @@ function Detail({
     setWhich((mark.visits.length ? mark.visits : [freshVisit()]).length - 1);
     setDetailNote(null);
   }, [mark.id, visitKey]);
+
+  useEffect(() => {
+    let dead = false;
+    setOnRegister(mark.category === "register");
+    if (mark.category !== "register") {
+      void loadRegisterAlso().then((also) => {
+        if (!dead && (also[mark.id] || Object.values(also).includes(mark.id))) setOnRegister(true);
+      });
+    }
+    return () => {
+      dead = true;
+    };
+  }, [mark.id, mark.category]);
 
   useEffect(() => {
     let dead = false;
@@ -2791,6 +2806,11 @@ function Detail({
             {mark.category} · {stateName}
           </p>
           <h2 className="truncate font-serif text-xl leading-tight">{mark.name}</h2>
+          {onRegister && mark.category !== "register" ? (
+            <p className="mt-1 inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-[11px] text-muted">
+              <span aria-hidden="true">🏛</span> Also on the National Register of Historic Places
+            </p>
+          ) : null}
         </div>
         <button type="button" onClick={onClose} className="h-11 shrink-0 rounded-lg border border-line bg-bg px-4 text-base font-medium">
           Close

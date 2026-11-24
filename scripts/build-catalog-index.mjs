@@ -40,6 +40,8 @@ const add = (category, state, sys, row) => {
 };
 
 const meta = readJson("meta.json");
+const ALSO = path.join(ROOT, "src", "lib", "register-also.json");
+const also = fs.existsSync(ALSO) ? JSON.parse(fs.readFileSync(ALSO, "utf8")) : {};
 for (const st of meta.states) {
   // Matches stateToMark() in src/lib/nearby.ts.
   add("state", st.abbr, "", { id: `state:${st.abbr}`, name: st.name, pts: 50 });
@@ -49,7 +51,12 @@ for (const st of meta.states) {
     if (category === "county") continue;
     // Matches placeToMark() in src/lib/nearby.ts.
     const sys = category === "drive" ? "PK" : "";
-    for (const row of rows) add(category, st.abbr, sys, row);
+    for (const row of rows) {
+      add(category, st.abbr, sys, row);
+      // A Register listing merged into this place (scripts/fix-atlas-data.mjs)
+      // still resolves, to this place, for anyone who saved it before.
+      if (also[row.id]) add(category, st.abbr, sys, { ...row, id: also[row.id] });
+    }
   }
 
   // Matches countyToMark() in src/lib/counties.ts (always 10 points).
