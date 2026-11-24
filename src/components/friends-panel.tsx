@@ -16,7 +16,12 @@ import { formatMiles, trailLines, type GhostLines } from "@/lib/ghost-trail";
 import type { PackedPoint } from "@/lib/ghost-sync";
 import { apiOrigin, nativeApp } from "@/lib/native";
 import { friendPhotos, loadFriendPhoto, type PhotoInfo } from "@/lib/photos";
-import { FriendChat } from "@/components/friend-chat";
+import { ChatThread, Sheet, type ChatPhoto, type ChatPlaceOption } from "@/components/friend-chat";
+import { useChat } from "@/lib/chat-store";
+import { createGroup, leaveGroup, listGroups, type ChatGroup } from "@/lib/chat-groups";
+import type { ChatPlace } from "@/lib/messages";
+import { reactionsOn, react, recentLikes, type Like } from "@/lib/reactions";
+import { pushBack } from "@/lib/sheet-back";
 import { type LiveFriend } from "@/lib/live-share";
 import { friendsLeaderboard, periodRange, type LeaderRow } from "@/lib/recap";
 
@@ -52,6 +57,9 @@ export function FriendsPanel({
   meId,
   places,
   onAddToMap,
+  onOpenPlace,
+  onShowGroup,
+  onShareLive,
 }: {
   openId: string | null;
   note: string | null;
@@ -61,11 +69,13 @@ export function FriendsPanel({
   onShow: (lines: GhostLines) => void;
   onWatch: (friend: { id: string; name: string }) => void;
   meId: string;
-  places: { id: string; name: string; state?: string; lat: number | null; lon: number | null }[];
-  onAddToMap: (
-    photo: { thumb: string; image: string },
-    place: { id: string; name: string; state?: string; lat: number | null; lon: number | null },
-  ) => Promise<void>;
+  places: ChatPlaceOption[];
+  onAddToMap: (photo: ChatPhoto, place: ChatPlaceOption) => Promise<void>;
+  onOpenPlace: (place: ChatPlace) => void;
+  /** Fit the map to these friends' live dots; returns how many are sharing. */
+  onShowGroup: (memberIds: string[]) => number;
+  /** Share your live location with these friends; returns a note to show. */
+  onShareLive: (memberIds: string[]) => Promise<string>;
 }) {
   const [friends, setFriends] = useState<FriendRow[] | null>(null);
   const [code, setCode] = useState<string | null>(null);
@@ -89,6 +99,83 @@ export function FriendsPanel({
   const [shots, setShots] = useState<PhotoInfo[]>([]);
   const [bigShot, setBigShot] = useState<{ id: string; image: string | null; thumb: string } | null>(null);
   const [part, setPart] = useState<"chat" | "badges" | "photos" | "trails">("badges");
+  const unread = useChat((state) => state.summary);
+  const [groups, setGroups] = useState<ChatGroup[] | null>(null);
+  const [groupId, setGroupId] = useState<string | null>(null);
+  const [making, setMaking] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const [groupPick, setGroupPick] = useState<string[]>([]);
+  const [groupNote, setGroupNote] = useState<string | null>(null);
+  const [leaving, setLeaving] = useState(false);
+  const [likes, setLikes] = useState<Like[] | null>(null);
+  const [likesOpen, setLikesOpen] = useState(false);
+  const [thumbs, setThumbs] = useState<Map<string, { count: number; mine: boolean }>>(new Map());
+  const openGroup = groups?.find((g) => g.id === groupId) ?? null;
+
+  function loadGroups() {
+    listGroups()
+      .then(setGroups)
+      .catch(() => setGroups([]));
+  }
+  useEffect(loadGroups, []);
+  // Back closes an open group chat (and the new-chat form).
+  useEffect(() => {
+    if (!groupId && !making) return;
+    return pushBack(() => {
+      if (making) setMaking(false);
+      else setGroupId(null);
+      setLeaving(false);
+      setGroupNote(null);
+      return true;
+    });
+  }, [groupId, making]);
+
+  async function makeGroup() {
+    setGroupNote(null);
+    try {
+      const { id } = await createGroup({ data: { name: groupName, members: groupPick } });
+      setMaking(false);
+      setGroupName("");
+      setGroupPick([]);
+      const rows = await listGroups();
+      setGroups(rows);
+      setGroupId(id);
+    } catch (err) {
+      setGroupNote(err instanceof Error ? err.message : "Couldn't make that chat.");
+    }
+  }
+
+  async function leave(id: string) {
+    try {
+      await leaveGroup({ data: { id } });
+      setGroupId(null);
+      setLeaving(false);
+      loadGroups();
+    } catch (err) {
+      setGroupNote(err instanceof Error ? err.message : "Couldn't leave.");
+    }
+  }
+
+  async function thumb(ownerId: string, target: string) {
+    const cur = thumbs.get(target) ?? { count: 0, mine: false };
+    const next = { count: cur.count + (cur.mine ? -1 : 1), mine: !cur.mine };
+    setThumbs((m) => new Map(m).set(target, next));
+    try {
+      await react({ data: { ownerId, target, on: next.mine } });
+    } catch {
+      setThumbs((m) => new Map(m).set(target, cur));
+    }
+  }
+
+  function showLikes() {
+    setLikesOpen((open) => !open);
+    recentLikes()
+      .then((rows) => {
+        setLikes(rows);
+        void useChat.getState().refresh();
+      })
+      .catch(() => setLikes([]));
+  }
   const [board, setBoard] = useState<LeaderRow[] | null>(null);
   const month = periodRange("month");
 
@@ -135,8 +222,15 @@ export function FriendsPanel({
     setPage(null);
     setShots([]);
     setBigShot(null);
-    setPart("badges");
+    // Something new from them: open on the chat.
+    setPart(useChat.getState().summary.friends[openId] ? "chat" : "badges");
     setError(null);
+    setThumbs(new Map());
+    reactionsOn({ data: { ownerId: openId } })
+      .then((rows) => {
+        if (!dead) setThumbs(new Map(rows.map((row) => [row.target, { count: row.count, mine: row.mine }])));
+      })
+      .catch(() => {});
     loadFriend({ data: { id: openId } })
       .then((next) => {
         if (!dead) setPage(next);
@@ -254,7 +348,7 @@ export function FriendsPanel({
             <div className="mt-4 flex gap-1 px-2">
               {(
                 [
-                  ["chat", "Chat"],
+                  ["chat", unread.friends[page.id] ? `Chat · ${unread.friends[page.id]}` : "Chat"],
                   ["badges", "Badges"],
                   ["photos", shots.length ? `Photos · ${shots.length}` : "Photos"],
                   ["trails", "Trails"],
@@ -275,21 +369,41 @@ export function FriendsPanel({
             </div>
 
             {part === "chat" && openId ? (
-              <FriendChat friendId={openId} meId={meId} places={places} onAddToMap={onAddToMap} />
+              <ChatThread thread={{ kind: "friend", id: openId }} meId={meId} places={places} onAddToMap={onAddToMap} onOpenPlace={onOpenPlace} />
             ) : null}
 
             {part === "badges" ? (
               <>
+            {page.recent?.length ? (
+              <>
+                <h3 className="mt-5 px-2 font-serif text-xl">Recent check-ins</h3>
+                <ul className="mt-2 grid gap-2">
+                  {page.recent.map((visit) => (
+                    <li key={visit.target} className="flex items-center gap-2 rounded-lg border border-line px-3 py-2">
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm">{visit.name}</span>
+                        <span className="block text-xs text-faint">
+                          {visit.state} · {visit.points} pts ·{" "}
+                          {new Date(`${visit.visitedOn}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                        </span>
+                      </span>
+                      <Thumb state={thumbs.get(visit.target)} onClick={() => void thumb(page.id, visit.target)} />
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
             <h3 className="mt-5 px-2 font-serif text-xl">Badges</h3>
             {page.badges.length ? (
               <ul className="mt-2 grid gap-2">
                 {page.badges.map((badge: FriendBadge) => (
                   <li key={badge.id} className="flex items-center gap-2 rounded-lg border border-line px-3 py-2">
                     <BadgeIcon group={badge.group} earned />
-                    <span>
+                    <span className="min-w-0 flex-1">
                       <span className="block text-sm">{badge.name}</span>
                       <span className="block text-xs text-faint">{badge.detail}</span>
                     </span>
+                    <Thumb state={thumbs.get(`badge:${badge.id}`)} onClick={() => void thumb(page.id, `badge:${badge.id}`)} />
                   </li>
                 ))}
               </ul>
@@ -386,6 +500,59 @@ export function FriendsPanel({
     );
   }
 
+  if (openGroup) {
+    const others = openGroup.members.filter((m) => m.id !== meId);
+    return (
+      <div className="px-2 pb-4">
+        <button type="button" onClick={() => setGroupId(null)} className="h-11 px-2 text-sm text-muted">
+          All friends
+        </button>
+        <div className="px-2">
+          <h2 className="font-serif text-2xl leading-tight">{openGroup.name}</h2>
+          <p className="text-sm text-muted">{openGroup.members.map((m) => m.name).join(", ")}</p>
+        </div>
+        <div className="mt-3 flex gap-2 px-2">
+          <button
+            type="button"
+            onClick={() => {
+              const n = onShowGroup(others.map((m) => m.id));
+              setGroupNote(n ? `Showing ${n} on the map.` : "Nobody in this chat is sharing a live location with you right now.");
+            }}
+            className="h-11 flex-1 rounded-lg border border-line text-sm"
+          >
+            Everyone on the map
+          </button>
+          <button
+            type="button"
+            onClick={() => void onShareLive(others.map((m) => m.id)).then(setGroupNote)}
+            className="h-11 flex-1 rounded-lg border border-line text-sm"
+          >
+            Share my location
+          </button>
+        </div>
+        {groupNote ? <p className="mt-2 px-2 text-sm text-muted">{groupNote}</p> : null}
+        <ChatThread thread={{ kind: "group", id: openGroup.id }} meId={meId} places={places} onAddToMap={onAddToMap} onOpenPlace={onOpenPlace} />
+        {leaving ? (
+          <div className="mt-4 rounded-lg border border-line bg-bg px-3 py-3">
+            <p className="text-sm">Leave {openGroup.name}? You won't see its messages any more.</p>
+            <div className="mt-2 flex gap-2">
+              <button type="button" onClick={() => void leave(openGroup.id)} className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm">
+                Leave
+              </button>
+              <button type="button" onClick={() => setLeaving(false)} className="h-11 flex-1 rounded-lg border border-line text-sm">
+                Stay
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" onClick={() => setLeaving(true)} className="mt-4 h-11 w-full rounded-lg border border-line text-sm text-muted">
+            Leave this chat
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="px-2 pb-4">
       <div className="px-2">
@@ -434,18 +601,110 @@ export function FriendsPanel({
             <li key={friend.id}>
               <button type="button" onClick={() => onOpen(friend.id)} className="flex w-full items-center gap-3 rounded-lg border border-line px-3 py-2 text-left">
                 <Face name={friend.name} photo={friend.photo} />
-                <span>
+                <span className="min-w-0 flex-1">
                   <span className="block text-sm">{friend.name}</span>
                   <span className="block text-xs text-faint">
                     {liveNow.some((row) => row.id === friend.id) ? "Live trail · " : ""}
                     {friend.trails} {friend.trails === 1 ? "shared trail" : "shared trails"}
                   </span>
                 </span>
+                {unread.friends[friend.id] ? <Count n={unread.friends[friend.id] ?? 0} label="new messages" /> : null}
               </button>
             </li>
           ))}
         </ul>
       )}
+
+      {friends && friends.length > 0 ? (
+        <div className="mt-6 px-2">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="font-serif text-xl">Trip chats</h3>
+            <button type="button" onClick={() => setMaking(true)} className="h-11 rounded-lg border border-line px-3 text-sm">
+              New chat
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-muted">A group conversation with friends you pick, with everyone's live dots on one map.</p>
+          {groups?.length ? (
+            <ul className="mt-2 grid gap-2">
+              {groups.map((g) => (
+                <li key={g.id}>
+                  <button type="button" onClick={() => setGroupId(g.id)} className="flex w-full items-center gap-3 rounded-lg border border-line px-3 py-2 text-left">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm">{g.name}</span>
+                      <span className="block truncate text-xs text-faint">{g.members.map((m) => m.name).join(", ")}</span>
+                    </span>
+                    {unread.groups[g.id] ? <Count n={unread.groups[g.id] ?? 0} label="new messages" /> : null}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
+      {friends && friends.length > 0 ? (
+        <div className="mt-6 px-2">
+          <button type="button" onClick={showLikes} className="flex h-11 w-full items-center justify-between gap-2 rounded-lg border border-line px-3 text-sm">
+            <span>Thumbs-up on your badges and check-ins</span>
+            {unread.likes ? <Count n={unread.likes} label="new" /> : <span className="text-faint">{likesOpen ? "Hide" : "Show"}</span>}
+          </button>
+          {likesOpen ? (
+            likes === null ? (
+              <p className="mt-2 text-sm text-muted">Loading…</p>
+            ) : likes.length ? (
+              <ul className="mt-2 grid gap-1">
+                {likes.map((like) => (
+                  <li key={`${like.fromId}:${like.target}`} className="rounded-lg border border-line px-3 py-2 text-sm">
+                    👍 <span className="text-ink">{like.from}</span> <span className="text-muted">liked {like.label}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm text-muted">None yet.</p>
+            )
+          ) : null}
+        </div>
+      ) : null}
+
+      {making ? (
+        <Sheet label="New trip chat" onClose={() => setMaking(false)}>
+          <input
+            autoFocus
+            value={groupName}
+            onChange={(event) => setGroupName(event.target.value.slice(0, 60))}
+            placeholder="Name it (Route 66 trip)"
+            className="h-11 w-full rounded-lg border border-line bg-bg px-3 text-sm text-ink outline-none"
+          />
+          <ul className="mt-2 grid max-h-56 gap-1 overflow-y-auto">
+            {(friends ?? []).map((friend) => {
+              const on = groupPick.includes(friend.id);
+              return (
+                <li key={friend.id}>
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={on}
+                    onClick={() => setGroupPick((cur) => (on ? cur.filter((id) => id !== friend.id) : [...cur, friend.id]))}
+                    className={"flex h-11 w-full items-center gap-3 rounded-lg border px-3 text-sm " + (on ? "border-ink bg-elevated" : "border-line")}
+                  >
+                    <span className={"grid size-5 place-items-center rounded border text-xs " + (on ? "border-ink" : "border-line")}>{on ? "✓" : ""}</span>
+                    <span className="truncate">{friend.name}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {groupNote ? <p className="mt-2 text-sm text-accent">{groupNote}</p> : null}
+          <button
+            type="button"
+            disabled={!groupName.trim() || !groupPick.length}
+            onClick={() => void makeGroup()}
+            className="mt-2 h-11 w-full rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
+          >
+            Start chat
+          </button>
+        </Sheet>
+      ) : null}
 
       {friends && friends.length > 0 && board && board.length > 1 ? (
         <div className="mt-6 px-2">
@@ -472,5 +731,28 @@ export function FriendsPanel({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function Count({ n, label }: { n: number; label: string }) {
+  return (
+    <span aria-label={`${n} ${label}`} className="grid h-6 min-w-6 shrink-0 place-items-center rounded-full bg-accent px-1.5 text-xs font-medium text-accent-ink">
+      {n > 99 ? "99+" : n}
+    </span>
+  );
+}
+
+function Thumb({ state, onClick }: { state?: { count: number; mine: boolean }; onClick: () => void }) {
+  const mine = state?.mine ?? false;
+  return (
+    <button
+      type="button"
+      aria-pressed={mine}
+      aria-label={mine ? "Take back your thumbs-up" : "Thumbs-up"}
+      onClick={onClick}
+      className={"flex h-11 shrink-0 items-center gap-1 rounded-lg border px-3 text-sm " + (mine ? "border-ink bg-elevated" : "border-line text-muted")}
+    >
+      👍{state?.count ? <span className="text-xs">{state.count}</span> : null}
+    </button>
   );
 }

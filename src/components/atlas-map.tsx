@@ -70,6 +70,8 @@ type Props = {
   onView: (zoom: number, base: number | null) => void;
   /** Bumped to fly back out to the whole country (Android back). */
   homeTick?: number;
+  /** Fit the view to these points ([lon, lat]) each time the tick changes. */
+  fitTo?: { tick: number; points: [number, number][]; maxZoom: number } | null;
   /** Whether the map is zoomed in past the whole-country view. */
   onAway?: (away: boolean) => void;
 };
@@ -231,6 +233,7 @@ export function AtlasMap({
   onFriend,
   onView,
   homeTick = 0,
+  fitTo = null,
   onAway,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
@@ -1225,6 +1228,21 @@ export function AtlasMap({
     if (!ready || !map) return;
     applyFilters(map);
   }, [hiddenKinds, ready]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map || !fitTo?.points.length) return;
+    const xs = fitTo.points.map((p) => p[0]);
+    const ys = fitTo.points.map((p) => p[1]);
+    map.fitBounds(
+      [
+        [Math.min(...xs), Math.min(...ys)],
+        [Math.max(...xs), Math.max(...ys)],
+      ],
+      { padding: 60, maxZoom: fitTo.maxZoom, duration: duration() },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitTo?.tick, ready]);
 
   useEffect(() => {
     const map = mapRef.current;
