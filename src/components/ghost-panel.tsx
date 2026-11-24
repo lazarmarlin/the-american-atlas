@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { GHOST_COLORS } from "@/lib/atlas-settings";
+import { GHOST_COLORS, useSettings } from "@/lib/atlas-settings";
+import { requestTrackingPermission } from "@/lib/background-location";
+import { nativeApp } from "@/lib/native";
+import { askBatteryUnrestricted, batteryUnrestricted } from "@/lib/power";
 import { formatMiles, freshPoints, suggestTrailName, trailMiles, useGhost } from "@/lib/ghost-trail";
 import { listFriends, type FriendRow } from "@/lib/friends";
 import { MAX_LIVE_FRIENDS, useLiveShare } from "@/lib/live-share";
@@ -284,6 +287,31 @@ export function GhostPanel({
 
 function LiveFriends() {
   const viewers = useLiveShare((s) => s.viewers);
+  const tracking = useSettings((s) => s.trackTravel);
+  const shareOnly = useSettings((s) => s.shareOnly);
+  const setShareOnly = useSettings((s) => s.setShareOnly);
+  const [unrestricted, setUnrestricted] = useState(true);
+  const live = viewers.length > 0 && (tracking || shareOnly);
+
+  // Re-check the battery setting whenever the app comes back (after Android's prompt).
+  useEffect(() => {
+    const check = () => void batteryUnrestricted().then(setUnrestricted);
+    check();
+    document.addEventListener("visibilitychange", check);
+    return () => document.removeEventListener("visibilitychange", check);
+  }, []);
+
+  async function startSharing() {
+    setNote(null);
+    if (nativeApp) {
+      const result = await requestTrackingPermission();
+      if (result === "denied") {
+        setNote("Allow location all the time, then try again.");
+        return;
+      }
+    }
+    setShareOnly(true);
+  }
   const load = useLiveShare((s) => s.load);
   const toggle = useLiveShare((s) => s.toggle);
   const [friends, setFriends] = useState<FriendRow[] | null>(null);
@@ -317,12 +345,54 @@ function LiveFriends() {
     <div className="mt-5">
       <h3 className="font-serif text-xl">Live with friends</h3>
       <p className="mt-1 text-xs text-muted">
-        Pick up to {MAX_LIVE_FRIENDS}. While tracking is on, your marker shows on their map right away, even if you
-        haven't moved. It drops off a few minutes after you stop. Saving the trail is separate and isn't required.
+        Pick up to {MAX_LIVE_FRIENDS}. They see your marker and trail while tracking is on, or while you share your
+        location without tracking. They get a notification when you start. It drops off a few minutes after you stop.
       </p>
-      <p className="mt-2 text-sm text-muted">
-        {viewers.length} of {MAX_LIVE_FRIENDS}
+      <p className="mt-2 text-sm">
+        {live ? (
+          <span className="text-ink">● Live now to {viewers.length} {viewers.length === 1 ? "friend" : "friends"}</span>
+        ) : (
+          <span className="text-muted">
+            {viewers.length} of {MAX_LIVE_FRIENDS} picked{viewers.length ? " · not sharing right now" : ""}
+          </span>
+        )}
       </p>
+      {viewers.length && !tracking ? (
+        shareOnly ? (
+          <button
+            type="button"
+            onClick={() => setShareOnly(false)}
+            className="mt-2 h-11 w-full rounded-lg border border-ink bg-elevated text-sm"
+          >
+            Stop sharing my location
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => void startSharing()}
+              className="mt-2 h-11 w-full rounded-lg border border-ink bg-elevated text-sm"
+            >
+              Share my location without tracking
+            </button>
+            <p className="mt-1 text-xs text-faint">Only sends where you are. Nothing is added to your atlas.</p>
+          </>
+        )
+      ) : null}
+      {live && !unrestricted ? (
+        <div className="mt-2 rounded-lg border border-line px-3 py-2">
+          <p className="text-xs text-muted">
+            Android may pause your location with the screen off, and friends would lose you after a few minutes.
+          </p>
+          <button
+            type="button"
+            onClick={() => void askBatteryUnrestricted()}
+            className="mt-2 h-11 w-full rounded-lg border border-line text-sm"
+          >
+            Keep sharing with the screen off
+          </button>
+        </div>
+      ) : null}
       {note ? <p className="mt-1 text-sm text-accent">{note}</p> : null}
       {friends === null ? (
         <p className="mt-2 text-sm text-muted">Loading friends…</p>

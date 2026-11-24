@@ -1,0 +1,60 @@
+/**
+ * Phone notification when a friend starts sharing their location with you
+ * (Android app). It comes from the app checking while it's running, including
+ * in the background while tracking or sharing keeps it awake; with the app
+ * fully closed there's nothing to check, so no notification.
+ */
+import { nativeApp } from "@/lib/native";
+
+const CHANNEL_ID = "friends-live";
+const ASKED_KEY = "atlas.notify-asked";
+let channelReady: Promise<void> | null = null;
+
+async function plugin() {
+  const { LocalNotifications } = await import("@capacitor/local-notifications");
+  channelReady ??= LocalNotifications.createChannel({
+    id: CHANNEL_ID,
+    name: "Friends sharing location",
+    description: "When a friend starts sharing their location with you.",
+    importance: 4,
+  }).catch(() => {});
+  await channelReady;
+  return LocalNotifications;
+}
+
+/** Ask once for notification permission, when someone has friends. */
+export async function askNotifyOnce() {
+  if (!nativeApp) return;
+  try {
+    if (localStorage.getItem(ASKED_KEY)) return;
+    localStorage.setItem(ASKED_KEY, "1");
+    const LocalNotifications = await plugin();
+    const { display } = await LocalNotifications.checkPermissions();
+    if (display !== "granted") await LocalNotifications.requestPermissions();
+  } catch {
+    /* no notifications, then */
+  }
+}
+
+export async function notifyFriendLive(name: string) {
+  if (!nativeApp) return;
+  try {
+    const LocalNotifications = await plugin();
+    const { display } = await LocalNotifications.checkPermissions();
+    if (display !== "granted") return;
+    await LocalNotifications.schedule({
+      notifications: [
+        {
+          id: Math.floor(Date.now() % 2147483647),
+          title: `${name} is sharing their location`,
+          body: "Open the Friends tab to watch.",
+          channelId: CHANNEL_ID,
+          smallIcon: "ic_stat_atlas",
+          iconColor: "#e2b15a",
+        },
+      ],
+    });
+  } catch {
+    /* a missed notification is fine */
+  }
+}
