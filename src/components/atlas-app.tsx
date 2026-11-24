@@ -452,9 +452,14 @@ function AtlasShell() {
     const byId = new Map(stateRoads.map((road) => [road.id, road]));
     const healed: Mark[] = [];
     const next = marks.map((mark) => {
-      if (mark.paths.length || mark.state !== stateAbbr || mark.category !== "route") return mark;
+      if (mark.state !== stateAbbr || mark.category !== "route") return mark;
       const road = byId.get(mark.id);
       if (!road?.paths?.length) return mark;
+      // A saved road keeps a copy of its line; take the atlas's when it changed
+      // (lines were rebuilt from OpenStreetMap, and many were missing or wrong).
+      const count = (paths: number[][][]) => paths.reduce((n, line) => n + line.length, 0);
+      const first = (paths: number[][][]) => paths[0]?.[0]?.join(",") ?? "";
+      if (mark.paths.length === road.paths.length && count(mark.paths) === count(road.paths) && first(mark.paths) === first(road.paths)) return mark;
       const updated = { ...mark, paths: road.paths };
       healed.push(updated);
       return updated;

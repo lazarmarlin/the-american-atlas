@@ -61,6 +61,26 @@ const NEAR_CATS = [
   "tunnel",
 ];
 
+/** Miles from a fix to the nearest point of a road's lines (Infinity past `within` miles). */
+function milesToLine(fix: Fix, paths: number[][][], within: number) {
+  const pad = within / 50;
+  let best = Infinity;
+  const k = Math.cos((fix.lat * Math.PI) / 180);
+  for (const line of paths)
+    for (let i = 1; i < line.length; i++) {
+      const [ax, ay] = line[i - 1] as [number, number];
+      const [bx, by] = line[i] as [number, number];
+      if (Math.max(ay, by) < fix.lat - pad || Math.min(ay, by) > fix.lat + pad) continue;
+      if (Math.max(ax, bx) < fix.lon - pad / k || Math.min(ax, bx) > fix.lon + pad / k) continue;
+      const dx = (bx - ax) * k;
+      const dy = by - ay;
+      const t = Math.max(0, Math.min(1, ((fix.lon - ax) * k * dx + (fix.lat - ay) * dy) / (dx * dx + dy * dy || 1)));
+      const miles = milesBetween(fix.lat, fix.lon, ay + t * (by - ay), ax + t * (bx - ax));
+      if (miles < best) best = miles;
+    }
+  return best;
+}
+
 export function milesBetween(lat1: number, lon1: number, lat2: number, lon2: number) {
   const r = 3958.8;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -146,7 +166,7 @@ export async function placesNear(fix: Fix, states: StateInfo[], limit = 40): Pro
   }
   for (const group of roadRows) {
     for (const road of group.rows) {
-      const miles = milesBetween(fix.lat, fix.lon, road.lat, road.lon);
+      const miles = road.paths?.length ? milesToLine(fix, road.paths, 30) : milesBetween(fix.lat, fix.lon, road.lat, road.lon);
       if (miles > 30) continue;
       ranked.push({ miles, mark: roadToMark(road, group.st) });
     }
