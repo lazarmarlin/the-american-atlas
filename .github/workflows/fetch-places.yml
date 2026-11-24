@@ -39,12 +39,16 @@ jobs:
             -o pois.osm.pbf --overwrite
           osmium tags-filter region.osm.pbf r/boundary=administrative w/boundary=administrative w/highway=motorway,trunk,primary w/waterway=river \
             -o lines.osm.pbf --overwrite
+          osmium tags-filter region.osm.pbf \
+            "r/name=Lincoln Highway,Dixie Highway,Great River Road,Jefferson Highway,Yellowstone Trail,Old Spanish Trail,National Road,Historic National Road,Lewis and Clark Trail,Santa Fe Trail,Oregon Trail,Mormon Trail,California Trail,Pony Express National Historic Trail,El Camino Real,Oregon National Historic Trail,Santa Fe National Historic Trail,California National Historic Trail,Mormon Pioneer National Historic Trail,Lewis and Clark National Historic Trail,Trail of Tears National Historic Trail" \
+            -o routes.osm.pbf --overwrite
+          osmium cat routes.osm.pbf -f opl -o routes.opl --overwrite
           rm region.osm.pbf
           osmium export pois.osm.pbf -f geojsonseq -a type,id -o pois.geojsonseq --overwrite
           osmium export lines.osm.pbf -f geojsonseq -a type,id -o lines.geojsonseq --overwrite
           ls -lh *.geojsonseq
       - name: Extract
-        run: node --max-old-space-size=6000 scripts/osm-extract.mjs pois.geojsonseq lines.geojsonseq raw-places
+        run: node --max-old-space-size=6000 scripts/osm-extract.mjs pois.geojsonseq lines.geojsonseq raw-places routes.opl
       - name: Artifact name
         id: name
         run: echo "name=raw-osm-$(echo '${{ matrix.region }}' | tr '/' '-')" >> "$GITHUB_OUTPUT"

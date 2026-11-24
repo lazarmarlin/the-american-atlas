@@ -16,7 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 
-const [POIS, LINES, OUT] = process.argv.slice(2);
+const [POIS, LINES, OUT, ROUTES] = process.argv.slice(2);
 fs.mkdirSync(OUT, { recursive: true });
 
 const RIVERS = new Set([
@@ -176,3 +176,42 @@ for (const r of roads) {
 fs.writeFileSync(path.join(OUT, "osm-stateline-hits.json"), JSON.stringify(stateHits));
 fs.writeFileSync(path.join(OUT, "osm-river-hits.json"), JSON.stringify(riverHits));
 console.log("roads:", roads.length, "state hits:", stateHits.length, "river hits:", riverHits.length);
+
+// ---------------------------------------------------------------- historic routes
+// routes.opl: the named route relations plus their ways and nodes (osmium cat -f opl).
+if (ROUTES && fs.existsSync(ROUTES)) {
+  const dec = (v) => v.replace(/%([0-9a-fA-F]+)%/g, (_, h) => String.fromCodePoint(parseInt(h, 16)));
+  const nodes = new Map();
+  const ways = new Map();
+  const rels = [];
+  const rl = readline.createInterface({ input: fs.createReadStream(ROUTES), crlfDelay: Infinity });
+  for await (const line of rl) {
+    const parts = line.split(" ");
+    const kind = parts[0][0];
+    const id = Number(parts[0].slice(1));
+    const field = (c) => parts.find((p) => p[0] === c)?.slice(1) ?? "";
+    if (kind === "n") {
+      const x = parseFloat(field("x")), y = parseFloat(field("y"));
+      if (Number.isFinite(x)) nodes.set(id, [x, y]);
+    } else if (kind === "w") ways.set(id, field("N").split(",").filter(Boolean).map((n) => Number(n.slice(1))));
+    else if (kind === "r") {
+      const tags = Object.fromEntries(field("T").split(",").filter(Boolean).map((kv) => kv.split("=").map(dec)));
+      const members = field("M").split(",").filter((m) => m[0] === "w").map((m) => Number(m.slice(1).split("@")[0]));
+      rels.push({ id, tags, members });
+    }
+  }
+  const outRels = rels
+    .filter((r) => r.tags.name)
+    .map((r) => ({
+      type: "relation",
+      id: r.id,
+      tags: r.tags,
+      members: r.members
+        .map((w) => (ways.get(w) ?? []).map((n) => nodes.get(n)).filter(Boolean))
+        .filter((g) => g.length >= 2)
+        .map((g) => ({ type: "way", geometry: g.map(([lon, lat]) => ({ lat, lon })) })),
+    }))
+    .filter((r) => r.members.length);
+  fs.writeFileSync(path.join(OUT, "osm-lincoln.json"), JSON.stringify(outRels));
+  console.log("routes:", outRels.map((r) => `${r.tags.name} (${r.members.length})`).join(", "));
+}
