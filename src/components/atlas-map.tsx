@@ -59,6 +59,8 @@ type Props = {
   photoPins: { id: string; poiId: string; lat: number; lon: number; thumb: string; friendId?: string }[];
   you: Fix | null;
   dot: Fix | null;
+  /** While driving, keep the camera at this zoom on your location. */
+  followZoom?: number;
   onState: (abbr: string) => void;
   /** Zoomed in, moving the map into another state picks it (keeping the view). */
   followState?: boolean;
@@ -254,6 +256,7 @@ export function AtlasMap({
   photoPins,
   you,
   dot,
+  followZoom,
   onState,
   followState = false,
   onCounty,
@@ -1574,12 +1577,16 @@ export function AtlasMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!ready || !map || !you || selected) return;
+    if (!ready || !map || !you || (selected && followZoom == null)) return;
     const key = `${you.lat.toFixed(3)},${you.lon.toFixed(3)}`;
-    if (prevYou.current === key) return;
+    if (prevYou.current === key && followZoom == null) return;
     prevYou.current = key;
-    map.easeTo({ center: [you.lon, you.lat], zoom: Math.max(map.getZoom(), 8), duration: duration() });
-  }, [ready, selected, you]);
+    map.easeTo({
+      center: [you.lon, you.lat],
+      zoom: followZoom ?? Math.max(map.getZoom(), 8),
+      duration: duration(),
+    });
+  }, [followZoom, ready, selected, you]);
 
   return <div ref={host} className="h-full w-full" />;
 }

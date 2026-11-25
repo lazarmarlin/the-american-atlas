@@ -1,9 +1,12 @@
 package com.lazarmarlin.americanatlas;
 
+import android.app.Activity;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.os.Build;
+import android.view.WindowManager;
 import androidx.core.app.NotificationManagerCompat;
 import com.getcapacitor.JSArray;
 import android.net.Uri;
@@ -77,5 +80,26 @@ public class PowerPlugin extends Plugin {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         getContext().startActivity(intent);
         call.resolve();
+    }
+
+    /** Keep the screen on, and lock the phone sideways, for the driving view. */
+    @PluginMethod
+    public void driveScreen(PluginCall call) {
+        boolean on = Boolean.TRUE.equals(call.getBoolean("on", false));
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.resolve();
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            if (activity.isDestroyed()) {
+                call.resolve();
+                return;
+            }
+            if (on) activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            else activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            activity.setRequestedOrientation(on ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE : ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+            call.resolve();
+        });
     }
 }

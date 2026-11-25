@@ -36,6 +36,7 @@ import { GhostPanel } from "@/components/ghost-panel";
 import { remindOnThisDay } from "@/lib/memories";
 import { FriendsPanel } from "@/components/friends-panel";
 import { nextCounty, type NextCounty } from "@/lib/next-county";
+import { startDriveScreen, stopDriveScreen } from "@/lib/power";
 import { PhotosPanel, PhotoViewer } from "@/components/photos-panel";
 import { updateWidget } from "@/lib/widget";
 import { matchPlace, tripFor, type RecordingTrip } from "@/lib/photo-file";
@@ -275,6 +276,10 @@ function AtlasShell() {
   const ghostLook = useGhost((s) => s.look);
   const [ghostOpen, setGhostOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
+  const [driving, setDriving] = useState(false);
+  const [mph, setMph] = useState<number | null>(null);
+  const [sideways, setSideways] = useState(true);
+  const speedSample = useRef<{ lat: number; lon: number; t: number } | null>(null);
   /** A trip's recap on screen (right after it ends, or opened from the trips list). */
   const [recapTrip, setRecapTrip] = useState<{ id: string; justEnded: boolean } | null>(null);
   /** Trip routes on the map: one from a recap, or everyone's on a shared trip. */
@@ -707,6 +712,51 @@ function AtlasShell() {
       dead = true;
     };
   }, [tracker, trackTravel, marks.length]);
+
+  useEffect(() => {
+    if (!driving) return;
+    startDriveScreen();
+    return () => {
+      void stopDriveScreen();
+    };
+  }, [driving]);
+
+  useEffect(() => {
+    if (!driving) return;
+    return pushBack(() => {
+      setDriving(false);
+      return true;
+    });
+  }, [driving]);
+
+  useEffect(() => {
+    if (!driving) {
+      setMph(null);
+      speedSample.current = null;
+      return;
+    }
+    const read = () => setSideways(window.innerWidth > window.innerHeight);
+    read();
+    window.addEventListener("resize", read);
+    window.addEventListener("orientationchange", read);
+    return () => {
+      window.removeEventListener("resize", read);
+      window.removeEventListener("orientationchange", read);
+    };
+  }, [driving]);
+
+  useEffect(() => {
+    if (!driving || !tracker) return;
+    const t = tracker.t ?? Date.now();
+    const prev = speedSample.current;
+    speedSample.current = { lat: tracker.lat, lon: tracker.lon, t };
+    if (!prev) return;
+    const hours = (t - prev.t) / 3_600_000;
+    if (hours < 0.00015 || hours > 0.05) return;
+    const speed = milesBetween(prev.lat, prev.lon, tracker.lat, tracker.lon) / hours;
+    if (speed >= 0 && speed < 130) setMph(Math.round(speed));
+  }, [driving, tracker]);
+
   const [sendPlace, setSendPlace] = useState<Mark | null>(null);
   const [fitTo, setFitTo] = useState<{ tick: number; points: [number, number][]; maxZoom: number } | null>(null);
 
@@ -1761,7 +1811,7 @@ function AtlasShell() {
 
   return (
     <main
-      className={"app-shell bg-bg text-ink" + (sheetInstant ? " sheet-drag" : "") + (cardOnly ? " sheet-card" : "")}
+      className={"app-shell bg-bg text-ink" + (sheetInstant ? " sheet-drag" : "") + (cardOnly ? " sheet-card" : "") + (driving ? " drive-mode" : "")}
       style={cardOnly ? undefined : { ["--sheet" as string]: sheet <= 12 ? "var(--sheet-peek)" : `${sheet}dvh` }}
     >
       {popped ? null : <UpdatePrompt />}
@@ -1827,7 +1877,9 @@ function AtlasShell() {
               photoPins={photoPins}
               you={you}
               dot={locating ? (tracker ?? you) : you}
+              followZoom={driving ? 13 : undefined}
               onPress={() => {
+                if (driving) return;
                 if (mapCard) closeCard();
                 else setSheet(50);
               }}
@@ -1893,6 +1945,42 @@ function AtlasShell() {
         ) : (
           <div className="grid h-full place-items-center px-6 text-center text-muted">{error ?? "Unfolding the atlas…"}</div>
         )}
+        {driving ? (
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+            <div className="pointer-events-auto max-w-[70%] rounded-card border border-line bg-surface/95 px-4 py-3 shadow-sm backdrop-blur-sm">
+              <p className="text-xs tracking-widest text-faint uppercase">Driving</p>
+              {sideways ? (
+                <p className="font-serif text-4xl leading-none">
+                  {mph == null ? "—" : mph}
+                  <span className="ml-1 font-sans text-lg text-muted">mph</span>
+                </p>
+              ) : (
+                <p className="mt-1 text-lg">Turn the phone sideways</p>
+              )}
+              {nextUp ? (
+                <p className="mt-1 truncate text-sm">
+                  Next {nextUp.name}
+                  <span className="text-muted">
+                    {" "}
+                    · {nextUp.miles < 1 ? "<1" : Math.round(nextUp.miles)} mi {nextUp.toward}
+                  </span>
+                </p>
+              ) : (
+                <p className="mt-1 text-sm text-muted">Screen stays on</p>
+              )}
+              {passedNote ? <p className="mt-1 truncate text-sm text-muted">{passedNote}</p> : null}
+            </div>
+            <button
+              type="button"
+              onClick={() => setDriving(false)}
+              className="pointer-events-auto h-14 shrink-0 rounded-full border border-line bg-surface/95 px-5 text-base shadow-sm backdrop-blur-sm"
+            >
+              Done
+            </button>
+          </div>
+        ) : null}
+        {!driving ? (
+        <>
         <div className="absolute bottom-3 left-3 z-10 flex items-center gap-2">
           <button
             type="button"
@@ -1905,6 +1993,20 @@ function AtlasShell() {
           >
             <span className={"ghost-dot size-2 rounded-full " + (locating ? "is-live" : "opacity-60")} style={{ background: ghostColor }} />
             Ghost trail
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setGhostOpen(false);
+              setMailOpen(false);
+              setSheet(8);
+              setDriving(true);
+              startDriveScreen();
+              void ensureTracking();
+            }}
+            className="flex h-11 items-center gap-2 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+          >
+            Drive
           </button>
           {user?.id ? (
             <button
@@ -1975,6 +2077,8 @@ function AtlasShell() {
           >
             {friendLive ? `${friendLive.name} · live · Hide` : "Friend's trail · Hide"}
           </button>
+        ) : null}
+        </>
         ) : null}
         {tripRoutes && !(friendLive || friendLines.length) ? (
           <button

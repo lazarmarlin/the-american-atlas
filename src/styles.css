@@ -101,8 +101,18 @@
   transition: grid-template-rows 180ms ease;
 }
 
-.app-shell.sheet-drag {
-  transition: none;
+.app-shell.drive-mode {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 0px;
+}
+
+.app-shell.drive-mode .app-map {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.app-shell.drive-mode .app-sheet {
+  display: none;
 }
 
 .app-map {
