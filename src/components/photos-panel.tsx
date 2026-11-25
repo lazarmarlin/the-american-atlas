@@ -19,6 +19,11 @@ async function phonePhoto(uri: string, edge: number, limit: number) {
 
 type Place = { id: string; name: string; lat: number | null; lon: number | null; category: string; state?: string };
 
+/** Newest first by when the photo was taken; photos with no date go last. */
+function byTaken(a: { takenAt?: number | null }, b: { takenAt?: number | null }) {
+  return (b.takenAt ?? -Infinity) - (a.takenAt ?? -Infinity) || 0;
+}
+
 function placeLabel(place: Place) {
   return place.state ? `${place.name}, ${place.state}` : place.name;
 }
@@ -271,10 +276,10 @@ function PhotoReview({
     return () => watch.disconnect();
   }, [limit, rows.length]);
 
-  // Group by place, in the order places first appear (newest photos first).
+  // Group by place: newest photos first, so places come in the order you were last at them.
   const groups: { key: string; place: Place | null; isNew: boolean; rows: Candidate[] }[] = [];
   const byKey = new Map<string, (typeof groups)[number]>();
-  for (const row of rows) {
+  for (const row of [...rows].sort(byTaken)) {
     const key = row.place?.id ?? "none";
     let group = byKey.get(key);
     if (!group) {
@@ -830,7 +835,7 @@ export function PhotosPanel({
   const allPhotos = useMemo(() => {
     const byId = new Map(photos.map((p) => [p.id, p]));
     for (const lp of local) if (!byId.has(lp.id)) byId.set(lp.id, lp);
-    return [...byId.values()];
+    return [...byId.values()].sort(byTaken);
   }, [photos, local]);
 
   useEffect(() => {
@@ -871,7 +876,8 @@ export function PhotosPanel({
 
   function step(delta: number) {
     if (!open) return;
-    const list = allPhotos;
+    // Prev and Next follow the order on screen.
+    const list = [...groups.values()].flat();
     const idx = list.findIndex((p) => p.id === open.id);
     const next = list[(idx + delta + list.length) % list.length];
     if (next) void openPhoto(next);
