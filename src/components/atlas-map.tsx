@@ -76,6 +76,8 @@ type Props = {
   fitTo?: { tick: number; points: [number, number][]; maxZoom: number } | null;
   /** Whether the map is zoomed in past the whole-country view. */
   onAway?: (away: boolean) => void;
+  /** Trip routes drawn on the map (a recap, or everyone on a shared trip), each in its own color. */
+  tripRoutes?: { color: string; lines: [number, number][][]; dots?: [number, number][] }[];
   /** One place on its own: everything else hidden, zoomed all the way in on it. */
   spotlight?: { id: string; lon: number; lat: number } | null;
 };
@@ -121,7 +123,7 @@ const SPOT_HIDE = [
   "states-fill", "town-fill", "town-outline", "reservation-fill", "reservation-line", "park-fill", "park-line", "county-fill", "county-line",
   "offer-halo", "offer-line", "route-halo", "route-line", "trip-line", "ghost-saved-haze", "ghost-saved-line", "ghost-haze", "ghost-line",
   "friend-haze", "friend-line", "friend-live-haze", "friend-live-line", "friend-tip", "offer-dots", "offer-icons", "place-dots", "place-icons",
-  "photo-pins", "you-dot", "friend-people",
+  "photo-pins", "you-dot", "friend-people", "trip-route-casing", "trip-route-line", "trip-route-dots",
 ];
 
 /** How far past the whole-country view a tap still just opens the state (if a state's box is unknown). */
@@ -263,6 +265,7 @@ export function AtlasMap({
   fitTo = null,
   onAway,
   spotlight = null,
+  tripRoutes = [],
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
@@ -1202,6 +1205,52 @@ export function AtlasMap({
         : [],
     });
   }, [friendLines, friendLive, ready]);
+
+  // Trip routes: added on first use, on top of the other lines.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    if (!map.getSource("trip-routes")) {
+      if (!tripRoutes.length) return;
+      map.addSource("trip-routes", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      map.addLayer({
+        id: "trip-route-casing",
+        type: "line",
+        source: "trip-routes",
+        filter: ["==", ["geometry-type"], "LineString"],
+        paint: { "line-color": "#121410", "line-width": ["interpolate", ["linear"], ["zoom"], 4, 4, 12, 7], "line-opacity": 0.7 },
+        layout: { "line-cap": "round", "line-join": "round" },
+      });
+      map.addLayer({
+        id: "trip-route-line",
+        type: "line",
+        source: "trip-routes",
+        filter: ["==", ["geometry-type"], "LineString"],
+        paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 4, 2.2, 12, 4] },
+        layout: { "line-cap": "round", "line-join": "round" },
+      });
+      map.addLayer({
+        id: "trip-route-dots",
+        type: "circle",
+        source: "trip-routes",
+        filter: ["==", ["geometry-type"], "Point"],
+        paint: { "circle-radius": 4.5, "circle-color": ["get", "color"], "circle-stroke-width": 1.5, "circle-stroke-color": "#121410" },
+      });
+    }
+    const features = tripRoutes.flatMap((route) => [
+      ...route.lines.map((coordinates) => ({
+        type: "Feature" as const,
+        properties: { color: route.color },
+        geometry: { type: "LineString" as const, coordinates },
+      })),
+      ...(route.dots ?? []).map((coordinates) => ({
+        type: "Feature" as const,
+        properties: { color: route.color },
+        geometry: { type: "Point" as const, coordinates },
+      })),
+    ]);
+    (map.getSource("trip-routes") as GeoJSONSource).setData({ type: "FeatureCollection", features });
+  }, [tripRoutes, ready]);
 
   const framed = useRef(0);
   useEffect(() => {

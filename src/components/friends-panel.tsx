@@ -19,7 +19,8 @@ import { friendPhotos, loadFriendPhoto, type PhotoInfo } from "@/lib/photos";
 import { ChatScreen, Sheet, type ChatPhoto, type ChatPlaceOption } from "@/components/friend-chat";
 import { useChat } from "@/lib/chat-store";
 import { createGroup, leaveGroup, listGroups, type ChatGroup } from "@/lib/chat-groups";
-import type { ChatPlace, Thread } from "@/lib/messages";
+import { sendToThread, type ChatPlace, type Thread } from "@/lib/messages";
+import { sharedTrip, type SharedTraveler } from "@/lib/trips";
 import { reactionsOn, react, recentLikes, type Like } from "@/lib/reactions";
 import { pushBack } from "@/lib/sheet-back";
 import { type LiveFriend } from "@/lib/live-share";
@@ -62,6 +63,10 @@ export function FriendsPanel({
   onShareLive,
   resume = null,
   onResumed,
+  sharedRecording = null,
+  onStartShared,
+  onEndShared,
+  onShowShared,
 }: {
   openId: string | null;
   note: string | null;
@@ -82,6 +87,13 @@ export function FriendsPanel({
   onShowGroup: (memberIds: string[]) => number;
   /** Share your live location with these friends; returns a note to show. */
   onShareLive: (memberIds: string[]) => Promise<string>;
+  /** The trip chat your recording trip is shared in, if any. */
+  sharedRecording?: string | null;
+  /** Start (or join) the shared trip of a trip chat. */
+  onStartShared?: (groupId: string, name: string) => Promise<void>;
+  onEndShared?: () => void;
+  /** Draw everyone's routes on the shared trip; returns how many travelers there are. */
+  onShowShared?: (groupId: string, name: string, travelers: SharedTraveler[]) => number;
 }) {
   const [friends, setFriends] = useState<FriendRow[] | null>(null);
   const [code, setCode] = useState<string | null>(null);
@@ -113,6 +125,18 @@ export function FriendsPanel({
   const [groupName, setGroupName] = useState("");
   const [groupPick, setGroupPick] = useState<string[]>([]);
   const [groupNote, setGroupNote] = useState<string | null>(null);
+  const [travelers, setTravelers] = useState<SharedTraveler[]>([]);
+  async function loadTravelers(id: string) {
+    try {
+      setTravelers(await sharedTrip({ data: id }));
+    } catch {
+      setTravelers([]);
+    }
+  }
+  useEffect(() => {
+    setTravelers([]);
+    if (groupId) void loadTravelers(groupId);
+  }, [groupId]);
   const [leaving, setLeaving] = useState(false);
   const [likes, setLikes] = useState<Like[] | null>(null);
   const [likesOpen, setLikesOpen] = useState(false);
@@ -658,12 +682,52 @@ export function FriendsPanel({
         <ChatScreen
           title={openGroup.name}
           subtitle={openGroup.members.map((m) => m.name).join(", ")}
-          note={groupNote}
+          note={groupNote ?? sharedNote(travelers, meId)}
           onClose={() => {
             setGroupId(null);
             setGroupNote(null);
           }}
           actions={[
+            ...(sharedRecording === openGroup.id
+              ? [{ label: "End my part of the shared trip", onClick: () => onEndShared?.() }]
+              : [
+                  {
+                    label: travelers.some((t) => t.recording && t.userId !== meId) ? "Join the shared trip" : "Start a shared trip",
+                    onClick: () => {
+                      const joining = travelers.some((t) => t.recording && t.userId !== meId);
+                      void onStartShared?.(openGroup.id, openGroup.name).then(async () => {
+                        if (!joining) {
+                          await sendToThread({
+                            data: {
+                              thread: { kind: "group", id: openGroup.id },
+                              id: `m-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+                              kind: "text",
+                              body: "I started a shared trip. Tap ··· and Join the shared trip to add your route and places to it.",
+                            },
+                          }).catch(() => {});
+                        }
+                        setGroupNote(joining ? "You're on the shared trip. Places you pass go on it." : "Shared trip started. Places you pass go on it.");
+                        void loadTravelers(openGroup.id);
+                      });
+                    },
+                  },
+                ]),
+            ...(travelers.length
+              ? [
+                  {
+                    label: "See everyone's routes",
+                    onClick: async () => {
+                      // Fresh routes: they keep coming in while people drive.
+                      const latest = await sharedTrip({ data: openGroup.id }).catch(() => travelers);
+                      setTravelers(latest);
+                      if (onShowShared?.(openGroup.id, openGroup.name, latest)) {
+                        setGroupId(null);
+                        setGroupNote(null);
+                      } else setGroupNote("No routes yet. They show up once someone on the trip has driven a bit.");
+                    },
+                  },
+                ]
+              : []),
             {
               label: "Everyone on the map",
               onClick: () => {
@@ -789,4 +853,15 @@ function Thumb({ state, onClick }: { state?: { count: number; mine: boolean }; o
       👍{state?.count ? <span className="text-xs">{state.count}</span> : null}
     </button>
   );
+}
+
+/** A line about a trip chat's shared trip, or nothing if there isn't one. */
+function sharedNote(travelers: SharedTraveler[], meId: string) {
+  if (!travelers.length) return null;
+  const going = travelers.filter((t) => t.recording);
+  const names = going.map((t) => (t.userId === meId ? "you" : t.name.split(" ")[0]));
+  const stops = new Set(travelers.flatMap((t) => t.stops)).size;
+  return going.length
+    ? `Shared trip: ${names.join(", ")} ${going.length === 1 && names[0] !== "you" ? "is" : "are"} on it · ${stops} ${stops === 1 ? "place" : "places"} so far. ··· to see everyone's routes.`
+    : `Shared trip · ${stops} ${stops === 1 ? "place" : "places"}. ··· to see everyone's routes.`;
 }

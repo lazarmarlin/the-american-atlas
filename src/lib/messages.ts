@@ -6,6 +6,7 @@
  */
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
+import type { TripCard } from "@/lib/trips";
 
 export type ChatPlace = {
   id: string;
@@ -22,7 +23,7 @@ export type ChatMessage = {
   id: string;
   fromId: string;
   fromName: string;
-  kind: "text" | "link" | "photo" | "place";
+  kind: "text" | "link" | "photo" | "place" | "trip";
   body: string;
   thumb: string;
   at: number;
@@ -30,6 +31,7 @@ export type ChatMessage = {
   lon: number | null;
   takenAt: number | null;
   place: ChatPlace | null;
+  trip?: TripCard | null;
   /** True on a message you sent once everyone else in the chat has opened it. */
   read?: boolean;
 };
@@ -122,6 +124,67 @@ export async function namesFor(sql: Sql, ids: string[]) {
   return new Map(rows.map((row) => [row.id, row.name]));
 }
 
+const KINDS = ["link", "photo", "place", "trip"] as const;
+function kindOf(value: unknown): ChatMessage["kind"] {
+  return (KINDS as readonly unknown[]).includes(value) ? (value as ChatMessage["kind"]) : "text";
+}
+
+function fin(value: unknown, max: number) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(0, Math.min(max, n)) : 0;
+}
+
+/** A trip recap from a phone, checked and trimmed to sensible sizes. */
+function cleanTripCard(value: unknown): TripCard {
+  const row = (value ?? {}) as Record<string, unknown>;
+  const day = (v: unknown) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v ?? "")) ? String(v) : null);
+  const coord = (v: unknown): [number, number] | null => {
+    if (!Array.isArray(v)) return null;
+    const lon = Number(v[0]);
+    const lat = Number(v[1]);
+    return Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lon) <= 180 && Math.abs(lat) <= 90
+      ? [Math.round(lon * 1e4) / 1e4, Math.round(lat * 1e4) / 1e4]
+      : null;
+  };
+  let budget = 500;
+  const lines: [number, number][][] = [];
+  for (const line of Array.isArray(row.lines) ? row.lines.slice(0, 40) : []) {
+    if (!Array.isArray(line) || budget <= 0) continue;
+    const pts = line.slice(0, budget).map(coord).filter((p): p is [number, number] => !!p);
+    budget -= pts.length;
+    if (pts.length > 1) lines.push(pts);
+  }
+  const dots = (Array.isArray(row.dots) ? row.dots.slice(0, 200) : [])
+    .map((d) => {
+      const c = coord(d);
+      return c ? ([c[0], c[1], Array.isArray(d) && d[2] ? 1 : 0] as [number, number, number]) : null;
+    })
+    .filter((d): d is [number, number, number] => !!d);
+  const name = String(row.name ?? "").trim().slice(0, 80);
+  if (!name) throw new Error("Missing trip");
+  return {
+    name,
+    from: day(row.from),
+    to: day(row.to),
+    miles: Math.round(fin(row.miles, 50000) * 10) / 10,
+    places: Math.round(fin(row.places, 100000)),
+    fresh: Math.round(fin(row.fresh, 100000)),
+    states: (Array.isArray(row.states) ? row.states : []).map((s) => String(s).toUpperCase()).filter((s) => /^[A-Z]{2}$/.test(s)).slice(0, 60),
+    counties: Math.round(fin(row.counties, 4000)),
+    points: Math.round(fin(row.points, 10000000)),
+    lines,
+    dots,
+  };
+}
+
+function readTrip(body: string): TripCard | null {
+  try {
+    return cleanTripCard(JSON.parse(body));
+  } catch {
+    return null;
+  }
+}
+
 function readPlace(body: string): ChatPlace | null {
   try {
     const row = JSON.parse(body) as Record<string, unknown>;
@@ -188,20 +251,21 @@ export const listThread = createServerFn({ method: "POST" })
     `;
     const readThrough = await readThroughAt(sql, context.userId, thread);
     return rows.map((row) => {
-      const kind = row.kind === "link" || row.kind === "photo" || row.kind === "place" ? row.kind : "text";
+      const kind = kindOf(row.kind);
       const at = toMs(row.created_at);
       return {
         id: row.id,
         fromId: row.from_id,
         fromName: names.get(row.from_id) ?? "Friend",
         kind,
-        body: kind === "place" ? "" : row.body || "",
+        body: kind === "place" || kind === "trip" ? "" : row.body || "",
         thumb: row.thumb || "",
         at,
         lat: row.lat ?? null,
         lon: row.lon ?? null,
         takenAt: row.taken_at ?? null,
         place: kind === "place" ? readPlace(row.body) : null,
+        trip: kind === "trip" ? readTrip(row.body) : null,
         read: row.from_id === context.userId && readThrough > 0 && at <= readThrough,
       };
     });
@@ -213,7 +277,7 @@ function parseSend(input: unknown) {
   // Older app builds send a friendId instead of a thread.
   const thread = parseThread(row.thread ?? { kind: "friend", id: row.friendId });
   const id = parseMessageId(row.id);
-  const kind = row.kind === "link" || row.kind === "photo" || row.kind === "place" ? row.kind : "text";
+  const kind = kindOf(row.kind);
   const base = { thread, id, kind, body: "", thumb: "", image: "", lat: null as number | null, lon: null as number | null, takenAt: null as number | null };
   if (kind === "photo") {
     const taken = num(row.takenAt, 1e13);
@@ -225,6 +289,9 @@ function parseSend(input: unknown) {
       lon: num(row.lon, 180),
       takenAt: taken && taken > 0 ? Math.round(taken) : null,
     };
+  }
+  if (kind === "trip") {
+    return { ...base, body: JSON.stringify(cleanTripCard(row.trip)) };
   }
   if (kind === "place") {
     const place = (row.place ?? {}) as Record<string, unknown>;
@@ -331,7 +398,7 @@ export type UnreadSummary = {
 };
 
 const preview = (kind: string, body: string) =>
-  kind === "photo" ? "Sent a photo" : kind === "place" ? `Shared ${readPlace(body)?.name ?? "a place"}` : kind === "link" ? "Sent a Google Photos link" : body.slice(0, 120);
+  kind === "trip" ? `Shared a trip: ${readTrip(body)?.name ?? ""}`.trim() : kind === "photo" ? "Sent a photo" : kind === "place" ? `Shared ${readPlace(body)?.name ?? "a place"}` : kind === "link" ? "Sent a Google Photos link" : body.slice(0, 120);
 
 /** What's new since you last looked: messages per friend and group, and likes. */
 export const unreadSummary = createServerFn({ method: "GET" })
