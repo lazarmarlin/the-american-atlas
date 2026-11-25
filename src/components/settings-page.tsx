@@ -6,6 +6,8 @@ import { clearGhostLocal } from "@/lib/ghost-trail";
 import { clearGhostCache } from "@/lib/ghost-cache";
 import { hasGateSessionMarker } from "@/lib/auth/gate-session-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
+import { formatBytes, useOfflineMaps } from "@/lib/offline-maps";
+import { loadMeta, type StateInfo } from "@/lib/atlas-model";
 import { nativeApp } from "@/lib/native";
 import type { SettingsPageId } from "@/lib/settings-route";
 import { requestTrackingPermission } from "@/lib/background-location";
@@ -158,7 +160,7 @@ export function SettingsPage({
               ["tracking", "Tracking", "Travel tracking, ghost trail, your marker, and fast add"],
               ["map", "Map", "Markers, borders, and overlays"],
               ["photos", "Photos", "Camera roll and the map"],
-              ["atlas", "Atlas", nativeApp ? "The tour" : "Offline atlas and the tour"],
+              ["atlas", "Atlas", nativeApp ? "Offline maps and the tour" : "Offline maps, offline atlas, and the tour"],
             ] as const
           ).map(([id, label, detail]) => (
             <button
@@ -468,6 +470,8 @@ export function SettingsPage({
       </section>
       )}
 
+      <OfflineMapsSection />
+
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Tour</h2>
         <p className="mt-1 text-sm text-muted">The first-time walkthrough. Play it again whenever the map starts to feel crowded.</p>
@@ -735,4 +739,90 @@ function shrinkPhoto(file: File) {
     };
     reader.readAsDataURL(file);
   });
+}
+
+/** Save a state's base map on the device for driving without a signal. */
+function OfflineMapsSection() {
+  const maps = useOfflineMaps();
+  const [states, setStates] = useState<StateInfo[]>([]);
+  const [pick, setPick] = useState("");
+  useEffect(() => {
+    void maps.load();
+    void loadMeta()
+      .then((meta) => setStates([...meta.states].sort((a, b) => a.name.localeCompare(b.name))))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const name = (abbr: string) => states.find((s) => s.abbr === abbr)?.name ?? abbr;
+  const saving = maps.saving;
+  const pct = saving && saving.total ? Math.round((saving.done / saving.total) * 100) : 0;
+  return (
+    <section className="mt-8">
+      <h2 className="font-serif text-2xl">Offline maps</h2>
+      <p className="mt-1 text-sm text-muted">
+        Save a state's map on this phone so roads and towns still draw with no signal. Places still get added offline either way; this is the map
+        underneath. Use Wi-Fi: a state is usually 20 to 150 MB.
+      </p>
+      <div className="mt-3 flex gap-2">
+        <select
+          value={pick}
+          onChange={(event) => setPick(event.target.value)}
+          aria-label="State to save"
+          className="h-12 min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 text-base text-ink"
+        >
+          <option value="">Pick a state</option>
+          {states.map((s) => (
+            <option key={s.abbr} value={s.abbr}>
+              {s.name}
+              {maps.regions.some((r) => r.abbr === s.abbr) ? " (saved)" : ""}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          disabled={!pick || !!saving}
+          onClick={() => {
+            const state = states.find((s) => s.abbr === pick);
+            if (state) void maps.save(state);
+          }}
+          className="h-12 shrink-0 rounded-lg border border-ink bg-elevated px-4 text-sm disabled:border-line disabled:text-faint"
+        >
+          Save map
+        </button>
+      </div>
+      {saving ? (
+        <div className="mt-3">
+          <div className="h-2 overflow-hidden rounded-full bg-elevated">
+            <div className="h-full bg-accent" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="mt-1 flex items-center justify-between text-xs text-faint">
+            <span>
+              Saving {name(saving.abbr)}… {saving.done.toLocaleString()} of {saving.total.toLocaleString()}
+            </span>
+            <button type="button" onClick={maps.cancel} className="h-9 px-2 text-sm text-muted">
+              Stop
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {maps.error ? <p className="mt-2 text-sm text-accent">{maps.error}</p> : null}
+      {maps.regions.length ? (
+        <ul className="mt-3 grid gap-2">
+          {maps.regions.map((region) => (
+            <li key={region.abbr} className="flex items-center gap-2 rounded-lg border border-line px-3 py-2">
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm">{name(region.abbr)}</span>
+                <span className="block text-xs text-faint">
+                  {formatBytes(region.bytes)} · saved {new Date(region.savedAt).toLocaleDateString()}
+                </span>
+              </span>
+              <button type="button" onClick={() => void maps.remove(region.abbr)} className="h-10 px-2 text-sm text-faint">
+                Delete
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
 }
