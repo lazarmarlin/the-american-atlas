@@ -1,3 +1,4 @@
+import { ArrowDownUp, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { matchPlace, readPhotoFile, tripFor, type RecordingTrip } from "@/lib/photo-file";
 import { loadParkShapes, matchPark, choosePhotoPlace } from "@/lib/park-photo";
@@ -18,6 +19,11 @@ async function phonePhoto(uri: string, edge: number, limit: number) {
 }
 
 type Place = { id: string; name: string; lat: number | null; lon: number | null; category: string; state?: string };
+
+/** Newest first by when the photo was taken; photos with no date go last. */
+function byTaken(a: { takenAt?: number | null }, b: { takenAt?: number | null }) {
+  return (b.takenAt ?? -Infinity) - (a.takenAt ?? -Infinity) || 0;
+}
 
 function placeLabel(place: Place) {
   return place.state ? `${place.name}, ${place.state}` : place.name;
@@ -271,10 +277,10 @@ function PhotoReview({
     return () => watch.disconnect();
   }, [limit, rows.length]);
 
-  // Group by place, in the order places first appear (newest photos first).
+  // Group by place: newest photos first, so places come in the order you were last at them.
   const groups: { key: string; place: Place | null; isNew: boolean; rows: Candidate[] }[] = [];
   const byKey = new Map<string, (typeof groups)[number]>();
-  for (const row of rows) {
+  for (const row of [...rows].sort(byTaken)) {
     const key = row.place?.id ?? "none";
     let group = byKey.get(key);
     if (!group) {
@@ -807,6 +813,9 @@ export function PhotosPanel({
 }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [group, setGroup] = useState<"place" | "trip" | "month">("place");
+  const [newestFirst, setNewestFirst] = useState(true);
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState("");
   const [open, setOpen] = useState<PhotoInfo | null>(null);
   const [sharing, setSharing] = useState(false);
   const [friendNames, setFriendNames] = useState<Map<string, string>>(new Map());
@@ -830,7 +839,7 @@ export function PhotosPanel({
   const allPhotos = useMemo(() => {
     const byId = new Map(photos.map((p) => [p.id, p]));
     for (const lp of local) if (!byId.has(lp.id)) byId.set(lp.id, lp);
-    return [...byId.values()];
+    return [...byId.values()].sort(byTaken);
   }, [photos, local]);
 
   useEffect(() => {
@@ -871,7 +880,8 @@ export function PhotosPanel({
 
   function step(delta: number) {
     if (!open) return;
-    const list = allPhotos;
+    // Prev and Next follow the order on screen.
+    const list = [...groups.values()].flat();
     const idx = list.findIndex((p) => p.id === open.id);
     const next = list[(idx + delta + list.length) % list.length];
     if (next) void openPhoto(next);
@@ -970,8 +980,22 @@ export function PhotosPanel({
     }
   }
 
+  // Search matches the place, its state, the trip, or the month and year.
+  const q = query.trim().toLowerCase();
+  const monthOf = (photo: PhotoInfo) =>
+    photo.takenAt ? new Date(photo.takenAt).toLocaleDateString(undefined, { month: "long", year: "numeric" }) : "No date";
+  // Oldest first still keeps photos with no date at the end.
+  const ordered = newestFirst ? allPhotos : [...allPhotos.filter((p) => p.takenAt)].reverse().concat(allPhotos.filter((p) => !p.takenAt));
+  const shown = ordered.filter(
+    (photo) =>
+      !q ||
+      [names.get(photo.poiId) ?? "", photo.poiId.split(":")[2] ?? "", (photo.tripId && tripNames.get(photo.tripId)) || "", monthOf(photo)]
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
+  );
   const groups = new Map<string, PhotoInfo[]>();
-  for (const photo of allPhotos) {
+  for (const photo of shown) {
     const key =
       group === "trip"
         ? (photo.tripId && tripNames.get(photo.tripId)) || "Not on a trip"
@@ -1066,6 +1090,18 @@ export function PhotosPanel({
         />
       </div>
       <div className="mt-4 flex gap-2 px-2">
+        <button
+          type="button"
+          aria-label={searching ? "Close search" : "Search photos"}
+          aria-pressed={searching}
+          onClick={() => {
+            setSearching(!searching);
+            setQuery("");
+          }}
+          className={"grid h-10 w-10 shrink-0 place-items-center rounded-lg border " + (searching ? "border-ink bg-elevated" : "border-line text-muted")}
+        >
+          <Search className="size-4" />
+        </button>
         {(["place", "trip", "month"] as const).map((id) => (
           <button
             key={id}
@@ -1077,7 +1113,33 @@ export function PhotosPanel({
             {id}
           </button>
         ))}
+        <button
+          type="button"
+          onClick={() => setNewestFirst(!newestFirst)}
+          aria-label={newestFirst ? "Newest first. Tap for oldest first" : "Oldest first. Tap for newest first"}
+          className="flex h-10 shrink-0 items-center gap-1 rounded-lg border border-line px-2 text-xs text-muted"
+        >
+          <ArrowDownUp className="size-3.5" />
+          {newestFirst ? "Newest" : "Oldest"}
+        </button>
       </div>
+      {searching ? (
+        <div className="mt-2 px-2">
+          <input
+            autoFocus
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Place, state, trip, or month"
+            aria-label="Search photos"
+            className="h-11 w-full rounded-lg border border-line bg-bg px-3 text-base text-ink outline-none"
+          />
+          {q ? (
+            <p className="mt-1 text-xs text-faint">
+              {shown.length} {shown.length === 1 ? "photo" : "photos"}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       {photos.length === 0 ? <p className="mt-4 px-2 text-sm text-muted">No photos yet.</p> : null}
       {menu ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 px-3 pb-6" onClick={() => setMenu(null)}>
