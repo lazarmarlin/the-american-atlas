@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Check, ChevronDown, ChevronLeft, ChevronUp, GripVertical, Locate, Mail, Search, Settings } from "lucide-react";
+import { Car, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, GripVertical, Locate, Mail, Search, Settings } from "lucide-react";
 import { useCurrentUser, useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
   loadMeta,
@@ -277,6 +277,21 @@ function AtlasShell() {
   const ghostLook = useGhost((s) => s.look);
   const [ghostOpen, setGhostOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
+  /** The map's bottom buttons tucked away behind the arrow (remembered on this phone). */
+  const [toolsTucked, setToolsTucked] = useState(() => {
+    try {
+      return localStorage.getItem("atlas.tools-tucked") === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("atlas.tools-tucked", toolsTucked ? "1" : "0");
+    } catch {
+      /* not remembered, then */
+    }
+  }, [toolsTucked]);
   const [driving, setDriving] = useState(false);
   const [mph, setMph] = useState<number | null>(null);
   const [sideways, setSideways] = useState(true);
@@ -1998,68 +2013,33 @@ function AtlasShell() {
             </button>
           </div>
         ) : null}
+        {/* Bottom left: chips stacked above the buttons (they never overlap), and the
+            buttons in one row that tucks away behind the arrow. */}
+        <div className="pointer-events-none absolute bottom-safe left-safe z-10 flex max-w-[calc(100%-4rem)] flex-col items-start gap-2">
+          <div className="pointer-events-auto flex max-w-full flex-col items-start gap-2">
+        {tripRoutes && !(friendLive || friendLines.length) ? (
+          <button
+            type="button"
+            onClick={() => setTripRoutes(null)}
+            className="h-11 max-w-[70%] truncate rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+          >
+            {tripRoutes.legend?.length ? (
+              <span className="mr-1 inline-flex items-center gap-2">
+                {tripRoutes.legend.map((who) => (
+                  <span key={who.name + who.color} className="inline-flex items-center gap-1">
+                    <span className="size-2.5 rounded-full" style={{ background: who.color }} />
+                    {who.name}
+                  </span>
+                ))}
+              </span>
+            ) : (
+              tripRoutes.label
+            )}{" "}
+            · Hide
+          </button>
+        ) : null}
         {!driving ? (
-        <>
-        <div className="absolute bottom-safe left-safe z-10 flex max-w-[calc(100%-4.5rem)] flex-wrap-reverse items-center gap-2">
-          <button
-            type="button"
-            aria-expanded={ghostOpen}
-            onClick={() => {
-              if (!ghostOpen && sheet > 8) setSheet(8);
-              setGhostOpen(!ghostOpen);
-            }}
-            className="flex h-11 items-center gap-2 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
-          >
-            <span className={"ghost-dot size-2 rounded-full " + (locating ? "is-live" : "opacity-60")} style={{ background: ghostColor }} />
-            Ghost trail
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setGhostOpen(false);
-              setMailOpen(false);
-              setSheet(8);
-              setDriving(true);
-              void ensureTracking();
-            }}
-            className="flex h-11 items-center gap-2 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
-          >
-            Drive
-          </button>
-          {user?.id ? (
-            <button
-              type="button"
-              aria-label={unreadTotal ? `Messages, ${unreadTotal} new` : "Messages"}
-              onClick={() => {
-                if (sheet > 8) setSheet(8);
-                setGhostOpen(false);
-                setMailOpen(true);
-              }}
-              className="relative grid h-11 w-11 place-items-center rounded-full border border-line bg-surface/95 shadow-sm backdrop-blur-sm"
-            >
-              <Mail className="size-5" />
-              {unreadTotal ? (
-                <span className="absolute -top-1 -right-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] font-medium text-accent-ink">
-                  {unreadTotal > 99 ? "99+" : unreadTotal}
-                </span>
-              ) : null}
-            </button>
-          ) : null}
-          {locating && liveViewers.length ? (
-            <button
-              type="button"
-              onClick={() => {
-                if (sheet > 8) setSheet(8);
-                setGhostOpen(true);
-              }}
-              aria-label={`Sharing your location with ${liveViewers.length} ${liveViewers.length === 1 ? "friend" : "friends"}. Open to change.`}
-              className="flex h-11 items-center gap-2 rounded-full border border-accent/60 bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
-            >
-              <span className="size-2 animate-pulse rounded-full bg-accent" />
-              Live to {liveViewers.length}
-            </button>
-          ) : null}
-        </div>
+          <>
         {nextUp && !(friendLive || friendLines.length) && !tripRoutes && !selected ? (
           <button
             type="button"
@@ -2072,7 +2052,7 @@ function AtlasShell() {
               window.setTimeout(() => setSheetInstant(false), 80);
             }}
             aria-label={`Nearest new county: ${nextUp.name}, ${Math.max(1, Math.round(nextUp.miles))} miles ${nextUp.toward}`}
-            className="absolute bottom-16 left-safe z-10 flex h-10 max-w-[80%] items-center gap-1.5 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+            className="flex h-10 max-w-[80%] items-center gap-1.5 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
           >
             <span className="shrink-0 text-xs text-faint">Next</span>
             <span className="truncate">{nextUp.name}</span>
@@ -2091,34 +2071,106 @@ function AtlasShell() {
               setFriendLive(null);
               setFriendFix(null);
             }}
-            className="absolute bottom-16 left-safe z-10 h-11 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+            className="h-11 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
           >
             {friendLive ? `${friendLive.name} · live · Hide` : "Friend's trail · Hide"}
           </button>
         ) : null}
-        </>
+          </>
         ) : null}
-        {tripRoutes && !(friendLive || friendLines.length) ? (
+          </div>
+          {!driving ? (
+            <div className="pointer-events-auto flex max-w-full items-center gap-1.5 overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => setToolsTucked(!toolsTucked)}
+                aria-label={toolsTucked ? "Show the map buttons" : "Tuck the map buttons away"}
+                aria-expanded={!toolsTucked}
+                className="flex h-11 shrink-0 items-center gap-1.5 rounded-full border border-line bg-surface/95 px-2.5 shadow-sm backdrop-blur-sm"
+              >
+                {toolsTucked ? <ChevronRight className="size-4" /> : <ChevronLeft className="size-4" />}
+                {toolsTucked ? (
+                  <>
+                    <span className={"ghost-dot size-2 rounded-full " + (locating ? "is-live" : "opacity-60")} style={{ background: ghostColor }} />
+                    {locating && liveViewers.length ? <span className="size-2 animate-pulse rounded-full bg-accent" /> : null}
+                    {unreadTotal ? (
+                      <span className="grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] font-medium text-accent-ink">
+                        {unreadTotal > 99 ? "99+" : unreadTotal}
+                      </span>
+                    ) : null}
+                  </>
+                ) : null}
+              </button>
+              {!toolsTucked ? (
+                <>
           <button
             type="button"
-            onClick={() => setTripRoutes(null)}
-            className="absolute bottom-16 left-safe z-10 h-11 max-w-[70%] truncate rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+            aria-expanded={ghostOpen}
+            onClick={() => {
+              if (!ghostOpen && sheet > 8) setSheet(8);
+              setGhostOpen(!ghostOpen);
+            }}
+            aria-label={
+              locating && liveViewers.length
+                ? `Ghost trail. Sharing your location with ${liveViewers.length} ${liveViewers.length === 1 ? "friend" : "friends"}.`
+                : undefined
+            }
+            className={
+              "flex h-11 shrink-0 items-center gap-2 rounded-full border bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm " +
+              (locating && liveViewers.length ? "border-accent/60" : "border-line")
+            }
           >
-            {tripRoutes.legend?.length ? (
-              <span className="mr-1 inline-flex items-center gap-2">
-                {tripRoutes.legend.map((who) => (
-                  <span key={who.name + who.color} className="inline-flex items-center gap-1">
-                    <span className="size-2.5 rounded-full" style={{ background: who.color }} />
-                    {who.name}
-                  </span>
-                ))}
-              </span>
+            {/* Sharing live: the same button (it opens the same panel) says so, saving a button's width. */}
+            {locating && liveViewers.length ? (
+              <>
+                <span className="size-2 animate-pulse rounded-full bg-accent" />
+                Live to {liveViewers.length}
+              </>
             ) : (
-              tripRoutes.label
-            )}{" "}
-            · Hide
+              <>
+                <span className={"ghost-dot size-2 rounded-full " + (locating ? "is-live" : "opacity-60")} style={{ background: ghostColor }} />
+                Ghost trail
+              </>
+            )}
           </button>
-        ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              setGhostOpen(false);
+              setMailOpen(false);
+              setSheet(8);
+              setDriving(true);
+              void ensureTracking();
+            }}
+            className="flex h-11 shrink-0 items-center gap-1.5 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+          >
+            <Car className="size-4" />
+            Drive
+          </button>
+          {user?.id ? (
+            <button
+              type="button"
+              aria-label={unreadTotal ? `Messages, ${unreadTotal} new` : "Messages"}
+              onClick={() => {
+                if (sheet > 8) setSheet(8);
+                setGhostOpen(false);
+                setMailOpen(true);
+              }}
+              className="relative grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line bg-surface/95 shadow-sm backdrop-blur-sm"
+            >
+              <Mail className="size-5" />
+              {unreadTotal ? (
+                <span className="absolute -top-1 -right-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] font-medium text-accent-ink">
+                  {unreadTotal > 99 ? "99+" : unreadTotal}
+                </span>
+              ) : null}
+            </button>
+          ) : null}
+                </>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
         {recapTrip && trips.some((trip) => trip.id === recapTrip.id) ? (
           <TripRecap
             trip={trips.find((trip) => trip.id === recapTrip.id) as Trip}
