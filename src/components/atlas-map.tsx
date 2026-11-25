@@ -1605,10 +1605,14 @@ export function AtlasMap({
       placeDot(null);
       return;
     }
-    // A newer fix already arrived through onLiveFix: keep gliding from there.
+    // Whichever is newer: this position, or the last fix that came straight to the map.
+    // (Always draw one: after the dot was cleared, e.g. tracking restarting when the app
+    // comes back, sitting still sends no new fixes to bring it back.)
     const live = latestLiveFix();
-    if (live && (live.t ?? 0) > (dot.t ?? 0)) return;
-    glideTo(dot.lon, dot.lat);
+    // (A position without a time was just read, so it's now.)
+    const here = live && (live.t ?? 0) > (dot.t ?? Date.now()) ? live : dot;
+    if (dotShown.current && dotShown.current[0] === here.lon && dotShown.current[1] === here.lat) return;
+    glideTo(here.lon, here.lat);
   }, [dot, ready, glideTo, placeDot]);
   useEffect(
     () =>

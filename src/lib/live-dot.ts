@@ -11,6 +11,9 @@ const listeners = new Set<Listener>();
 let latest: Fix | null = null;
 
 export function noteLiveFix(fix: Fix) {
+  // Locations read back from the phone's log (after the app was in the background)
+  // can be older than where you are now: the dot never goes back to them.
+  if (latest?.t && fix.t && fix.t < latest.t) return;
   latest = fix;
   for (const listener of listeners) listener(fix);
 }
