@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { BASE_STYLE, loadAtlasResource, offlineReadyStyle } from "@/lib/offline-maps";
 import type { ExpressionSpecification, GeoJSONSource, Map as MlMap } from "maplibre-gl";
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -139,6 +140,8 @@ function stateCamera(map: MlMap, box: { w: number; s: number; e: number; n: numb
     { padding: 36, maxZoom: 7.2 },
   );
 }
+
+let protocolAdded = false;
 
 function duration() {
   if (typeof window === "undefined") return 0;
@@ -339,9 +342,19 @@ export function AtlasMap({
       const statec = tokenColor("--color-state", "#8aa56a");
       const place = tokenColor("--color-place", "#e2b15a");
 
+      // Tiles, fonts and icons go through "atlas://": saved offline maps first, then the network.
+      if (!protocolAdded) {
+        protocolAdded = true;
+        maplibregl.addProtocol("atlas", loadAtlasResource);
+      }
+      const style = await Promise.race([
+        offlineReadyStyle().catch(() => BASE_STYLE),
+        new Promise<string>((resolve) => window.setTimeout(() => resolve(BASE_STYLE), 6000)),
+      ]);
+      if (dead || !host.current) return;
       map = new maplibregl.Map({
         container: host.current,
-        style: "https://tiles.openfreemap.org/styles/dark",
+        style: style as never,
         bounds: USA,
         fitBoundsOptions: { padding: 28 },
         attributionControl: { compact: true },
