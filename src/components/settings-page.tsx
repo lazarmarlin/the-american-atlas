@@ -7,6 +7,7 @@ import { clearGhostCache } from "@/lib/ghost-cache";
 import { hasGateSessionMarker } from "@/lib/auth/gate-session-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
 import { memoryReminders, setMemoryReminders } from "@/lib/memories";
+import { askBatteryUnrestricted, batteryUnrestricted, notificationStatus, openNotificationSettings } from "@/lib/power";
 import { nativeApp } from "@/lib/native";
 import type { SettingsPageId } from "@/lib/settings-route";
 import { requestTrackingPermission } from "@/lib/background-location";
@@ -159,7 +160,7 @@ export function SettingsPage({
           {(
             [
               ["account", "Account", "Sync and profile"],
-              ["tracking", "Tracking", "Travel tracking, ghost trail, your marker, and fast add"],
+              ["tracking", "Tracking", "Travel tracking, notifications, ghost trail, your marker, and fast add"],
               ["map", "Map", "Markers, borders, and overlays"],
               ["photos", "Photos", "Camera roll and the map"],
               ["atlas", "Atlas", nativeApp ? "Offline maps and the tour" : "Offline maps, offline atlas, and the tour"],
@@ -439,6 +440,8 @@ export function SettingsPage({
           {fastAdd ? "Fast add on" : "Fast add off"}
         </button>
       </section>
+
+      {nativeApp ? <NotificationsSection /> : null}
 
       {nativeApp ? (
         <section className="mt-8">
@@ -845,6 +848,101 @@ function OfflineMapsSection() {
           ))}
         </ul>
       ) : null}
+    </section>
+  );
+}
+
+/**
+ * Whether the phone lets the app notify (places added, messages, thumbs-up,
+ * friends sharing, On this day), with a way to fix it and a test.
+ */
+function NotificationsSection() {
+  const [status, setStatus] = useState<{ enabled: boolean; channelsOff: string[] } | null>(null);
+  const [battery, setBattery] = useState(true);
+  const [note, setNote] = useState<string | null>(null);
+  async function check() {
+    setStatus(await notificationStatus());
+    setBattery(await batteryUnrestricted());
+  }
+  useEffect(() => {
+    void check();
+    // Coming back from Android's settings: look again.
+    const again = () => {
+      if (document.visibilityState === "visible") void check();
+    };
+    document.addEventListener("visibilitychange", again);
+    return () => document.removeEventListener("visibilitychange", again);
+  }, []);
+  async function turnOn() {
+    const { LocalNotifications } = await import("@capacitor/local-notifications");
+    const res = await LocalNotifications.requestPermissions().catch(() => ({ display: "denied" as const }));
+    // Android only asks twice; after that the switch is in its settings.
+    if (res.display !== "granted") await openNotificationSettings();
+    await check();
+  }
+  async function test() {
+    setNote(null);
+    const { LocalNotifications } = await import("@capacitor/local-notifications");
+    try {
+      await LocalNotifications.createChannel({ id: "places-added", name: "Places added", description: "When tracking adds a county, road, or place you passed.", importance: 3 }).catch(() => {});
+      await LocalNotifications.schedule({
+        notifications: [
+          {
+            id: Math.floor(Date.now() % 2147483647),
+            title: "Test from The American Atlas",
+            body: "Notifications are working.",
+            channelId: "places-added",
+            smallIcon: "ic_stat_atlas",
+            iconColor: "#e2b15a",
+          },
+        ],
+      });
+      setNote("Sent. If nothing showed up, check the switches in Android's notification settings.");
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Couldn't send it.");
+    }
+  }
+  return (
+    <section className="mt-8">
+      <h2 className="font-serif text-2xl">Notifications</h2>
+      <p className="mt-1 text-sm text-muted">
+        Places tracking adds, messages, thumbs-up, friends sharing their location, and On this day. They come while the app is running, including in
+        the background on a drive. If Android closes the app, the places you passed are added (and notified) when you open it again.
+      </p>
+      {status === null ? <p className="mt-3 text-sm text-faint">Checking…</p> : null}
+      {status && !status.enabled ? (
+        <div className="mt-3 rounded-lg border border-accent px-3 py-3">
+          <p className="text-sm">Notifications are off for this app, so only the tracking notice shows.</p>
+          <button type="button" onClick={() => void turnOn()} className="mt-2 h-11 w-full rounded-lg border border-ink bg-elevated text-sm">
+            Turn on notifications
+          </button>
+        </div>
+      ) : null}
+      {status?.enabled && status.channelsOff.length ? (
+        <div className="mt-3 rounded-lg border border-line px-3 py-3">
+          <p className="text-sm">Switched off in Android: {status.channelsOff.join(", ")}.</p>
+          <button type="button" onClick={() => void openNotificationSettings()} className="mt-2 h-11 w-full rounded-lg border border-line text-sm">
+            Open notification settings
+          </button>
+        </div>
+      ) : null}
+      {status?.enabled && !status.channelsOff.length ? <p className="mt-3 text-sm text-muted">Notifications are on.</p> : null}
+      {!battery ? (
+        <div className="mt-3 rounded-lg border border-line px-3 py-3">
+          <p className="text-sm">Android is limiting the app's battery, so it may be paused on a drive and notify late.</p>
+          <button
+            type="button"
+            onClick={() => void askBatteryUnrestricted().then(check)}
+            className="mt-2 h-11 w-full rounded-lg border border-line text-sm"
+          >
+            Let it run unrestricted
+          </button>
+        </div>
+      ) : null}
+      <button type="button" onClick={() => void test()} className="mt-3 h-11 w-full rounded-lg border border-line text-sm">
+        Send a test notification
+      </button>
+      {note ? <p className="mt-2 text-sm text-muted">{note}</p> : null}
     </section>
   );
 }

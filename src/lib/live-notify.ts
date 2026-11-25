@@ -22,15 +22,21 @@ async function plugin() {
   return LocalNotifications;
 }
 
-/** Ask once for notification permission, when someone has friends. */
+/**
+ * Ask for notification permission if Android still can (it stops showing the
+ * prompt after two "no"s; then the switch is in Settings > Tracking >
+ * Notifications). At most once a week, so a "not now" isn't nagged.
+ */
 export async function askNotifyOnce() {
   if (!nativeApp) return;
   try {
-    if (localStorage.getItem(ASKED_KEY)) return;
-    localStorage.setItem(ASKED_KEY, "1");
+    const asked = Number(localStorage.getItem(ASKED_KEY)) || 0;
+    if (Date.now() - asked < 7 * 24 * 3600 * 1000) return;
     const LocalNotifications = await plugin();
     const { display } = await LocalNotifications.checkPermissions();
-    if (display !== "granted") await LocalNotifications.requestPermissions();
+    if (display === "granted" || display === "denied") return;
+    localStorage.setItem(ASKED_KEY, String(Date.now()));
+    await LocalNotifications.requestPermissions();
   } catch {
     /* no notifications, then */
   }

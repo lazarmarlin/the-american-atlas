@@ -17,7 +17,9 @@ export function widgetNumbers(marks: Mark[], tracking: boolean, now = Date.now()
   let monthPoints = 0;
   let last = "";
   for (const mark of marks) {
-    const days = mark.visits.map((visit) => visit.visitedOn);
+    // Undated visits fall back to the place's own date (the server refines this).
+    const fallback = mark.visitedOn;
+    const days = (mark.visits.length ? mark.visits : [null]).map((visit) => visit?.visitedOn ?? fallback);
     const first = days.filter((d): d is string => !!d).sort()[0];
     if (first === day) {
       today += 1;
@@ -32,14 +34,48 @@ export function widgetNumbers(marks: Mark[], tracking: boolean, now = Date.now()
 }
 
 let lastSent = "";
+let timer: ReturnType<typeof setTimeout> | null = null;
+let latest: { marks: Mark[]; tracking: boolean } | null = null;
 
-export function updateWidget(marks: Mark[], tracking: boolean) {
-  if (!nativeApp) return;
-  const data = widgetNumbers(marks, tracking);
+function send(data: WidgetData) {
   const key = JSON.stringify(data);
   if (key === lastSent) return;
   lastSent = key;
   void Widget.update(data).catch(() => {
     lastSent = "";
   });
+}
+
+/**
+ * Update the widget. The quick count from the places on the phone goes first;
+ * then the same totals the Recap tab shows (worked out on the server, which
+ * dates older visits by when the place was saved and uses the atlas's own
+ * points), so the widget and the app agree.
+ */
+export function updateWidget(marks: Mark[], tracking: boolean) {
+  if (!nativeApp) return;
+  latest = { marks, tracking };
+  const quick = widgetNumbers(marks, tracking);
+  send(quick);
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(() => void refine(), 4000);
+}
+
+async function refine() {
+  timer = null;
+  if (!latest) return;
+  const { marks, tracking } = latest;
+  try {
+    const { getRecap, periodRange } = await import("@/lib/recap");
+    const month = periodRange("month");
+    const day = localDay(Date.now());
+    const [monthRecap, todayRecap] = await Promise.all([
+      getRecap({ data: { from: month.from, to: month.to, tz: month.tz } }),
+      getRecap({ data: { from: day, to: day, tz: month.tz } }),
+    ]);
+    const quick = widgetNumbers(marks, tracking);
+    send({ ...quick, monthPoints: monthRecap.points, today: Math.max(quick.today, todayRecap.places) });
+  } catch {
+    // Offline: the quick count stays.
+  }
 }
