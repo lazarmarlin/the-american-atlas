@@ -642,6 +642,17 @@ function AtlasShell() {
   metaRef.current = meta;
   const userIdRef = useRef("");
   userIdRef.current = user?.id ?? "";
+  // Unread messages and thumbs-up, checked while signed in.
+  useEffect(() => {
+    if (!user?.id) return;
+    return startChatChecks();
+  }, [user?.id]);
+  const unreadTotal = useChat(
+    (state) =>
+      Object.values(state.summary.friends).reduce((a, b) => a + b, 0) +
+      Object.values(state.summary.groups).reduce((a, b) => a + b, 0) +
+      state.summary.likes,
+  );
   // The nearest county still to get, rechecked every half mile or minute of travel.
   useEffect(() => {
     if (!trackTravel || !tracker) {
@@ -663,17 +674,6 @@ function AtlasShell() {
       dead = true;
     };
   }, [tracker, trackTravel, marks.length]);
-  // Unread messages and thumbs-up, checked while signed in.
-  useEffect(() => {
-    if (!user?.id) return;
-    return startChatChecks();
-  }, [user?.id]);
-  const unreadTotal = useChat(
-    (state) =>
-      Object.values(state.summary.friends).reduce((a, b) => a + b, 0) +
-      Object.values(state.summary.groups).reduce((a, b) => a + b, 0) +
-      state.summary.likes,
-  );
   const [sendPlace, setSendPlace] = useState<Mark | null>(null);
   const [fitTo, setFitTo] = useState<{ tick: number; points: [number, number][]; maxZoom: number } | null>(null);
 
