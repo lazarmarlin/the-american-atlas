@@ -6,6 +6,7 @@ import { milesBetween } from "@/lib/nearby";
 import { readGps } from "@/lib/photo-file";
 import { categoryName } from "@/lib/place-kinds";
 import { pushBack } from "@/lib/sheet-back";
+import { TripSketch, tripDates } from "@/components/trip-recap";
 
 const PHOTO_LINK = /^https?:\/\/(?:photos\.app\.goo\.gl|photos\.google\.com|goo\.gl\/photos)\/\S+$/i;
 
@@ -368,6 +369,21 @@ export function ChatThread({
                         Show on map
                       </button>
                     ) : null}
+                  </div>
+                ) : null}
+                {row.kind === "trip" && row.trip ? (
+                  <div className="py-1">
+                    <span className="block text-xs tracking-widest text-faint uppercase">{mine ? "My trip" : `${row.fromName}'s trip`}</span>
+                    <span className="mt-0.5 block font-serif text-lg leading-tight">{row.trip.name}</span>
+                    {row.trip.from ? <span className="block text-xs text-muted">{tripDates(row.trip)}</span> : null}
+                    <div className="mt-1.5">
+                      <TripSketch lines={row.trip.lines} dots={row.trip.dots} height={130} />
+                    </div>
+                    <span className="mt-1.5 block text-xs text-muted">
+                      {Math.round(row.trip.miles).toLocaleString()} mi · {row.trip.fresh} new {row.trip.fresh === 1 ? "place" : "places"} ·{" "}
+                      {row.trip.points.toLocaleString()} pts
+                      {row.trip.states.length ? ` · ${row.trip.states.join(", ")}` : ""}
+                    </span>
                   </div>
                 ) : null}
                 {row.kind === "text" ? <p className="break-words">{linkParts(row.body)}</p> : null}

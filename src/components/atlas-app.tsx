@@ -28,6 +28,8 @@ import { missedFixes, nativeDelivery, noteHandledFix } from "@/lib/native-tracki
 import { startChatChecks, useChat } from "@/lib/chat-store";
 import { SendPlaceSheet } from "@/components/chat-send";
 import { MessageBoard } from "@/components/friend-chat";
+import { TripRecap, type TripCard } from "@/components/trip-recap";
+import { flushTripTrack, noteTripFixes, trackLines } from "@/lib/trip-track";
 import { AtlasSplash, LoginScreen } from "@/components/login-screen";
 import { SettingsPage } from "@/components/settings-page";
 import { GhostPanel } from "@/components/ghost-panel";
@@ -62,7 +64,7 @@ import { notifyPlacesAdded } from "@/lib/place-notifications";
 import { countyToMark } from "@/lib/counties";
 import { glyphUrl } from "@/lib/map-glyphs";
 import { type Profile } from "@/lib/profile";
-import { earnedPoints, ensureVisits, freshVisit, pointsForVisit, type Visit } from "@/lib/visits";
+import { earnedPoints, freshVisit, pointsForVisit, type Visit } from "@/lib/visits";
 import {
   flushVault,
   readVault,
@@ -266,6 +268,14 @@ function AtlasShell() {
   const ghostLook = useGhost((s) => s.look);
   const [ghostOpen, setGhostOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
+  /** A trip's recap on screen (right after it ends, or opened from the trips list). */
+  const [recapTrip, setRecapTrip] = useState<{ id: string; justEnded: boolean } | null>(null);
+  /** Trip routes on the map: one from a recap, or everyone's on a shared trip. */
+  const [tripRoutes, setTripRoutes] = useState<{
+    label: string;
+    routes: { color: string; lines: [number, number][][]; dots?: [number, number][] }[];
+    legend?: { name: string; color: string }[];
+  } | null>(null);
   const [friendId, setFriendId] = useState<string | null>(null);
   const [friendLines, setFriendLines] = useState<GhostLines>([]);
   const [friendFix, setFriendFix] = useState<{ id: string; lat: number; lon: number } | null>(null);
@@ -652,6 +662,23 @@ function AtlasShell() {
   const [sendPlace, setSendPlace] = useState<Mark | null>(null);
   const [fitTo, setFitTo] = useState<{ tick: number; points: [number, number][]; maxZoom: number } | null>(null);
 
+  /** Draw trip routes on the map and fit them in view. */
+  function showRoutes(
+    label: string,
+    routes: { color: string; lines: [number, number][][]; dots?: [number, number][] }[],
+    legend?: { name: string; color: string }[],
+  ) {
+    setTripRoutes({ label, routes, legend });
+    // Fit the routes driven; stops only when there's no route yet.
+    const driven = routes.flatMap((route) => route.lines.flat());
+    const points = driven.length ? driven : routes.flatMap((route) => route.dots ?? []);
+    setSheetInstant(true);
+    setSheet(8);
+    window.setTimeout(() => setSheetInstant(false), 80);
+    // Once the map has taken the space the menu gave up.
+    if (points.length) window.setTimeout(() => setFitTo((cur) => ({ tick: (cur?.tick ?? 0) + 1, points, maxZoom: 11 })), 350);
+  }
+
   async function noteTrip(poiId: string) {
     const tripId = recordingRef.current;
     if (!tripId) return;
@@ -718,6 +745,8 @@ function AtlasShell() {
         saved.add(mark.id);
         if (await addRef.current(mark, true, day)) added.push(mark);
       }
+      // Just added: you're inside it now, so a later fix isn't "entering it again".
+      for (const mark of found) passInside.add(mark.id);
       for (const mark of visited) await noteTrip(mark.id);
       const reentered: Mark[] = [];
       for (const mark of noteAgain(again)) if (await revisitRef.current(mark, day)) reentered.push(mark);
@@ -809,6 +838,7 @@ function AtlasShell() {
       shareLive();
       if (!adding) return;
       logDrive(fixes);
+      noteTripFixes(recordingRef.current, fixes);
       shareCache();
       pending.push(...fixes);
       void pump();
@@ -957,7 +987,9 @@ function AtlasShell() {
   async function revisit(mark: Mark, day: string | null) {
     const current = marksRef.current.find((item) => item.id === mark.id);
     if (!current) return false;
-    const visits = current.visits.length ? current.visits : ensureVisits(current).visits;
+    // No visits recorded yet means it was only just added: that was the visit.
+    if (!current.visits.length) return false;
+    const visits = current.visits;
     if (visits.length >= 12) return false;
     // One visit a day: wobbling GPS at a town or county line, or crossing it back and forth, isn't a new visit.
     const on = day ?? localDay(Date.now());
@@ -1026,22 +1058,31 @@ function AtlasShell() {
     return true;
   }
 
-  async function beginRecording(id: string) {
+  async function beginRecording(id: string, groupId: string | null = null) {
     setRecordingId(id);
     setActiveTrip(id);
-    setTrips((prev) => prev.map((trip) => ({ ...trip, recording: trip.id === id })));
-    setTab("trips");
+    const now = Date.now();
+    setTrips((prev) =>
+      prev.map((trip) =>
+        trip.id === id
+          ? { ...trip, recording: true, startedAt: trip.startedAt ?? now, endedAt: null, groupId: groupId ?? trip.groupId ?? null }
+          : trip.recording
+            ? { ...trip, recording: false, endedAt: now }
+            : trip,
+      ),
+    );
+    if (!groupId) setTab("trips");
     try {
-      await setTripRecording({ data: { id, on: true } });
+      await setTripRecording({ data: { id, on: true, groupId } });
     } catch {
       setError("Couldn't start that trip.");
     }
   }
 
-  async function startTrip(name: string) {
+  async function startTrip(name: string, groupId: string | null = null) {
     if (!(await ensureTracking())) return;
     const id = await makeTrip(name);
-    await beginRecording(id);
+    await beginRecording(id, groupId);
   }
 
   async function restartTrip(id: string) {
@@ -1053,7 +1094,9 @@ function AtlasShell() {
     const id = recordingId;
     setRecordingId(null);
     if (!id) return;
-    setTrips((prev) => prev.map((trip) => (trip.id === id ? { ...trip, recording: false } : trip)));
+    setTrips((prev) => prev.map((trip) => (trip.id === id ? { ...trip, recording: false, endedAt: Date.now() } : trip)));
+    // The rest of the route goes up first, so the recap has all of it.
+    void flushTripTrack().finally(() => setRecapTrip({ id, justEnded: true }));
     try {
       await setTripRecording({ data: { id, on: false } });
     } catch {
@@ -1782,6 +1825,7 @@ function AtlasShell() {
               focusTick={focusTick}
               fitTo={fitTo}
               spotlight={spot}
+              tripRoutes={tripRoutes?.routes ?? EMPTY_ROUTES}
               onAway={setMapAway}
               onView={(zoom, base) => {
                 setViewZoom(zoom);
@@ -1851,6 +1895,39 @@ function AtlasShell() {
           >
             {friendLive ? `${friendLive.name} · live · Hide` : "Friend's trail · Hide"}
           </button>
+        ) : null}
+        {tripRoutes && !(friendLive || friendLines.length) ? (
+          <button
+            type="button"
+            onClick={() => setTripRoutes(null)}
+            className="absolute bottom-16 left-3 z-10 h-11 max-w-[70%] truncate rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+          >
+            {tripRoutes.legend?.length ? (
+              <span className="mr-1 inline-flex items-center gap-2">
+                {tripRoutes.legend.map((who) => (
+                  <span key={who.name + who.color} className="inline-flex items-center gap-1">
+                    <span className="size-2.5 rounded-full" style={{ background: who.color }} />
+                    {who.name}
+                  </span>
+                ))}
+              </span>
+            ) : (
+              tripRoutes.label
+            )}{" "}
+            · Hide
+          </button>
+        ) : null}
+        {recapTrip && trips.some((trip) => trip.id === recapTrip.id) ? (
+          <TripRecap
+            trip={trips.find((trip) => trip.id === recapTrip.id) as Trip}
+            marks={marks}
+            justEnded={recapTrip.justEnded}
+            onClose={() => setRecapTrip(null)}
+            onShowMap={(card: TripCard) => {
+              setRecapTrip(null);
+              showRoutes(card.name, [{ color: ghostColor, lines: card.lines, dots: card.dots.map((d) => [d[0], d[1]] as [number, number]) }]);
+            }}
+          />
         ) : null}
         <GhostPanel
           open={ghostOpen}
@@ -2274,6 +2351,7 @@ function AtlasShell() {
               onDelete={(id) => void dropTrip(id)}
               onRename={(id, name) => void renameTrip(id, name)}
               onOrder={(id, stops) => void orderStops(id, stops)}
+              onRecap={(id) => setRecapTrip({ id, justEnded: false })}
             />
           ) : null}
           {tab === "badges" ? (
@@ -2367,6 +2445,31 @@ function AtlasShell() {
                 setSheet(8);
                 window.setTimeout(() => setSheetInstant(false), 80);
                 return pins.length;
+              }}
+              sharedRecording={trips.find((trip) => trip.recording)?.groupId ?? null}
+              onStartShared={async (groupId, name) => {
+                const mine = trips.find((trip) => trip.groupId === groupId && !trip.recording);
+                if (mine) {
+                  if (await ensureTracking()) await beginRecording(mine.id, groupId);
+                } else await startTrip(name, groupId);
+              }}
+              onEndShared={() => void endTrip()}
+              onShowShared={(groupId, name, travelers) => {
+                const routes = travelers
+                  .map((traveler, index) => ({
+                    who: traveler.userId === user?.id ? "You" : traveler.name.split(" ")[0] ?? "Friend",
+                    color: TRAVELER_COLORS[index % TRAVELER_COLORS.length] as string,
+                    lines: trackLines(traveler.track),
+                    dots: traveler.spots.map((spot) => [spot[0], spot[1]] as [number, number]),
+                  }))
+                  .filter((route) => route.lines.length || route.dots.length);
+                if (!routes.length) return 0;
+                showRoutes(
+                  `${name} · everyone's routes`,
+                  routes,
+                  routes.map((route) => ({ name: route.who, color: route.color })),
+                );
+                return routes.length;
               }}
               onShareLive={async (ids) => {
                 try {
@@ -2914,6 +3017,11 @@ function moveStop<T>(list: T[], from: number, to: number) {
   return next;
 }
 
+/** Each traveler on a shared trip gets one of these, in order. */
+const TRAVELER_COLORS = ["#e8553a", "#3dbebf", "#e2b15a", "#9b7be0", "#6cc56b", "#e07bb4"];
+
+const EMPTY_ROUTES: { color: string; lines: [number, number][][] }[] = [];
+
 function TripsPanel({
   trips,
   marks,
@@ -2927,6 +3035,7 @@ function TripsPanel({
   onDelete,
   onRename,
   onOrder,
+  onRecap,
 }: {
   trips: Trip[];
   marks: Mark[];
@@ -2940,6 +3049,7 @@ function TripsPanel({
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onOrder: (id: string, stops: TripStop[]) => void;
+  onRecap: (id: string) => void;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -3049,6 +3159,11 @@ function TripsPanel({
                   {recordingId === item.id ? " · recording" : ""}
                 </span>
               </button>
+              {item.stops.length || item.startedAt ? (
+                <button type="button" onClick={() => onRecap(item.id)} className="h-11 px-2 text-xs text-muted">
+                  Recap
+                </button>
+              ) : null}
               <button type="button" onClick={() => onDelete(item.id)} className="h-11 px-2 text-xs text-faint">
                 Delete
               </button>
@@ -3115,6 +3230,11 @@ function TripsPanel({
           Restart trip
         </button>
       )}
+      {trip.stops.length || trip.startedAt ? (
+        <button type="button" onClick={() => onRecap(trip.id)} className="mt-2 h-11 w-full rounded-lg border border-line text-sm">
+          Trip recap
+        </button>
+      ) : null}
       <label className="mt-3 flex items-center gap-2 rounded-card border border-line bg-bg px-3">
         <Search className="size-4 shrink-0 text-faint" aria-hidden="true" />
         <input
