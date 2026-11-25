@@ -28,6 +28,7 @@ import { missedFixes, nativeDelivery, noteHandledFix } from "@/lib/native-tracki
 import { startChatChecks, useChat } from "@/lib/chat-store";
 import { SendPlaceSheet } from "@/components/chat-send";
 import { MessageBoard } from "@/components/friend-chat";
+import { updateWidget } from "@/lib/widget";
 import { AtlasSplash, LoginScreen } from "@/components/login-screen";
 import { SettingsPage } from "@/components/settings-page";
 import { GhostPanel } from "@/components/ghost-panel";
@@ -638,6 +639,11 @@ function AtlasShell() {
   metaRef.current = meta;
   const userIdRef = useRef("");
   userIdRef.current = user?.id ?? "";
+  // The home-screen widget (Android): today's new places, this month's points, tracking.
+  useEffect(() => {
+    if (!user?.id) return;
+    updateWidget(marks, trackTravel);
+  }, [marks, trackTravel, user?.id]);
   // Unread messages and thumbs-up, checked while signed in.
   useEffect(() => {
     if (!user?.id) return;
