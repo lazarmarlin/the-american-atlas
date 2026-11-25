@@ -28,10 +28,10 @@ import { missedFixes, nativeDelivery, noteHandledFix } from "@/lib/native-tracki
 import { startChatChecks, useChat } from "@/lib/chat-store";
 import { SendPlaceSheet } from "@/components/chat-send";
 import { MessageBoard } from "@/components/friend-chat";
-import { remindOnThisDay } from "@/lib/memories";
 import { AtlasSplash, LoginScreen } from "@/components/login-screen";
 import { SettingsPage } from "@/components/settings-page";
 import { GhostPanel } from "@/components/ghost-panel";
+import { remindOnThisDay } from "@/lib/memories";
 import { FriendsPanel } from "@/components/friends-panel";
 import { PhotosPanel, PhotoViewer } from "@/components/photos-panel";
 import { matchPlace, tripFor, type RecordingTrip } from "@/lib/photo-file";
