@@ -30,6 +30,8 @@ export type ChatMessage = {
   lon: number | null;
   takenAt: number | null;
   place: ChatPlace | null;
+  /** True on a message you sent once everyone else in the chat has opened it. */
+  read?: boolean;
 };
 
 export type Thread = { kind: "friend" | "group"; id: string };
@@ -77,6 +79,26 @@ function toMs(value: unknown) {
 }
 
 const readKey = (thread: Thread) => (thread.kind === "group" ? `g:${thread.id}` : thread.id);
+
+/** The time through which everyone else in the chat has opened it. 0 if someone hasn't. */
+async function readThroughAt(sql: Sql, me: string, thread: Thread) {
+  if (thread.kind === "friend") {
+    const rows = await sql<{ read_at: unknown }>`
+      select read_at from message_reads where user_id = ${thread.id} and thread = ${me}
+    `;
+    return rows[0] ? toMs(rows[0].read_at) : 0;
+  }
+  const members = await sql<{ user_id: string }>`
+    select user_id from chat_group_members where group_id = ${thread.id} and user_id <> ${me}
+  `;
+  if (!members.length) return 0;
+  const reads = await sql<{ user_id: string; read_at: unknown }>`
+    select user_id, read_at from message_reads where thread = ${readKey(thread)} and user_id <> ${me}
+  `;
+  const at = new Map(reads.map((row) => [row.user_id, toMs(row.read_at)]));
+  if (!members.every((member) => at.has(member.user_id))) return 0;
+  return Math.min(...members.map((member) => at.get(member.user_id) ?? 0));
+}
 
 /** Throws unless you may read and write this conversation. */
 async function openThread(userId: string, thread: Thread): Promise<Sql> {
@@ -164,8 +186,10 @@ export const listThread = createServerFn({ method: "POST" })
       insert into message_reads (user_id, thread, read_at) values (${context.userId}, ${readKey(thread)}, now())
       on conflict (user_id, thread) do update set read_at = now()
     `;
+    const readThrough = await readThroughAt(sql, context.userId, thread);
     return rows.map((row) => {
       const kind = row.kind === "link" || row.kind === "photo" || row.kind === "place" ? row.kind : "text";
+      const at = toMs(row.created_at);
       return {
         id: row.id,
         fromId: row.from_id,
@@ -173,11 +197,12 @@ export const listThread = createServerFn({ method: "POST" })
         kind,
         body: kind === "place" ? "" : row.body || "",
         thumb: row.thumb || "",
-        at: toMs(row.created_at),
+        at,
         lat: row.lat ?? null,
         lon: row.lon ?? null,
         takenAt: row.taken_at ?? null,
         place: kind === "place" ? readPlace(row.body) : null,
+        read: row.from_id === context.userId && readThrough > 0 && at <= readThrough,
       };
     });
   });
@@ -365,6 +390,76 @@ export const unreadSummary = createServerFn({ method: "GET" })
         at: toMs(row.created_at),
       })),
     };
+  });
+
+export type BoardItem = {
+  thread: Thread;
+  title: string;
+  preview: string;
+  at: number;
+};
+
+/** Every friend and trip chat, newest message first. Chats with nothing yet stay at the bottom. */
+export const messageBoard = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<BoardItem[]> => {
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    const me = context.userId;
+    const friends = await sql<{ id: string; name: string }>`
+      select f.friend_id as id, coalesce(nullif(p.name, ''), nullif(u.name, ''), 'Friend') as name
+      from friendships f
+      left join profiles p on p.user_id = f.friend_id
+      left join "user" u on u.id = f.friend_id
+      where f.user_id = ${me}
+    `;
+    const direct = await sql<{ other_id: string; kind: string; body: string; created_at: unknown }>`
+      select distinct on (other_id) other_id, kind, body, created_at
+      from (
+        select case when from_id = ${me} then to_id else from_id end as other_id, kind, body, created_at
+        from messages m
+        where (m.from_id = ${me} or m.to_id = ${me})
+          and not exists (select 1 from message_hidden h where h.user_id = ${me} and h.message_id = m.id)
+      ) s
+      order by other_id, created_at desc
+    `;
+    const lastDirect = new Map(direct.map((row) => [row.other_id, row]));
+    const groups = await sql<{ id: string; name: string }>`
+      select g.id, g.name from chat_groups g
+      join chat_group_members m on m.group_id = g.id and m.user_id = ${me}
+    `;
+    const groupLast = groups.length
+      ? await sql<{ group_id: string; kind: string; body: string; created_at: unknown }>`
+          select distinct on (group_id) group_id, kind, body, created_at
+          from group_messages m
+          where m.group_id = any(${groups.map((g) => g.id)}::text[])
+            and not exists (select 1 from message_hidden h where h.user_id = ${me} and h.message_id = m.id)
+          order by group_id, created_at desc
+        `
+      : [];
+    const lastGroup = new Map(groupLast.map((row) => [row.group_id, row]));
+    const items: BoardItem[] = [
+      ...friends.map((friend) => {
+        const last = lastDirect.get(friend.id);
+        return {
+          thread: { kind: "friend" as const, id: friend.id },
+          title: friend.name || "Friend",
+          preview: last ? preview(last.kind, last.body) : "No messages yet",
+          at: last ? toMs(last.created_at) : 0,
+        };
+      }),
+      ...groups.map((group) => {
+        const last = lastGroup.get(group.id);
+        return {
+          thread: { kind: "group" as const, id: group.id },
+          title: group.name,
+          preview: last ? preview(last.kind, last.body) : "No messages yet",
+          at: last ? toMs(last.created_at) : 0,
+        };
+      }),
+    ];
+    items.sort((a, b) => b.at - a.at || a.title.localeCompare(b.title));
+    return items;
   });
 
 // ---------------------------------------------------------------- older app builds

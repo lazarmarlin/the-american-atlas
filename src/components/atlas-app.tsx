@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Check, ChevronDown, ChevronLeft, ChevronUp, GripVertical, Locate, Search, Settings } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronUp, GripVertical, Locate, Mail, Search, Settings } from "lucide-react";
 import { useCurrentUser, useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
   loadMeta,
@@ -27,6 +27,7 @@ import { collectPassed, takeNativeFixes } from "@/lib/travel";
 import { missedFixes, nativeDelivery, noteHandledFix } from "@/lib/native-tracking";
 import { startChatChecks, useChat } from "@/lib/chat-store";
 import { SendPlaceSheet } from "@/components/chat-send";
+import { MessageBoard } from "@/components/friend-chat";
 import { AtlasSplash, LoginScreen } from "@/components/login-screen";
 import { SettingsPage } from "@/components/settings-page";
 import { GhostPanel } from "@/components/ghost-panel";
@@ -61,7 +62,7 @@ import { notifyPlacesAdded } from "@/lib/place-notifications";
 import { countyToMark } from "@/lib/counties";
 import { glyphUrl } from "@/lib/map-glyphs";
 import { type Profile } from "@/lib/profile";
-import { earnedPoints, freshVisit, pointsForVisit, type Visit } from "@/lib/visits";
+import { earnedPoints, ensureVisits, freshVisit, pointsForVisit, type Visit } from "@/lib/visits";
 import {
   flushVault,
   readVault,
@@ -262,6 +263,7 @@ function AtlasShell() {
   const ghostFocus = useGhost((s) => s.focusId);
   const ghostLook = useGhost((s) => s.look);
   const [ghostOpen, setGhostOpen] = useState(false);
+  const [mailOpen, setMailOpen] = useState(false);
   const [friendId, setFriendId] = useState<string | null>(null);
   const [friendLines, setFriendLines] = useState<GhostLines>([]);
   const [friendFix, setFriendFix] = useState<{ id: string; lat: number; lon: number } | null>(null);
@@ -674,6 +676,20 @@ function AtlasShell() {
     let busy = false;
     let lastDotAt = 0;
     const pending: Fix[] = [];
+    let passSeeded = false;
+    const passInside = new Set<string>();
+    function noteAgain(marksHere: Mark[]) {
+      if (!passSeeded) {
+        for (const mark of marksHere) passInside.add(mark.id);
+        passSeeded = true;
+        return [] as Mark[];
+      }
+      const now = new Set(marksHere.map((mark) => mark.id));
+      const entered = marksHere.filter((mark) => !passInside.has(mark.id));
+      for (const mark of entered) passInside.add(mark.id);
+      for (const id of passInside) if (!now.has(id)) passInside.delete(id);
+      return entered;
+    }
 
     function paintTracker(fix: Fix, force = false) {
       const now = Date.now();
@@ -689,8 +705,10 @@ function AtlasShell() {
       last = fix;
       const saved = new Set(marksRef.current.map((mark) => mark.id));
       const visited: Mark[] = [];
-      const found = await collectPassed(fix, atlas.states, saved, recordingRef.current ? visited : undefined);
-      if (dead || (!found.length && !visited.length)) return;
+      const again: Mark[] = [];
+      const found = await collectPassed(fix, atlas.states, saved, recordingRef.current ? visited : undefined, again);
+      if (dead) return;
+      if (!found.length && !visited.length && !again.length) return;
       // A fix read back from the phone's log keeps the day it was taken.
       const day = fix.t && localDay(fix.t) !== localDay(Date.now()) ? localDay(fix.t) : null;
       const added: Mark[] = [];
@@ -699,10 +717,18 @@ function AtlasShell() {
         if (await addRef.current(mark, true, day)) added.push(mark);
       }
       for (const mark of visited) await noteTrip(mark.id);
-      if (!added.length) return;
-      const label = added.length === 1 ? `Added ${added[0]?.name}` : `Added ${added.length} places from the drive`;
+      const reentered = noteAgain(again);
+      for (const mark of reentered) await revisitRef.current(mark, day);
+      if (!added.length && !reentered.length) return;
+      const label = added.length
+        ? added.length === 1
+          ? `Added ${added[0]?.name}`
+          : `Added ${added.length} places from the drive`
+        : reentered.length === 1
+          ? `Visited ${reentered[0]?.name} again`
+          : `Visited ${reentered.length} places again`;
       setPassedNote(label);
-      void notifyPlacesAdded(added);
+      if (added.length) void notifyPlacesAdded(added);
     }
 
     let waited = 0;
@@ -924,6 +950,18 @@ function AtlasShell() {
       setError("Couldn't save those visits.");
     }
   }
+
+  /** One more visit when tracking enters a place already on the atlas. Twelve is the most kept. */
+  async function revisit(mark: Mark, day: string | null) {
+    const current = marksRef.current.find((item) => item.id === mark.id);
+    if (!current) return;
+    const visits = current.visits.length ? current.visits : ensureVisits(current).visits;
+    if (visits.length >= 12) return;
+    await saveVisits(current.id, [...visits, { ...freshVisit(), visitedOn: day ?? localDay(Date.now()) }]);
+  }
+
+  const revisitRef = useRef(revisit);
+  revisitRef.current = revisit;
 
   function maybeTour(snap: { marks: Mark[]; trips: Trip[] }) {
     if (tourChecked.current) {
@@ -1745,33 +1783,53 @@ function AtlasShell() {
         ) : (
           <div className="grid h-full place-items-center px-6 text-center text-muted">{error ?? "Unfolding the atlas…"}</div>
         )}
-        <button
-          type="button"
-          aria-expanded={ghostOpen}
-          onClick={() => {
-            // Give the panel the map's height; the sheet drops to its handle.
-            if (!ghostOpen && sheet > 8) setSheet(8);
-            setGhostOpen(!ghostOpen);
-          }}
-          className="absolute bottom-3 left-3 z-10 flex h-11 items-center gap-2 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
-        >
-          <span className={"ghost-dot size-2 rounded-full " + (locating ? "is-live" : "opacity-60")} style={{ background: ghostColor }} />
-          Ghost trail
-        </button>
-        {locating && liveViewers.length ? (
+        <div className="absolute bottom-3 left-3 z-10 flex items-center gap-2">
           <button
             type="button"
+            aria-expanded={ghostOpen}
             onClick={() => {
-              if (sheet > 8) setSheet(8);
-              setGhostOpen(true);
+              if (!ghostOpen && sheet > 8) setSheet(8);
+              setGhostOpen(!ghostOpen);
             }}
-            aria-label={`Sharing your location with ${liveViewers.length} ${liveViewers.length === 1 ? "friend" : "friends"}. Open to change.`}
-            className="absolute bottom-3 left-[8.75rem] z-10 flex h-11 items-center gap-2 rounded-full border border-accent/60 bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+            className="flex h-11 items-center gap-2 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
           >
-            <span className="size-2 animate-pulse rounded-full bg-accent" />
-            Live to {liveViewers.length}
+            <span className={"ghost-dot size-2 rounded-full " + (locating ? "is-live" : "opacity-60")} style={{ background: ghostColor }} />
+            Ghost trail
           </button>
-        ) : null}
+          {user?.id ? (
+            <button
+              type="button"
+              aria-label={unreadTotal ? `Messages, ${unreadTotal} new` : "Messages"}
+              onClick={() => {
+                if (sheet > 8) setSheet(8);
+                setGhostOpen(false);
+                setMailOpen(true);
+              }}
+              className="relative grid h-11 w-11 place-items-center rounded-full border border-line bg-surface/95 shadow-sm backdrop-blur-sm"
+            >
+              <Mail className="size-5" />
+              {unreadTotal ? (
+                <span className="absolute -top-1 -right-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] font-medium text-accent-ink">
+                  {unreadTotal > 99 ? "99+" : unreadTotal}
+                </span>
+              ) : null}
+            </button>
+          ) : null}
+          {locating && liveViewers.length ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (sheet > 8) setSheet(8);
+                setGhostOpen(true);
+              }}
+              aria-label={`Sharing your location with ${liveViewers.length} ${liveViewers.length === 1 ? "friend" : "friends"}. Open to change.`}
+              className="flex h-11 items-center gap-2 rounded-full border border-accent/60 bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+            >
+              <span className="size-2 animate-pulse rounded-full bg-accent" />
+              Live to {liveViewers.length}
+            </button>
+          ) : null}
+        </div>
         {friendLive || friendLines.length ? (
           <button
             type="button"
@@ -1794,6 +1852,63 @@ function AtlasShell() {
           onColor={setGhostColor}
           onClose={() => setGhostOpen(false)}
         />
+        {mailOpen && user?.id ? (
+          <MessageBoard
+            meId={user.id}
+            places={marks.map((mark) => ({
+              id: mark.id,
+              name: mark.name,
+              state: mark.state,
+              category: mark.category,
+              lat: mark.lat,
+              lon: mark.lon,
+              visitedOn: [...mark.visits].map((visit) => visit.visitedOn).filter(Boolean).sort().at(-1) ?? null,
+            }))}
+            onClose={() => setMailOpen(false)}
+            onOpenPlace={(place, from) => {
+              setMailOpen(false);
+              const mark: Mark = marks.find((item) => item.id === place.id) ?? {
+                id: place.id,
+                name: place.name,
+                category: place.category,
+                state: place.state,
+                lat: place.lat,
+                lon: place.lon,
+                points: place.points,
+                sys: "",
+                paths: [],
+                visitedOn: null,
+                note: "",
+                photo: "",
+                visits: [],
+              };
+              const lat = place.lat ?? mark.lat;
+              const lon = place.lon ?? mark.lon;
+              setSpot(lat != null && lon != null ? { id: mark.id, lat, lon, from: from ?? null, sheet } : null);
+              chooseState(place.state);
+              openFromMap(mark);
+              setSheetInstant(true);
+              setSheet(8);
+              window.setTimeout(() => setSheetInstant(false), 80);
+            }}
+            onAddToMap={async (photo, place) => {
+              const id = `ph-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+              const row: PhotoInfo = {
+                id,
+                poiId: place.id,
+                tripId: "",
+                caption: "",
+                takenAt: photo.takenAt ?? Date.now(),
+                lat: photo.lat ?? place.lat,
+                lon: photo.lon ?? place.lon,
+                shared: false,
+                thumb: photo.thumb,
+              };
+              await savePhoto({ data: { ...row, image: photo.image } });
+              setPhotos((prev) => [row, ...prev]);
+            }}
+          />
+        ) : null}
         <div className="pointer-events-none absolute top-safe left-3 z-10 flex flex-col items-start gap-2">
           {sendPlace ? <SendPlaceSheet mark={sendPlace} onClose={() => setSendPlace(null)} /> : null}
           {addedFlash ? (

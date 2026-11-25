@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useChat } from "@/lib/chat-store";
-import { deleteMessage, listThread, loadThreadPhoto, sendToThread, type ChatMessage, type ChatPlace, type Thread } from "@/lib/messages";
+import { deleteMessage, listThread, loadThreadPhoto, messageBoard, sendToThread, type BoardItem, type ChatMessage, type ChatPlace, type Thread } from "@/lib/messages";
 import { milesBetween } from "@/lib/nearby";
 import { readGps } from "@/lib/photo-file";
 import { categoryName } from "@/lib/place-kinds";
@@ -327,6 +327,7 @@ export function ChatThread({
         ) : null}
         {rows?.map((row) => {
           const mine = row.fromId === meId;
+          const lastMine = [...rows].reverse().find((item) => item.fromId === meId)?.id === row.id;
           return (
             <div key={row.id} className={"flex flex-col " + (mine ? "items-end" : "items-start")}>
               {group && !mine ? <span className="mb-0.5 px-1 text-xs text-faint">{row.fromName}</span> : null}
@@ -371,6 +372,7 @@ export function ChatThread({
                 ) : null}
                 {row.kind === "text" ? <p className="break-words">{linkParts(row.body)}</p> : null}
               </div>
+              {lastMine && row.read ? <span className="mt-0.5 px-1 text-[11px] text-faint">Read</span> : null}
             </div>
           );
         })}
@@ -700,6 +702,108 @@ export function ChatScreen({
           </div>
         </Sheet>
       ) : null}
+    </div>,
+    document.body,
+  );
+}
+
+/** The mail button's page: every chat, newest first. Tap one to open it. */
+export function MessageBoard({
+  meId,
+  places,
+  onAddToMap,
+  onOpenPlace,
+  onClose,
+}: {
+  meId: string;
+  places: ChatPlaceOption[];
+  onAddToMap: (photo: ChatPhoto, place: ChatPlaceOption) => Promise<void>;
+  onOpenPlace?: (place: ChatPlace, from?: Thread) => void;
+  onClose: () => void;
+}) {
+  const [rows, setRows] = useState<BoardItem[] | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [open, setOpen] = useState<BoardItem | null>(null);
+  const unread = useChat((state) => state.summary);
+  useEffect(
+    () =>
+      pushBack(() => {
+        onClose();
+        return true;
+      }),
+    [onClose],
+  );
+  useEffect(() => {
+    let dead = false;
+    messageBoard()
+      .then((next) => {
+        if (!dead) setRows(next);
+      })
+      .catch((err) => {
+        if (!dead) setNote(err instanceof Error ? err.message : "Couldn't open messages.");
+      });
+    return () => {
+      dead = true;
+    };
+  }, []);
+  if (open) {
+    return (
+      <ChatScreen
+        title={open.title}
+        onClose={() => setOpen(null)}
+        thread={open.thread}
+        meId={meId}
+        places={places}
+        onAddToMap={onAddToMap}
+        onOpenPlace={
+          onOpenPlace
+            ? (place) => {
+                setOpen(null);
+                onClose();
+                onOpenPlace(place, open.thread);
+              }
+            : undefined
+        }
+      />
+    );
+  }
+  return createPortal(
+    <div role="dialog" aria-label="Messages" className="screen-top fixed inset-0 z-40 flex flex-col bg-bg">
+      <header className="flex shrink-0 items-center gap-2 border-b border-line bg-surface px-2 pb-2">
+        <button type="button" onClick={onClose} aria-label="Back" className="grid h-11 w-11 place-items-center rounded-full text-xl text-ink">
+          ‹
+        </button>
+        <p className="font-serif text-xl leading-tight">Messages</p>
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+        {note ? <p className="text-sm text-accent">{note}</p> : null}
+        {rows === null && !note ? <p className="text-sm text-muted">Loading…</p> : null}
+        {rows && rows.length === 0 ? <p className="text-sm text-muted">No friends yet. A chat shows up here once you add one.</p> : null}
+        <ul className="grid gap-2">
+          {rows?.map((row) => {
+            const n = row.thread.kind === "friend" ? unread.friends[row.thread.id] : unread.groups[row.thread.id];
+            return (
+              <li key={`${row.thread.kind}:${row.thread.id}`}>
+                <button
+                  type="button"
+                  onClick={() => setOpen(row)}
+                  className="flex w-full items-center gap-3 rounded-lg border border-line px-3 py-2 text-left"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm">{row.title}</span>
+                    <span className="block truncate text-xs text-faint">{row.preview}</span>
+                  </span>
+                  {n ? (
+                    <span className="grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1 text-[10px] font-medium text-accent-ink">
+                      {n > 99 ? "99+" : n}
+                    </span>
+                  ) : null}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
     </div>,
     document.body,
   );
