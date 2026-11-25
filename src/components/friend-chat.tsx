@@ -114,6 +114,8 @@ export function ChatThread({
   const scroller = useRef<HTMLDivElement>(null);
   const photoInput = useRef<HTMLInputElement>(null);
   const press = useRef<{ timer: number; x: number; y: number } | null>(null);
+  /** The menu was opened by holding (not right-click): it waits for the finger to lift. */
+  const menuHeld = useRef(false);
   const group = thread.kind === "group";
   const threadKey = `${thread.kind}:${thread.id}`;
 
@@ -316,8 +318,11 @@ export function ChatThread({
   }, [picking, places]);
 
   function holdStart(message: ChatMessage, event: React.PointerEvent) {
+    menuHeld.current = false;
+    if (event.button !== 0) return;
     const timer = window.setTimeout(() => {
       press.current = null;
+      menuHeld.current = true;
       setMenu(message);
     }, 480);
     press.current = { timer, x: event.clientX, y: event.clientY };
@@ -362,6 +367,9 @@ export function ChatThread({
                 onPointerCancel={holdEnd}
                 onContextMenu={(event) => {
                   event.preventDefault();
+                  // Android sends this for a long press too: then a finger is still down.
+                  menuHeld.current = press.current != null || menuHeld.current;
+                  holdEnd();
                   setMenu(row);
                 }}
                 className={"max-w-[78%] rounded-2xl px-3 py-1.5 text-[15px] leading-snug select-none " + (row.kind === "text" ? "" : "w-64 ") + (mine ? "rounded-br-md bg-elevated" : "rounded-bl-md border border-line")}
@@ -509,7 +517,7 @@ export function ChatThread({
       ) : null}
 
       {menu ? (
-        <Sheet label="Message" onClose={() => setMenu(null)}>
+        <Sheet label="Message" heldOpen={menuHeld.current} onClose={() => setMenu(null)}>
           {menu.kind === "photo" ? (
             <>
               <button type="button" onClick={() => view(menu)} className="h-11 w-full rounded-lg border border-line text-sm">
@@ -627,9 +635,53 @@ function PlaceList({ places, empty, onPick }: { places: ChatPlaceOption[]; empty
  * A small bottom sheet over everything, with a dimmed backdrop. Drawn at the
  * top of the page so the map's menu (or anything else) can't cover it.
  */
-export function Sheet({ label, onClose, children }: { label: string; onClose: () => void; children: React.ReactNode }) {
+export function Sheet({
+  label,
+  onClose,
+  children,
+  heldOpen = false,
+}: {
+  label: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  /**
+   * Opened by holding a finger down: taps are ignored until that finger lifts,
+   * so letting go over a button (Delete, Copy…) doesn't press it.
+   */
+  heldOpen?: boolean;
+}) {
+  const armed = useRef(!heldOpen);
+  useEffect(() => {
+    if (armed.current) return;
+    let timer = 0;
+    const lift = () => {
+      // The tap that follows the lift lands a moment later; let it pass first.
+      timer = window.setTimeout(() => {
+        armed.current = true;
+      }, 120);
+    };
+    window.addEventListener("pointerup", lift, { once: true });
+    window.addEventListener("pointercancel", lift, { once: true });
+    window.addEventListener("touchend", lift, { once: true });
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("pointerup", lift);
+      window.removeEventListener("pointercancel", lift);
+      window.removeEventListener("touchend", lift);
+    };
+  }, []);
+  const swallow = (event: React.SyntheticEvent) => {
+    if (armed.current) return;
+    event.stopPropagation();
+    event.preventDefault();
+  };
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 px-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 px-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+      onClick={onClose}
+      onClickCapture={swallow}
+      onPointerUpCapture={swallow}
+    >
       <div role="dialog" aria-label={label} className="w-full max-w-sm rounded-card border border-line bg-surface p-3" onClick={(event) => event.stopPropagation()}>
         <p className="mb-2 text-xs tracking-widest text-faint uppercase">{label}</p>
         {children}
