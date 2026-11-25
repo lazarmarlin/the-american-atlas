@@ -287,6 +287,10 @@ function AtlasShell() {
   const [friendFix, setFriendFix] = useState<{ id: string; lat: number; lon: number } | null>(null);
   const [friendLook, setFriendLook] = useState(0);
   const [friendLive, setFriendLive] = useState<{ id: string; name: string } | null>(null);
+  /** Live trails you've hidden: they stay hidden until that friend stops and starts sharing again. */
+  const liveHidden = useRef(new Set<string>());
+  /** A friend's saved trail is on the map: don't swap it for a live one. */
+  const trailShown = useRef(false);
   const [friendNote, setFriendNote] = useState<string | null>(null);
   const pack = useOfflinePack();
   const packPct = pack.total ? Math.min(100, Math.round((pack.done / pack.total) * 100)) : 0;
@@ -1560,6 +1564,15 @@ function AtlasShell() {
           setLivePins(rows);
           anyone = rows.length > 0;
           const now = new Set(rows.map((row) => row.id));
+          // Live trails show by default: watch a friend who's sharing, unless you hid them
+          // (that lasts until they stop sharing). The map doesn't move for it.
+          for (const id of [...liveHidden.current]) if (!now.has(id)) liveHidden.current.delete(id);
+          setFriendLive((cur) => {
+            if (cur && !now.has(cur.id)) return null;
+            if (cur || trailShown.current) return cur;
+            const next = rows.find((row) => !liveHidden.current.has(row.id));
+            return next ? { id: next.id, name: next.name } : null;
+          });
           // Not on the first check: friends already live when the app opens show on the map.
           if (!first) for (const row of rows) if (!seen.has(row.id)) void notifyFriendLive(row.name);
           seen = now;
@@ -1951,6 +1964,8 @@ function AtlasShell() {
           <button
             type="button"
             onClick={() => {
+              if (friendLive) liveHidden.current.add(friendLive.id);
+              trailShown.current = false;
               setFriendLines([]);
               setFriendLive(null);
               setFriendFix(null);
@@ -2451,17 +2466,21 @@ function AtlasShell() {
               openId={friendId}
               note={friendNote}
               liveNow={livePins}
+              watchingLive={friendLive?.id ?? null}
               onOpen={(id) => {
                 setFriendId(id);
                 setFriendLines([]);
-                setFriendLive(null);
+                trailShown.current = false;
+                // Their live trail shows straight away if they're sharing.
+                const live = livePins.find((row) => row.id === id);
+                setFriendLive(live ? { id: live.id, name: live.name } : null);
               }}
               onClose={() => {
                 setFriendId(null);
                 setFriendLines([]);
-                setFriendLive(null);
               }}
               onShow={(lines) => {
+                trailShown.current = true;
                 setFriendLive(null);
                 setFriendLines(lines);
                 setFriendLook((n) => n + 1);
@@ -2470,6 +2489,8 @@ function AtlasShell() {
                 window.setTimeout(() => setSheetInstant(false), 80);
               }}
               onWatch={(friend) => {
+                trailShown.current = false;
+                liveHidden.current.delete(friend.id);
                 setFriendLive(friend);
                 setFriendLook((n) => n + 1);
                 setSheetInstant(true);

@@ -6,6 +6,7 @@ import { milesBetween } from "@/lib/nearby";
 import { readGps } from "@/lib/photo-file";
 import { categoryName } from "@/lib/place-kinds";
 import { pushBack } from "@/lib/sheet-back";
+import { cacheBoard, cacheThread, cachedBoard, cachedThread } from "@/lib/chat-cache";
 import { TripSketch, tripDates } from "@/components/trip-recap";
 
 const PHOTO_LINK = /^https?:\/\/(?:photos\.app\.goo\.gl|photos\.google\.com|goo\.gl\/photos)\/\S+$/i;
@@ -119,18 +120,36 @@ export function ChatThread({
   useEffect(() => {
     let dead = false;
     useChat.getState().setOpen(thread);
+    let offline = false;
+    let shown = false;
     const pull = () => {
       listThread({ data: { thread } })
         .then((next) => {
           if (dead) return;
+          shown = true;
           setRows(next);
+          void cacheThread(meId, thread, next);
+          if (offline) setNote(null);
+          offline = false;
           void useChat.getState().refresh();
         })
         .catch((err) => {
-          if (!dead) setNote(err instanceof Error ? err.message : "Couldn't load the chat.");
+          if (dead) return;
+          // No signal: keep showing the saved messages, and say so.
+          offline = true;
+          setNote(shown ? "No connection. Showing saved messages." : err instanceof Error ? err.message : "Couldn't load the chat.");
         });
     };
     setRows(null);
+    // Saved messages first, so the chat opens straight away (and with no signal).
+    void cachedThread(meId, thread).then((saved) => {
+      if (dead || !saved?.length) return;
+      setRows((cur) => cur ?? saved);
+      if (!shown) {
+        shown = true;
+        if (offline) setNote("No connection. Showing saved messages.");
+      }
+    });
     pull();
     const id = window.setInterval(pull, 8000);
     return () => {
@@ -326,11 +345,15 @@ export function ChatThread({
             Nothing yet. Say hi, send a photo, or share a place you've been with the + button. Hold a message for more.
           </p>
         ) : null}
-        {rows?.map((row) => {
+        {rows?.map((row, index) => {
           const mine = row.fromId === meId;
           const lastMine = [...rows].reverse().find((item) => item.fromId === meId)?.id === row.id;
+          const prev = rows[index - 1];
+          // A date and time line when the day changes or after a 30-minute gap.
+          const stamp = !prev || dayOf(prev.at) !== dayOf(row.at) || row.at - prev.at > 30 * 60 * 1000;
           return (
             <div key={row.id} className={"flex flex-col " + (mine ? "items-end" : "items-start")}>
+              {stamp ? <p className="my-1 w-full text-center text-[11px] text-faint">{stampText(row.at)}</p> : null}
               {group && !mine ? <span className="mb-0.5 px-1 text-xs text-faint">{row.fromName}</span> : null}
               <div
                 onPointerDown={(event) => holdStart(row, event)}
@@ -388,7 +411,11 @@ export function ChatThread({
                 ) : null}
                 {row.kind === "text" ? <p className="break-words">{linkParts(row.body)}</p> : null}
               </div>
-              {lastMine && row.read ? <span className="mt-0.5 px-1 text-[11px] text-faint">Read</span> : null}
+              {lastMine ? (
+                <span className="mt-0.5 px-1 text-[11px] text-faint">
+                  {row.read ? `Read${row.readAt ? ` ${timeText(row.readAt)}` : ""}` : `Sent ${timeText(row.at)}`}
+                </span>
+              ) : null}
             </div>
           );
         })}
@@ -757,10 +784,15 @@ export function MessageBoard({
   useEffect(() => {
     if (open) return;
     let dead = false;
+    void cachedBoard(meId).then((saved) => {
+      if (!dead && saved?.length) setRows((cur) => cur ?? saved);
+    });
     messageBoard()
       .then((next) => {
         if (dead) return;
         setRows(next);
+        setNote(null);
+        void cacheBoard(meId, next);
         if (initial && !reopened.current) {
           reopened.current = true;
           const row = next.find((item) => item.thread.kind === initial.kind && item.thread.id === initial.id);
@@ -768,7 +800,19 @@ export function MessageBoard({
         }
       })
       .catch((err) => {
-        if (!dead) setNote(err instanceof Error ? err.message : "Couldn't open messages.");
+        if (dead) return;
+        void cachedBoard(meId).then((saved) => {
+          if (dead) return;
+          if (saved?.length) {
+            setRows((cur) => cur ?? saved);
+            setNote("No connection. Showing saved messages.");
+            if (initial && !reopened.current) {
+              reopened.current = true;
+              const row = saved.find((item) => item.thread.kind === initial.kind && item.thread.id === initial.id);
+              if (row) setOpen(row);
+            }
+          } else setNote(navigator.onLine === false || /fetch|network/i.test(String(err)) ? "No connection. Messages show here once they've loaded with a signal." : err instanceof Error ? err.message : "Couldn't open messages.");
+        });
       });
     return () => {
       dead = true;
@@ -836,4 +880,31 @@ export function MessageBoard({
     </div>,
     document.body,
   );
+}
+
+function dayOf(ms: number) {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function timeText(ms: number) {
+  return new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+/** "Today 7:52 AM", "Yesterday 9:10 PM", "Mon, Nov 23 · 4:05 PM", or with the year if it's not this year. */
+function stampText(ms: number) {
+  const d = new Date(ms);
+  const now = new Date();
+  const today = dayOf(now.getTime());
+  const yesterday = dayOf(now.getTime() - 86400000);
+  const time = timeText(ms);
+  if (dayOf(ms) === today) return `Today ${time}`;
+  if (dayOf(ms) === yesterday) return `Yesterday ${time}`;
+  const date = d.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}),
+  });
+  return `${date} · ${time}`;
 }
