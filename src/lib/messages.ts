@@ -34,6 +34,8 @@ export type ChatMessage = {
   trip?: TripCard | null;
   /** True on a message you sent once everyone else in the chat has opened it. */
   read?: boolean;
+  /** When they last opened the chat, if they've seen this message. */
+  readAt?: number | null;
 };
 
 export type Thread = { kind: "friend" | "group"; id: string };
@@ -267,6 +269,7 @@ export const listThread = createServerFn({ method: "POST" })
         place: kind === "place" ? readPlace(row.body) : null,
         trip: kind === "trip" ? readTrip(row.body) : null,
         read: row.from_id === context.userId && readThrough > 0 && at <= readThrough,
+        readAt: row.from_id === context.userId && readThrough > 0 && at <= readThrough ? readThrough : null,
       };
     });
   });

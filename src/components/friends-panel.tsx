@@ -63,6 +63,7 @@ export function FriendsPanel({
   onShareLive,
   resume = null,
   onResumed,
+  watchingLive = null,
   sharedRecording = null,
   onStartShared,
   onEndShared,
@@ -80,6 +81,8 @@ export function FriendsPanel({
   onAddToMap: (photo: ChatPhoto, place: ChatPlaceOption) => Promise<void>;
   /** Show a place from a chat; `from` is the chat to come back to. */
   onOpenPlace: (place: ChatPlace, from?: Thread) => void;
+  /** The friend whose live trail is on the map. */
+  watchingLive?: string | null;
   /** A chat to reopen (coming back from a place shown on the map). */
   resume?: Thread | null;
   onResumed?: () => void;
@@ -378,9 +381,9 @@ export function FriendsPanel({
                   setShown("live");
                   onWatch({ id: page.id, name: page.name });
                 }}
-                className={"mt-4 h-11 w-full rounded-lg border text-sm " + (shown === "live" ? "border-ink bg-elevated" : "border-line")}
+                className={"mt-4 h-11 w-full rounded-lg border text-sm " + (shown === "live" || watchingLive === page.id ? "border-ink bg-elevated" : "border-line")}
               >
-                {shown === "live" ? "Watching their live trail" : "Watch live trail"}
+                {shown === "live" || watchingLive === page.id ? "Watching their live trail · Show on map" : "Watch live trail"}
               </button>
             ) : (
               <p className="mt-4 px-2 text-sm text-muted">They aren't sharing a live trail right now.</p>
