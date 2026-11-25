@@ -207,7 +207,9 @@ function AtlasShell() {
   /** The map's place card tucked down to just its name. */
   const [cardSmall, setCardSmall] = useState(false);
   /** A place opened from a chat: shown alone on the map; closing it goes back to the chat. */
-  const [spot, setSpot] = useState<{ id: string; lon: number; lat: number; from: Thread | null; sheet: number } | null>(null);
+  const [spot, setSpot] = useState<{ id: string; lon: number; lat: number; from: Thread | null; sheet: number; viaMail?: boolean } | null>(null);
+  /** The chat the mail page reopens (coming back from a place shown on the map). */
+  const [mailThread, setMailThread] = useState<Thread | null>(null);
   const [resumeChat, setResumeChat] = useState<Thread | null>(null);
   const [viewZoom, setViewZoom] = useState(3);
   const [viewBase, setViewBase] = useState<number | null>(null);
@@ -717,8 +719,8 @@ function AtlasShell() {
         if (await addRef.current(mark, true, day)) added.push(mark);
       }
       for (const mark of visited) await noteTrip(mark.id);
-      const reentered = noteAgain(again);
-      for (const mark of reentered) await revisitRef.current(mark, day);
+      const reentered: Mark[] = [];
+      for (const mark of noteAgain(again)) if (await revisitRef.current(mark, day)) reentered.push(mark);
       if (!added.length && !reentered.length) return;
       const label = added.length
         ? added.length === 1
@@ -954,10 +956,14 @@ function AtlasShell() {
   /** One more visit when tracking enters a place already on the atlas. Twelve is the most kept. */
   async function revisit(mark: Mark, day: string | null) {
     const current = marksRef.current.find((item) => item.id === mark.id);
-    if (!current) return;
+    if (!current) return false;
     const visits = current.visits.length ? current.visits : ensureVisits(current).visits;
-    if (visits.length >= 12) return;
-    await saveVisits(current.id, [...visits, { ...freshVisit(), visitedOn: day ?? localDay(Date.now()) }]);
+    if (visits.length >= 12) return false;
+    // One visit a day: wobbling GPS at a town or county line, or crossing it back and forth, isn't a new visit.
+    const on = day ?? localDay(Date.now());
+    if (visits.some((visit) => visit.visitedOn === on)) return false;
+    await saveVisits(current.id, [...visits, { ...freshVisit(), visitedOn: on }]);
+    return true;
   }
 
   const revisitRef = useRef(revisit);
@@ -1329,7 +1335,10 @@ function AtlasShell() {
   useEffect(() => {
     if (!spot || selected === spot.id) return;
     setSpot(null);
-    if (selected === null && spot.from) {
+    if (selected === null && spot.from && spot.viaMail) {
+      setMailThread(spot.from);
+      setMailOpen(true);
+    } else if (selected === null && spot.from) {
       setTab("friends");
       setResumeChat(spot.from);
       setSheetInstant(true);
@@ -1864,9 +1873,14 @@ function AtlasShell() {
               lon: mark.lon,
               visitedOn: [...mark.visits].map((visit) => visit.visitedOn).filter(Boolean).sort().at(-1) ?? null,
             }))}
-            onClose={() => setMailOpen(false)}
+            initial={mailThread}
+            onClose={() => {
+              setMailOpen(false);
+              setMailThread(null);
+            }}
             onOpenPlace={(place, from) => {
               setMailOpen(false);
+              setMailThread(null);
               const mark: Mark = marks.find((item) => item.id === place.id) ?? {
                 id: place.id,
                 name: place.name,
@@ -1884,7 +1898,7 @@ function AtlasShell() {
               };
               const lat = place.lat ?? mark.lat;
               const lon = place.lon ?? mark.lon;
-              setSpot(lat != null && lon != null ? { id: mark.id, lat, lon, from: from ?? null, sheet } : null);
+              setSpot(lat != null && lon != null ? { id: mark.id, lat, lon, from: from ?? null, sheet, viaMail: true } : null);
               chooseState(place.state);
               openFromMap(mark);
               setSheetInstant(true);

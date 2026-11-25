@@ -714,12 +714,15 @@ export function MessageBoard({
   onAddToMap,
   onOpenPlace,
   onClose,
+  initial = null,
 }: {
   meId: string;
   places: ChatPlaceOption[];
   onAddToMap: (photo: ChatPhoto, place: ChatPlaceOption) => Promise<void>;
   onOpenPlace?: (place: ChatPlace, from?: Thread) => void;
   onClose: () => void;
+  /** Open straight into this chat (back from a place it sent). */
+  initial?: Thread | null;
 }) {
   const [rows, setRows] = useState<BoardItem[] | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -733,11 +736,20 @@ export function MessageBoard({
       }),
     [onClose],
   );
+  // Reload on the way back from a chat, so its preview and new-message count are current.
+  const reopened = useRef(false);
   useEffect(() => {
+    if (open) return;
     let dead = false;
     messageBoard()
       .then((next) => {
-        if (!dead) setRows(next);
+        if (dead) return;
+        setRows(next);
+        if (initial && !reopened.current) {
+          reopened.current = true;
+          const row = next.find((item) => item.thread.kind === initial.kind && item.thread.id === initial.id);
+          if (row) setOpen(row);
+        }
       })
       .catch((err) => {
         if (!dead) setNote(err instanceof Error ? err.message : "Couldn't open messages.");
@@ -745,7 +757,8 @@ export function MessageBoard({
     return () => {
       dead = true;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
   if (open) {
     return (
       <ChatScreen
