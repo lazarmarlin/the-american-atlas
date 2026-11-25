@@ -816,6 +816,35 @@ export function PhotosPanel({
   const [newestFirst, setNewestFirst] = useState(true);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
+  const searchBox = useRef<HTMLInputElement>(null);
+  /**
+   * Move the search box to the top of the menu, above the keyboard, with the
+   * photos below it. Again once the keyboard has finished opening.
+   */
+  function liftSearch() {
+    const lift = () => {
+      const box = searchBox.current;
+      if (!box) return;
+      let scroller = box.parentElement;
+      while (scroller && !(scroller.scrollHeight > scroller.clientHeight && /(auto|scroll)/.test(getComputedStyle(scroller).overflowY))) {
+        scroller = scroller.parentElement;
+      }
+      if (!scroller) return;
+      const gap = box.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 8;
+      if (Math.abs(gap) > 2) scroller.scrollBy({ top: gap });
+    };
+    for (const ms of [0, 120, 350, 700]) window.setTimeout(lift, ms);
+  }
+  useEffect(() => {
+    if (!searching) return;
+    const vv = window.visualViewport;
+    const again = () => {
+      if (document.activeElement === searchBox.current) liftSearch();
+    };
+    vv?.addEventListener("resize", again);
+    return () => vv?.removeEventListener("resize", again);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searching]);
   const [open, setOpen] = useState<PhotoInfo | null>(null);
   const [sharing, setSharing] = useState(false);
   const [friendNames, setFriendNames] = useState<Map<string, string>>(new Map());
@@ -1076,7 +1105,7 @@ export function PhotosPanel({
   }
 
   return (
-    <div className="px-2 pb-4">
+    <div className={"px-2 " + (searching ? "pb-[70dvh]" : "pb-4")}>
       <h2 className="px-2 font-serif text-2xl">Photos</h2>
       <p className="mt-1 px-2 text-sm text-muted">Pictures stay with the place. Friends see one only after you share it.</p>
       <div className="mt-3 px-2">
@@ -1126,8 +1155,10 @@ export function PhotosPanel({
       {searching ? (
         <div className="mt-2 px-2">
           <input
+            ref={searchBox}
             autoFocus
             value={query}
+            onFocus={() => liftSearch()}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Place, state, trip, or month"
             aria-label="Search photos"
