@@ -1824,7 +1824,13 @@ function AtlasShell() {
         />
       ) : null}
       {popped ? (
-        <div className="pointer-events-none absolute inset-x-0 top-safe z-30 flex justify-center px-4 pt-3">
+        <div
+          className={
+            "px-safe pointer-events-none absolute inset-x-0 z-30 flex justify-center " +
+            // While driving, the top is the driving card: badges show along the bottom.
+            (driving ? "bottom-safe" : "top-safe pt-3")
+          }
+        >
           <button
             type="button"
             onClick={() => setPops((queue) => queue.slice(1))}
@@ -1946,8 +1952,8 @@ function AtlasShell() {
           <div className="grid h-full place-items-center px-6 text-center text-muted">{error ?? "Unfolding the atlas…"}</div>
         )}
         {driving ? (
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-            <div className="pointer-events-auto max-w-[70%] rounded-card border border-line bg-surface/95 px-4 py-3 shadow-sm backdrop-blur-sm">
+          <div className="px-safe pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+            <div className="pointer-events-auto w-[min(70%,22rem)] rounded-card border border-line bg-surface/95 px-4 py-3 shadow-sm backdrop-blur-sm">
               <p className="text-xs tracking-widest text-faint uppercase">Driving</p>
               {sideways ? (
                 <p className="font-serif text-4xl leading-none">
@@ -1981,7 +1987,7 @@ function AtlasShell() {
         ) : null}
         {!driving ? (
         <>
-        <div className="absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-4.5rem)] flex-wrap-reverse items-center gap-2">
+        <div className="absolute bottom-safe left-safe z-10 flex max-w-[calc(100%-4.5rem)] flex-wrap-reverse items-center gap-2">
           <button
             type="button"
             aria-expanded={ghostOpen}
@@ -2053,7 +2059,7 @@ function AtlasShell() {
               window.setTimeout(() => setSheetInstant(false), 80);
             }}
             aria-label={`Nearest new county: ${nextUp.name}, ${Math.max(1, Math.round(nextUp.miles))} miles ${nextUp.toward}`}
-            className="absolute bottom-16 left-3 z-10 flex h-10 max-w-[80%] items-center gap-1.5 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+            className="absolute bottom-16 left-safe z-10 flex h-10 max-w-[80%] items-center gap-1.5 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
           >
             <span className="shrink-0 text-xs text-faint">Next</span>
             <span className="truncate">{nextUp.name}</span>
@@ -2072,7 +2078,7 @@ function AtlasShell() {
               setFriendLive(null);
               setFriendFix(null);
             }}
-            className="absolute bottom-16 left-3 z-10 h-11 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+            className="absolute bottom-16 left-safe z-10 h-11 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
           >
             {friendLive ? `${friendLive.name} · live · Hide` : "Friend's trail · Hide"}
           </button>
@@ -2083,7 +2089,7 @@ function AtlasShell() {
           <button
             type="button"
             onClick={() => setTripRoutes(null)}
-            className="absolute bottom-16 left-3 z-10 h-11 max-w-[70%] truncate rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+            className="absolute bottom-16 left-safe z-10 h-11 max-w-[70%] truncate rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
           >
             {tripRoutes.legend?.length ? (
               <span className="mr-1 inline-flex items-center gap-2">
@@ -2183,7 +2189,7 @@ function AtlasShell() {
             }}
           />
         ) : null}
-        <div className={"pointer-events-none absolute top-safe left-3 z-10 flex flex-col items-start gap-2 " + (driving ? "hidden" : "")}>
+        <div className={"pointer-events-none absolute top-safe left-safe z-10 flex flex-col items-start gap-2 " + (driving ? "hidden" : "")}>
           {sendPlace ? <SendPlaceSheet mark={sendPlace} onClose={() => setSendPlace(null)} /> : null}
           {addedFlash ? (
             <button
