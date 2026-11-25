@@ -197,6 +197,7 @@ function AtlasShell() {
   const [catalog, setCatalog] = useState<CatalogPlace[]>([]);
   const [stateRoads, setStateRoads] = useState<RoadRec[]>([]);
   const [loadedPlaces, setLoadedPlaces] = useState<(CatalogPlace & { cat: string })[]>([]);
+  const searchInput = useRef<HTMLInputElement>(null);
   const [focus, setFocus] = useState<Mark | null>(null);
   const [you, setYou] = useState<Fix | null>(null);
   const [tracker, setTracker] = useState<Fix | null>(null);
@@ -2366,6 +2367,7 @@ function AtlasShell() {
             <label className="flex items-center gap-2 rounded-card border border-line bg-bg px-3">
               <Search className="size-4 shrink-0 text-faint" aria-hidden="true" />
               <input
+                ref={searchInput}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder={tab === "near" ? "Filter nearby" : stateAbbr ? "Search this state" : "Search your places"}
@@ -2395,6 +2397,12 @@ function AtlasShell() {
               category={category}
               query={query}
               rows={addRows}
+              everything={loadedPlaces}
+              stateRoads={stateRoads}
+              onSearch={() => {
+                searchInput.current?.focus();
+                searchInput.current?.select();
+              }}
               savedIds={savedIds}
               covered={new Set(marks.map((mark) => mark.state).filter(Boolean))}
               selected={selected}
@@ -2713,6 +2721,9 @@ function AddList({
   stateName,
   category,
   query,
+  everything,
+  stateRoads,
+  onSearch,
   rows,
   savedIds,
   covered,
@@ -2727,6 +2738,10 @@ function AddList({
   stateName: string | null;
   category: string | null;
   query: string;
+  /** Every place in the state (all categories), for searching the whole state. */
+  everything: (CatalogPlace & { cat: string })[];
+  stateRoads: RoadRec[];
+  onSearch: () => void;
   rows: RoadRec[] | CatalogPlace[];
   savedIds: Set<string>;
   covered: Set<string>;
@@ -2796,6 +2811,7 @@ function AddList({
   }
 
   if (!category) {
+    const q = query.trim();
     return (
       <div>
         <button type="button" onClick={() => onState(null)} className="mb-2 flex h-11 items-center gap-1 px-2 text-sm text-muted">
@@ -2803,7 +2819,17 @@ function AddList({
           All states
         </button>
         <div className="flex items-center justify-between gap-3 px-2">
-          <h2 className="font-serif text-2xl">{stateName}</h2>
+          <div className="flex min-w-0 items-center gap-1">
+            <h2 className="truncate font-serif text-2xl">{stateName}</h2>
+            <button
+              type="button"
+              onClick={onSearch}
+              aria-label={`Search all of ${stateName}`}
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-muted hover:bg-elevated"
+            >
+              <Search className="size-5" aria-hidden="true" />
+            </button>
+          </div>
           {covered.has(stateAbbr) ? (
             <span className="flex h-10 shrink-0 items-center gap-1 rounded-lg border border-line px-3 text-xs">
               <Check className="size-4 text-accent" aria-hidden="true" />
@@ -2822,10 +2848,24 @@ function AddList({
             </button>
           )}
         </div>
-        <p className="px-2 pt-1 pb-3 text-xs text-muted">
-          Pick a category, or tap a city or highway on the map. The card is where you add it.
+        {q ? (
+          <StateSearch
+            query={q}
+            stateAbbr={stateAbbr}
+            stateName={stateName ?? stateAbbr}
+            meta={meta}
+            everything={everything}
+            stateRoads={stateRoads}
+            savedIds={savedIds}
+            selected={selected}
+            onOpen={onOpen}
+            onAdd={onAdd}
+          />
+        ) : null}
+        <p className={"px-2 pt-1 pb-3 text-xs text-muted " + (q ? "hidden" : "")}>
+          Pick a category, search everything with the magnifying glass, or tap a city or highway on the map. The card is where you add it.
         </p>
-        <div className="place-scroll grid max-h-[46vh] grid-cols-2 content-start gap-1.5 overflow-y-auto px-1">
+        <div className={"place-scroll grid max-h-[46vh] grid-cols-2 content-start gap-1.5 overflow-y-auto px-1 " + (q ? "hidden" : "")}>
           {meta.categories.map((cat) => (
             <button
               key={cat.id}
@@ -2885,6 +2925,86 @@ function AddList({
           </li>
         ) : null}
       </ul>
+    </div>
+  );
+}
+
+/** Everything in a state matching a search: places of every kind, roads, and counties. */
+function StateSearch({
+  query,
+  stateAbbr,
+  stateName,
+  meta,
+  everything,
+  stateRoads,
+  savedIds,
+  selected,
+  onOpen,
+  onAdd,
+}: {
+  query: string;
+  stateAbbr: string;
+  stateName: string;
+  meta: AtlasMeta;
+  everything: (CatalogPlace & { cat: string })[];
+  stateRoads: RoadRec[];
+  savedIds: Set<string>;
+  selected: string | null;
+  onOpen: (mark: Mark) => void;
+  onAdd: (mark: Mark) => void;
+}) {
+  const [counties, setCounties] = useState<CatalogPlace[]>([]);
+  const [limit, setLimit] = useState(60);
+  useEffect(() => {
+    let dead = false;
+    void loadPlaces("county", stateAbbr)
+      .then((rows) => {
+        if (!dead) setCounties(rows);
+      })
+      .catch(() => {});
+    return () => {
+      dead = true;
+    };
+  }, [stateAbbr]);
+  useEffect(() => setLimit(60), [query]);
+  const label = (cat: string) => meta.categories.find((item) => item.id === cat)?.label ?? cat;
+  const q = query.toLowerCase();
+  const results = useMemo(() => {
+    const out: { mark: Mark; kind: string; rank: number }[] = [];
+    // Names that start with the search come before ones that only contain it.
+    const rank = (name: string) => (name.toLowerCase().startsWith(q) ? 0 : 1);
+    for (const road of stateRoads) if (roadMatches(road, query)) out.push({ mark: roadToMark(road, stateAbbr), kind: "Road", rank: rank(road.name) });
+    for (const county of counties) if (placeMatches(county, query)) out.push({ mark: placeToMark(county, "county", stateAbbr), kind: "County", rank: rank(county.name) });
+    for (const place of everything) if (placeMatches(place, query)) out.push({ mark: placeToMark(place, place.cat, stateAbbr), kind: label(place.cat), rank: rank(place.name) });
+    const seen = new Set<string>();
+    return out
+      .filter((row) => (seen.has(row.mark.id) ? false : (seen.add(row.mark.id), true)))
+      .sort((a, b) => a.rank - b.rank || (b.mark.points ?? 0) - (a.mark.points ?? 0) || a.mark.name.localeCompare(b.mark.name));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, everything, stateRoads, counties, stateAbbr]);
+  return (
+    <div className="pt-2">
+      <p className="px-2 pb-1 text-xs text-faint">
+        {results.length ? `${results.length.toLocaleString()} in ${stateName}` : everything.length ? `Nothing in ${stateName} matches "${query}".` : "Loading the state…"}
+      </p>
+      <ul>
+        {results.slice(0, limit).map((row) => (
+          <Row
+            key={row.mark.id}
+            mark={row.mark}
+            active={row.mark.id === selected}
+            saved={savedIds.has(row.mark.id)}
+            extra={row.kind}
+            onOpen={() => onOpen(row.mark)}
+            onAdd={() => onAdd(row.mark)}
+          />
+        ))}
+      </ul>
+      {results.length > limit ? (
+        <button type="button" onClick={() => setLimit(limit + 100)} className="h-11 w-full text-sm text-muted">
+          Show more
+        </button>
+      ) : null}
     </div>
   );
 }
