@@ -28,6 +28,7 @@ import { missedFixes, nativeDelivery, noteHandledFix } from "@/lib/native-tracki
 import { startChatChecks, useChat } from "@/lib/chat-store";
 import { SendPlaceSheet } from "@/components/chat-send";
 import { MessageBoard } from "@/components/friend-chat";
+import { remindOnThisDay } from "@/lib/memories";
 import { AtlasSplash, LoginScreen } from "@/components/login-screen";
 import { SettingsPage } from "@/components/settings-page";
 import { GhostPanel } from "@/components/ghost-panel";
@@ -638,6 +639,13 @@ function AtlasShell() {
   metaRef.current = meta;
   const userIdRef = useRef("");
   userIdRef.current = user?.id ?? "";
+  // Once a day: a memory from this day in an earlier year, if there is one.
+  const remindedRef = useRef(false);
+  useEffect(() => {
+    if (remindedRef.current || !marks.length) return;
+    remindedRef.current = true;
+    void remindOnThisDay(marks);
+  }, [marks]);
   // Unread messages and thumbs-up, checked while signed in.
   useEffect(() => {
     if (!user?.id) return;
@@ -2291,7 +2299,19 @@ function AtlasShell() {
               onToggle={(group) => setOpenGroup(openGroup === group ? null : group)}
             />
           ) : null}
-          {tab === "recap" ? <RecapPanel name={profile.name || user?.displayName || ""} /> : null}
+          {tab === "recap" ? (
+            <RecapPanel
+              name={profile.name || user?.displayName || ""}
+              marks={marks}
+              onOpenPlace={(mark) => {
+                chooseState(mark.state);
+                openFromMap(mark);
+                setSheetInstant(true);
+                setSheet(8);
+                window.setTimeout(() => setSheetInstant(false), 80);
+              }}
+            />
+          ) : null}
           {tab === "friends" ? (
             <FriendsPanel
               openId={friendId}

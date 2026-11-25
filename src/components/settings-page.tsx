@@ -6,6 +6,7 @@ import { clearGhostLocal } from "@/lib/ghost-trail";
 import { clearGhostCache } from "@/lib/ghost-cache";
 import { hasGateSessionMarker } from "@/lib/auth/gate-session-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
+import { memoryReminders, setMemoryReminders } from "@/lib/memories";
 import { nativeApp } from "@/lib/native";
 import type { SettingsPageId } from "@/lib/settings-route";
 import { requestTrackingPermission } from "@/lib/background-location";
@@ -83,6 +84,7 @@ export function SettingsPage({
   const keepGhost = useSettings((s) => s.keepGhost);
   const setKeepGhost = useSettings((s) => s.setKeepGhost);
   const pack = useOfflinePack();
+  const [remindOn, setRemindOn] = useState(memoryReminders);
   const packPct = pack.total ? Math.min(100, Math.round((pack.done / pack.total) * 100)) : 0;
   const [name, setName] = useState(profile.name);
   const [photo, setPhoto] = useState(profile.photo);
@@ -435,6 +437,26 @@ export function SettingsPage({
           {fastAdd ? "Fast add on" : "Fast add off"}
         </button>
       </section>
+
+      {nativeApp ? (
+        <section className="mt-8">
+          <h2 className="font-serif text-2xl">On this day</h2>
+          <p className="mt-1 text-sm text-muted">
+            Once a day, a notification when you visited somewhere on this date in an earlier year. They're also at the top of the Recap tab.
+          </p>
+          <button
+            type="button"
+            aria-pressed={remindOn}
+            onClick={() => {
+              setMemoryReminders(!remindOn);
+              setRemindOn(!remindOn);
+            }}
+            className={"mt-3 h-12 w-full rounded-lg border text-sm " + (remindOn ? "border-ink bg-elevated" : "border-line")}
+          >
+            {remindOn ? "Reminders on" : "Reminders off"}
+          </button>
+        </section>
+      ) : null}
       </>
       ) : null}
 
