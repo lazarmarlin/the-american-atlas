@@ -13,6 +13,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ApkUpdaterPlugin.class);
         registerPlugin(PhotoLibraryPlugin.class);
         registerPlugin(PowerPlugin.class);
+        registerPlugin(WidgetPlugin.class);
         super.onCreate(savedInstanceState);
         // Android may close the web view's own process to free memory, most
         // often while the app is in the background. Left unhandled, Android
