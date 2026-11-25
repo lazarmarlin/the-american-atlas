@@ -118,15 +118,10 @@ export async function loadAtlasResource(params: { url: string; type?: string }, 
   let data: ArrayBuffer | undefined;
   if (key) {
     data = await get<ArrayBuffer>("tiles", key);
-    if (!data) {
-      try {
-        data = await fetchBytes(url, abort.signal);
-      } catch (err) {
-        // A tile we don't have and can't get draws as empty rather than an error.
-        if ((err as Error).name === "AbortError") throw err;
-        data = new ArrayBuffer(0);
-      }
-    }
+    // Not saved: from the network. If that fails (a weak signal, no signal), the
+    // error lets the map keep drawing the zoomed-out tile it already has, stretched,
+    // instead of a blank square; it asks again when you move.
+    if (!data) data = await fetchBytes(url, abort.signal);
   } else {
     try {
       data = await fetchBytes(url, abort.signal);

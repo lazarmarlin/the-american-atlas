@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { latestLiveFix, onLiveFix } from "@/lib/live-dot";
 import { BASE_STYLE, loadAtlasResource, offlineReadyStyle } from "@/lib/offline-maps";
 import type { ExpressionSpecification, GeoJSONSource, Map as MlMap } from "maplibre-gl";
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
@@ -61,6 +62,8 @@ type Props = {
   dot: Fix | null;
   /** While driving, keep the camera at this zoom on your location. */
   followZoom?: number;
+  /** Bigger place icons and a bigger tap area, for tapping from the driver's seat. */
+  bigIcons?: boolean;
   onState: (abbr: string) => void;
   /** Zoomed in, moving the map into another state picks it (keeping the view). */
   followState?: boolean;
@@ -144,6 +147,10 @@ function stateCamera(map: MlMap, box: { w: number; s: number; e: number; n: numb
 }
 
 let protocolAdded = false;
+
+function reducedMotion() {
+  return typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+}
 
 function duration() {
   if (typeof window === "undefined") return 0;
@@ -257,6 +264,7 @@ export function AtlasMap({
   you,
   dot,
   followZoom,
+  bigIcons = false,
   onState,
   followState = false,
   onCounty,
@@ -275,6 +283,8 @@ export function AtlasMap({
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
+  const bigRef = useRef(bigIcons);
+  bigRef.current = bigIcons;
   const propsRef = useRef({ onState, onCounty, onPark, onSelect, onOffer, onPress, onFriend, onView, onAway });
   propsRef.current = { onState, onCounty, onPark, onSelect, onOffer, onPress, onFriend, onView, onAway };
   const statesRef = useRef(states);
@@ -296,6 +306,7 @@ export function AtlasMap({
   const [countiesReady, setCountiesReady] = useState(false);
   const prevState = useRef<string | null | undefined>(undefined);
   const prevCounties = useRef<Set<string>>(new Set());
+  const prevFollow = useRef<number | undefined>(undefined);
   const prevYou = useRef<string>("");
   const baseRef = useRef<number | null>(null);
   const hiddenRef = useRef(hiddenKinds);
@@ -858,7 +869,7 @@ export function AtlasMap({
         }
         map.on("click", (event) => {
           if (!map) return;
-          const pad = 18;
+          const pad = bigRef.current ? 34 : 18;
           const area: [[number, number], [number, number]] = [
             [event.point.x - pad, event.point.y - pad],
             [event.point.x + pad, event.point.y + pad],
@@ -1268,6 +1279,44 @@ export function AtlasMap({
     (map.getSource("trip-routes") as GeoJSONSource).setData({ type: "FeatureCollection", features });
   }, [tripRoutes, ready]);
 
+  // Driving: place icons and dots about twice the size, so they're easy to hit with a finger.
+  const sizeBase = useRef(new Map<string, unknown>());
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const props: [string, "layout" | "paint", string][] = [
+      ["offer-icons", "layout", "icon-size"],
+      ["place-icons", "layout", "icon-size"],
+      ["offer-dots", "paint", "circle-radius"],
+      ["place-dots", "paint", "circle-radius"],
+      ["photo-pins", "layout", "icon-size"],
+    ];
+    const scale = (value: unknown, k: number): unknown => {
+      if (typeof value === "number") return value * k;
+      // ["interpolate", how, ["zoom"], z1, v1, z2, v2…]: scale each output.
+      if (Array.isArray(value) && value[0] === "interpolate") {
+        return value.map((item, i) => (i >= 4 && i % 2 === 0 ? (typeof item === "number" ? item * k : ["*", k, item]) : item));
+      }
+      return value;
+    };
+    for (const [layer, kind, name] of props) {
+      if (!map.getLayer(layer)) continue;
+      const key = `${layer}:${name}`;
+      if (!sizeBase.current.has(key)) {
+        sizeBase.current.set(key, kind === "layout" ? map.getLayoutProperty(layer, name as never) : map.getPaintProperty(layer, name as never));
+      }
+      const base = sizeBase.current.get(key);
+      if (base === undefined) continue;
+      const value = bigIcons ? scale(base, 1.9) : base;
+      try {
+        if (kind === "layout") map.setLayoutProperty(layer, name as never, value as never);
+        else map.setPaintProperty(layer, name as never, value as never);
+      } catch {
+        /* a style without that layer */
+      }
+    }
+  }, [bigIcons, ready]);
+
   const framed = useRef(0);
   useEffect(() => {
     const map = mapRef.current;
@@ -1495,24 +1544,80 @@ export function AtlasMap({
   }, [marks, preview, ready, selected]);
 
 
-  useEffect(() => {
+  // The "you" dot glides from fix to fix (every fix while tracking, not just the
+  // app's slower updates), so it moves with the ghost trail's head. While driving
+  // the camera glides with it instead of jumping every few seconds.
+  const dotShown = useRef<[number, number] | null>(null);
+  const dotAnim = useRef(0);
+  const dotAt = useRef(0);
+  const dotOn = useRef(false);
+  const followRef = useRef<number | undefined>(followZoom);
+  followRef.current = followZoom;
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const placeDot = useCallback((coords: [number, number] | null) => {
     const map = mapRef.current;
-    if (!ready || !map) return;
-    (map.getSource("you") as GeoJSONSource).setData(
-      dot
-        ? {
-            type: "FeatureCollection",
-            features: [
-              {
-                type: "Feature",
-                properties: {},
-                geometry: { type: "Point", coordinates: [dot.lon, dot.lat] },
-              },
-            ],
-          }
+    const source = map?.getSource("you") as GeoJSONSource | undefined;
+    if (!source) return;
+    dotShown.current = coords;
+    source.setData(
+      coords
+        ? { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: coords } }] }
         : { type: "FeatureCollection", features: [] },
     );
-  }, [dot, ready]);
+  }, []);
+  const glideTo = useCallback(
+    (lon: number, lat: number) => {
+      const map = mapRef.current;
+      if (!map) return;
+      cancelAnimationFrame(dotAnim.current);
+      const from = dotShown.current;
+      const now = performance.now();
+      // As long as the gap since the last fix (so it's still moving when the next one comes), within reason.
+      const span = Math.max(250, Math.min(now - (dotAt.current || now - 1000), 1600));
+      dotAt.current = now;
+      const far = from ? Math.abs(from[0] - lon) + Math.abs(from[1] - lat) > 0.2 : true;
+      if (!from || far || reducedMotion()) placeDot([lon, lat]);
+      else {
+        const step = (t: number) => {
+          const k = Math.min(1, (t - now) / span);
+          placeDot([from[0] + (lon - from[0]) * k, from[1] + (lat - from[1]) * k]);
+          if (k < 1) dotAnim.current = requestAnimationFrame(step);
+        };
+        dotAnim.current = requestAnimationFrame(step);
+      }
+      if (followRef.current != null && !selectedRef.current) {
+        map.easeTo({
+          center: [lon, lat],
+          zoom: followRef.current,
+          duration: far || reducedMotion() ? 0 : span,
+          easing: (t) => t,
+        });
+      }
+    },
+    [placeDot],
+  );
+  useEffect(() => {
+    if (!ready) return;
+    dotOn.current = !!dot;
+    if (!dot) {
+      cancelAnimationFrame(dotAnim.current);
+      placeDot(null);
+      return;
+    }
+    // A newer fix already arrived through onLiveFix: keep gliding from there.
+    const live = latestLiveFix();
+    if (live && (live.t ?? 0) > (dot.t ?? 0)) return;
+    glideTo(dot.lon, dot.lat);
+  }, [dot, ready, glideTo, placeDot]);
+  useEffect(
+    () =>
+      onLiveFix((fix) => {
+        if (dotOn.current) glideTo(fix.lon, fix.lat);
+      }),
+    [glideTo],
+  );
+  useEffect(() => () => cancelAnimationFrame(dotAnim.current), []);
 
   const friendIcons = useRef(new Map<string, string>());
   useEffect(() => {
@@ -1590,9 +1695,13 @@ export function AtlasMap({
         duration: duration(),
       });
     if (followZoom == null) {
+      prevFollow.current = undefined;
       go();
       return;
     }
+    // Driving: after the first move, the dot's glide keeps the camera on you.
+    if (prevFollow.current === followZoom) return;
+    prevFollow.current = followZoom;
     // Entering the driving view resizes the map (the menu goes away): move once that's done.
     map.resize();
     const timer = window.setTimeout(() => {

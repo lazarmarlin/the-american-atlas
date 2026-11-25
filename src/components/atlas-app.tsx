@@ -39,6 +39,7 @@ import { nextCounty, type NextCounty } from "@/lib/next-county";
 import { startDriveScreen, stopDriveScreen } from "@/lib/power";
 import { PhotosPanel, PhotoViewer } from "@/components/photos-panel";
 import { updateWidget } from "@/lib/widget";
+import { noteLiveFix } from "@/lib/live-dot";
 import { matchPlace, tripFor, type RecordingTrip } from "@/lib/photo-file";
 import { choosePhotoPlace, loadParkShapes, matchPark } from "@/lib/park-photo";
 import { UpdatePrompt } from "@/components/update-prompt";
@@ -932,6 +933,8 @@ function AtlasShell() {
       }
       const latest = fixes[fixes.length - 1];
       if (latest) paintTracker(latest, forceDot);
+      // The map's dot follows every fix (the app itself only updates every few seconds).
+      if (latest) noteLiveFix(latest);
       useGhost.getState().record(fixes);
       shareLive();
       if (!adding) return;
@@ -1416,6 +1419,15 @@ function AtlasShell() {
   }, [marks, offers, stateAbbr, viewBase, viewZoom]);
 
   const cardOnly = mapCard && focus != null;
+  // Driving: a tapped place's card fills the screen and closes on its own after
+  // 12 seconds untouched (any touch on it starts the count again).
+  const [cardTouch, setCardTouch] = useState(0);
+  useEffect(() => {
+    if (!driving || !cardOnly) return;
+    const timer = window.setTimeout(() => closeCard(), 12000);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driving, cardOnly, focus?.id, cardTouch]);
 
   // Trails belong to the signed-in account: load its copy, keep 24 hours of
   // live trail (the slider only changes what's drawn), and sync saved trails
@@ -1883,7 +1895,8 @@ function AtlasShell() {
               photoPins={photoPins}
               you={you}
               dot={locating ? (tracker ?? you) : you}
-              followZoom={driving ? 13 : undefined}
+              followZoom={driving && !cardOnly ? 13 : undefined}
+              bigIcons={driving}
               onPress={() => {
                 if (driving) return;
                 if (mapCard) closeCard();
@@ -2346,7 +2359,11 @@ function AtlasShell() {
         </div>
       </section>
 
-      <aside className={"app-sheet flex min-h-0 flex-col bg-surface" + (sheet >= 92 ? " sheet-full" : "")}>
+      <aside
+        className={"app-sheet flex min-h-0 flex-col bg-surface" + (sheet >= 92 ? " sheet-full" : "")}
+        onPointerDown={driving ? () => setCardTouch((n) => n + 1) : undefined}
+        onScrollCapture={driving ? () => setCardTouch((n) => n + 1) : undefined}
+      >
         {cardOnly && focus ? (
           <Detail
             solo
