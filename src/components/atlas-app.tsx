@@ -34,6 +34,7 @@ import { AtlasSplash, LoginScreen } from "@/components/login-screen";
 import { SettingsPage } from "@/components/settings-page";
 import { GhostPanel } from "@/components/ghost-panel";
 import { FriendsPanel } from "@/components/friends-panel";
+import { nextCounty, type NextCounty } from "@/lib/next-county";
 import { PhotosPanel, PhotoViewer } from "@/components/photos-panel";
 import { updateWidget } from "@/lib/widget";
 import { matchPlace, tripFor, type RecordingTrip } from "@/lib/photo-file";
@@ -198,6 +199,9 @@ function AtlasShell() {
   const [focus, setFocus] = useState<Mark | null>(null);
   const [you, setYou] = useState<Fix | null>(null);
   const [tracker, setTracker] = useState<Fix | null>(null);
+  /** While tracking: the closest county you haven't been to. */
+  const [nextUp, setNextUp] = useState<NextCounty | null>(null);
+  const nextAt = useRef<{ lat: number; lon: number; t: number } | null>(null);
   const [near, setNear] = useState<NearMark[]>([]);
   const [nearNote, setNearNote] = useState<string | null>(null);
   const [nearBusy, setNearBusy] = useState(false);
@@ -665,6 +669,27 @@ function AtlasShell() {
       Object.values(state.summary.groups).reduce((a, b) => a + b, 0) +
       state.summary.likes,
   );
+  // The nearest county still to get, rechecked every half mile or minute of travel.
+  useEffect(() => {
+    if (!trackTravel || !tracker) {
+      if (!trackTravel) setNextUp(null);
+      return;
+    }
+    const meta = metaRef.current;
+    if (!meta) return;
+    const last = nextAt.current;
+    const moved = last ? Math.hypot((tracker.lon - last.lon) * 53, (tracker.lat - last.lat) * 69) : Infinity;
+    if (last && moved < 0.5 && Date.now() - last.t < 60000) return;
+    nextAt.current = { lat: tracker.lat, lon: tracker.lon, t: Date.now() };
+    let dead = false;
+    const saved = new Set(marksRef.current.map((mark) => mark.id));
+    void nextCounty(tracker.lat, tracker.lon, meta.states, saved).then((hit) => {
+      if (!dead) setNextUp(hit);
+    });
+    return () => {
+      dead = true;
+    };
+  }, [tracker, trackTravel, marks.length]);
   const [sendPlace, setSendPlace] = useState<Mark | null>(null);
   const [fitTo, setFitTo] = useState<{ tick: number; points: [number, number][]; maxZoom: number } | null>(null);
 
@@ -1889,6 +1914,27 @@ function AtlasShell() {
             </button>
           ) : null}
         </div>
+        {nextUp && !(friendLive || friendLines.length) && !selected ? (
+          <button
+            type="button"
+            onClick={() => {
+              const mark = countyToMark(nextUp, nextUp.state);
+              chooseState(nextUp.state);
+              openFromMap(mark);
+              setSheetInstant(true);
+              setSheet(8);
+              window.setTimeout(() => setSheetInstant(false), 80);
+            }}
+            aria-label={`Nearest new county: ${nextUp.name}, ${Math.max(1, Math.round(nextUp.miles))} miles ${nextUp.toward}`}
+            className="absolute bottom-16 left-3 z-10 flex h-10 max-w-[80%] items-center gap-1.5 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+          >
+            <span className="shrink-0 text-xs text-faint">Next</span>
+            <span className="truncate">{nextUp.name}</span>
+            <span className="shrink-0 text-xs text-muted">
+              {nextUp.miles < 1 ? "<1" : Math.round(nextUp.miles)} mi {nextUp.toward}
+            </span>
+          </button>
+        ) : null}
         {friendLive || friendLines.length ? (
           <button
             type="button"
