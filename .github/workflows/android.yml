@@ -77,10 +77,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "build-${{ github.run_number }}" "american-atlas-${{ github.run_number }}.apk" \
-            --target "${{ github.sha }}" --latest \
-            --title "Build ${{ github.run_number }}" \
-            --notes "$(git log -1 --format=%s)"
+          tag="build-${{ github.run_number }}"
+          apk="american-atlas-${{ github.run_number }}.apk"
+          # GitHub sometimes fails partway (a 502 during the upload leaves a draft
+          # behind). Try a few times; anything left from a failed try (or from a
+          # re-run of this build) is removed first so the release is made fresh.
+          for try in 1 2 3; do
+            for id in $(gh api "repos/${{ github.repository }}/releases?per_page=30" --jq ".[] | select(.tag_name == \"$tag\") | .id"); do
+              gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
+            done
+            if gh release create "$tag" "$apk" \
+                --target "${{ github.sha }}" --latest \
+                --title "Build ${{ github.run_number }}" \
+                --notes "$(git log -1 --format=%s)"; then
+              break
+            fi
+            if [ "$try" = 3 ]; then exit 1; fi
+            sleep 20
+          done
+          # Leftover drafts from earlier failures are never what the app should install.
+          gh api "repos/${{ github.repository }}/releases?per_page=50" --jq '.[] | select(.draft and (.tag_name | startswith("build-")) and .tag_name != "'"$tag"'") | .id' |
+            while read -r id; do gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true; done
           # Keep the 10 newest builds.
           gh release list --limit 100 --json tagName --jq '.[].tagName' | grep '^build-' | sort -t- -k2 -n -r | tail -n +11 |
             while read -r tag; do gh release delete "$tag" --yes --cleanup-tag; done
