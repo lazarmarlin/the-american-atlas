@@ -1981,7 +1981,7 @@ function AtlasShell() {
         ) : null}
         {!driving ? (
         <>
-        <div className="absolute bottom-3 left-3 z-10 flex items-center gap-2">
+        <div className="absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-4.5rem)] flex-wrap-reverse items-center gap-2">
           <button
             type="button"
             aria-expanded={ghostOpen}
@@ -2001,7 +2001,6 @@ function AtlasShell() {
               setMailOpen(false);
               setSheet(8);
               setDriving(true);
-              startDriveScreen();
               void ensureTracking();
             }}
             className="flex h-11 items-center gap-2 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
@@ -2184,7 +2183,7 @@ function AtlasShell() {
             }}
           />
         ) : null}
-        <div className="pointer-events-none absolute top-safe left-3 z-10 flex flex-col items-start gap-2">
+        <div className={"pointer-events-none absolute top-safe left-3 z-10 flex flex-col items-start gap-2 " + (driving ? "hidden" : "")}>
           {sendPlace ? <SendPlaceSheet mark={sendPlace} onClose={() => setSendPlace(null)} /> : null}
           {addedFlash ? (
             <button

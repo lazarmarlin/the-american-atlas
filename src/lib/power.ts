@@ -44,8 +44,16 @@ let watching = false;
 let openedFullscreen = false;
 
 async function holdScreen() {
+  // One hold at a time: a second request would leave the first holding the screen on after Done.
+  if (wakeLock && !wakeLock.released) return;
   try {
-    wakeLock = await navigator.wakeLock.request("screen");
+    const lock = await navigator.wakeLock.request("screen");
+    if (!watching) {
+      // Driving ended while this was being granted.
+      await lock.release().catch(() => undefined);
+      return;
+    }
+    wakeLock = lock;
   } catch {
     wakeLock = null;
   }

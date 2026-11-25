@@ -101,6 +101,11 @@
   transition: grid-template-rows 180ms ease;
 }
 
+/* Dragging the menu (and jumps that shouldn't animate) follow the finger exactly. */
+.app-shell.sheet-drag {
+  transition: none;
+}
+
 .app-shell.drive-mode {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) 0px;
