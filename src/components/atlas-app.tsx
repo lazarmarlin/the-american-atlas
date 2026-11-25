@@ -671,6 +671,10 @@ function AtlasShell() {
     if (!user?.id) return;
     updateWidget(marks, trackTravel);
   }, [marks, trackTravel, user?.id]);
+  // Tracking tells you what it added: make sure the phone lets it.
+  useEffect(() => {
+    if (user?.id && trackTravel) void askNotifyOnce();
+  }, [trackTravel, user?.id]);
   const unreadTotal = useChat(
     (state) =>
       Object.values(state.summary.friends).reduce((a, b) => a + b, 0) +
@@ -1922,7 +1926,7 @@ function AtlasShell() {
             </button>
           ) : null}
         </div>
-        {nextUp && !(friendLive || friendLines.length) && !selected ? (
+        {nextUp && !(friendLive || friendLines.length) && !tripRoutes && !selected ? (
           <button
             type="button"
             onClick={() => {
