@@ -2257,7 +2257,7 @@ function AtlasShell() {
               void add(mark);
             }}
             onClose={closeCard}
-            placePhotos={photos.filter((photo) => photo.poiId === focus.id)}
+            placePhotos={photos.filter((photo) => photo.poiId === focus.id).sort((a, b) => (b.takenAt ?? -Infinity) - (a.takenAt ?? -Infinity) || 0)}
             onOpenPhoto={(id) => setViewing({ list: photos.filter((photo) => photo.poiId === focus.id), id })}
             onDeletePhoto={(id) => void removePlacePhoto(id)}
             onAddPhoto={(file) => addPlacePhoto(focus, file)}
@@ -2630,7 +2630,7 @@ function AtlasShell() {
               void add(mark);
             }}
             onClose={closeCard}
-            placePhotos={photos.filter((photo) => photo.poiId === focus.id)}
+            placePhotos={photos.filter((photo) => photo.poiId === focus.id).sort((a, b) => (b.takenAt ?? -Infinity) - (a.takenAt ?? -Infinity) || 0)}
             onOpenPhoto={(id) => setViewing({ list: photos.filter((photo) => photo.poiId === focus.id), id })}
             onDeletePhoto={(id) => void removePlacePhoto(id)}
             onAddPhoto={(file) => addPlacePhoto(focus, file)}
