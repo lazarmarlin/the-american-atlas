@@ -1,0 +1,20 @@
+// CI only (.github/workflows/android.yml): Maven Central sometimes answers
+// GitHub's build machines with "429 Too Many Requests". Google's copy of Maven
+// Central is tried first for every project and plugin; the usual repositories
+// stay behind it as a fallback.
+def mirror = "https://maven-central.storage-download.googleapis.com/maven2/"
+
+settingsEvaluated { settings ->
+    settings.pluginManagement.repositories {
+        maven { url mirror; name "MavenCentralMirror" }
+    }
+}
+
+allprojects {
+    buildscript.repositories {
+        maven { url mirror; name "MavenCentralMirror" }
+    }
+    repositories {
+        maven { url mirror; name "MavenCentralMirror" }
+    }
+}

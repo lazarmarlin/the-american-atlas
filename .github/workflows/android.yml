@@ -41,6 +41,10 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      # Keeps downloaded Android/Gradle libraries between builds, so each build
+      # asks Maven Central for far less (it rate-limits GitHub's machines).
+      - uses: gradle/actions/setup-gradle@v4
+
       - run: npm ci --no-audit --no-fund
 
       - name: Build app assets
@@ -67,7 +71,15 @@ jobs:
         working-directory: android
         env:
           ATLAS_KEY_PASSWORD: ${{ secrets.ATLAS_KEY_PASSWORD }}
-        run: ./gradlew assembleDebug --no-daemon
+        # Up to three tries: a "429 Too Many Requests" from a library server is
+        # usually gone a minute later.
+        run: |
+          for try in 1 2 3; do
+            if ./gradlew assembleDebug --no-daemon --init-script ci-mirror.gradle; then exit 0; fi
+            [ "$try" = 3 ] && exit 1
+            echo "Build failed (try $try); waiting before trying again."
+            sleep $((try * 45))
+          done
 
       - name: Rename
         run: cp android/app/build/outputs/apk/debug/app-debug.apk american-atlas-${{ github.run_number }}.apk
@@ -97,10 +109,10 @@ jobs:
           done
           # Leftover drafts from earlier failures are never what the app should install.
           gh api "repos/${{ github.repository }}/releases?per_page=50" --jq '.[] | select(.draft and (.tag_name | startswith("build-")) and .tag_name != "'"$tag"'") | .id' |
-            while read -r id; do gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true; done
-          # Keep the 10 newest builds.
+            while read -r id; do gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true; done || true
+          # Keep the 10 newest builds. Tidying up never fails the build: the update is already out.
           gh release list --limit 100 --json tagName --jq '.[].tagName' | grep '^build-' | sort -t- -k2 -n -r | tail -n +11 |
-            while read -r tag; do gh release delete "$tag" --yes --cleanup-tag; done
+            while read -r tag; do gh release delete "$tag" --yes --cleanup-tag || true; done || true
 
       - uses: actions/upload-artifact@v4
         with:
