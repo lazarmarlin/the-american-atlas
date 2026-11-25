@@ -1577,16 +1577,30 @@ export function AtlasMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!ready || !map || !you || (selected && followZoom == null)) return;
-    const key = `${you.lat.toFixed(3)},${you.lon.toFixed(3)}`;
+    // Driving follows the tracking dot (it moves with every fix); otherwise your last located spot.
+    const here = followZoom != null ? (dot ?? you) : you;
+    if (!ready || !map || !here || (selected && followZoom == null)) return;
+    const key = `${here.lat.toFixed(3)},${here.lon.toFixed(3)}`;
     if (prevYou.current === key && followZoom == null) return;
     prevYou.current = key;
-    map.easeTo({
-      center: [you.lon, you.lat],
-      zoom: followZoom ?? Math.max(map.getZoom(), 8),
-      duration: duration(),
-    });
-  }, [followZoom, ready, selected, you]);
+    const go = () =>
+      map.easeTo({
+        center: [here.lon, here.lat],
+        zoom: followZoom ?? Math.max(map.getZoom(), 8),
+        duration: duration(),
+      });
+    if (followZoom == null) {
+      go();
+      return;
+    }
+    // Entering the driving view resizes the map (the menu goes away): move once that's done.
+    map.resize();
+    const timer = window.setTimeout(() => {
+      map.resize();
+      go();
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [followZoom, ready, selected, you, dot]);
 
   return <div ref={host} className="h-full w-full" />;
 }
