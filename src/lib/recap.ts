@@ -213,17 +213,30 @@ export const friendsLeaderboard = createServerFn({ method: "POST" })
 const pad = (n: number) => String(n).padStart(2, "0");
 const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
-export type RecapPeriod = "month" | "last-month" | "year";
+export type RecapPeriod = "today" | "week" | "month" | "last-month" | "year";
 
 /** The local date range for a period, plus a label like "November 2026". */
-export function periodRange(period: RecapPeriod, now = new Date()): RecapRange & { label: string } {
+export function periodRange(period: RecapPeriod, now = new Date()): RecapRange & { label: string; title: string } {
   const tz = now.getTimezoneOffset();
+  if (period === "today") {
+    const day = ymd(now);
+    const label = `Today · ${now.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}`;
+    return { from: day, to: day, tz, label, title: "day" };
+  }
+  if (period === "week") {
+    // Monday through Sunday, like the week streak.
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+    const short = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const label = `This week · ${short(start)} – ${start.getMonth() === end.getMonth() ? end.getDate() : short(end)}`;
+    return { from: ymd(start), to: ymd(end), tz, label, title: "week" };
+  }
   if (period === "year") {
     const y = now.getFullYear();
-    return { from: `${y}-01-01`, to: `${y}-12-31`, tz, label: String(y) };
+    return { from: `${y}-01-01`, to: `${y}-12-31`, tz, label: String(y), title: String(y) };
   }
   const start = new Date(now.getFullYear(), now.getMonth() - (period === "last-month" ? 1 : 0), 1);
   const end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
   const label = start.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-  return { from: ymd(start), to: ymd(end), tz, label };
+  return { from: ymd(start), to: ymd(end), tz, label, title: label };
 }
