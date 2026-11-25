@@ -28,11 +28,11 @@ import { missedFixes, nativeDelivery, noteHandledFix } from "@/lib/native-tracki
 import { startChatChecks, useChat } from "@/lib/chat-store";
 import { SendPlaceSheet } from "@/components/chat-send";
 import { MessageBoard } from "@/components/friend-chat";
-import { nextCounty, type NextCounty } from "@/lib/next-county";
 import { AtlasSplash, LoginScreen } from "@/components/login-screen";
 import { SettingsPage } from "@/components/settings-page";
 import { GhostPanel } from "@/components/ghost-panel";
 import { FriendsPanel } from "@/components/friends-panel";
+import { nextCounty, type NextCounty } from "@/lib/next-county";
 import { PhotosPanel, PhotoViewer } from "@/components/photos-panel";
 import { matchPlace, tripFor, type RecordingTrip } from "@/lib/photo-file";
 import { choosePhotoPlace, loadParkShapes, matchPark } from "@/lib/park-photo";
