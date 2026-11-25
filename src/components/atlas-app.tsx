@@ -626,6 +626,7 @@ function AtlasShell() {
       photo: "",
       visits: [{ ...freshVisit(), visitedOn }],
     };
+    addedToday.current.add(clean.id);
     setMarks((prev) => (prev.some((item) => item.id === clean.id) ? prev : [clean, ...prev]));
     marksRef.current = [clean, ...marksRef.current];
     if (!quiet) choose(clean);
@@ -821,13 +822,14 @@ function AtlasShell() {
     const pending: Fix[] = [];
     let passSeeded = false;
     const passInside = new Set<string>();
-    function noteAgain(marksHere: Mark[]) {
+    function noteAgain(marksHere: Mark[], justAdded: Mark[] = []) {
+      for (const mark of justAdded) passInside.add(mark.id);
       if (!passSeeded) {
         for (const mark of marksHere) passInside.add(mark.id);
         passSeeded = true;
         return [] as Mark[];
       }
-      const now = new Set(marksHere.map((mark) => mark.id));
+      const now = new Set([...marksHere, ...justAdded].map((mark) => mark.id));
       const entered = marksHere.filter((mark) => !passInside.has(mark.id));
       for (const mark of entered) passInside.add(mark.id);
       for (const id of passInside) if (!now.has(id)) passInside.delete(id);
@@ -857,13 +859,13 @@ function AtlasShell() {
       const added: Mark[] = [];
       for (const mark of found) {
         saved.add(mark.id);
-        if (await addRef.current(mark, true, day)) added.push(mark);
+        // Dated (today, or the day the fix was taken) so it's clear when this visit was.
+        if (await addRef.current(mark, true, day ?? localDay(fix.t ?? Date.now()))) added.push(mark);
       }
-      // Just added: you're inside it now, so a later fix isn't "entering it again".
-      for (const mark of found) passInside.add(mark.id);
       for (const mark of visited) await noteTrip(mark.id);
       const reentered: Mark[] = [];
-      for (const mark of noteAgain(again)) if (await revisitRef.current(mark, day)) reentered.push(mark);
+      // Places just added count as where you are, so the next fix inside them isn't "entering again".
+      for (const mark of noteAgain(again, found)) if (await revisitRef.current(mark, day)) reentered.push(mark);
       if (!added.length && !reentered.length) return;
       const label = added.length
         ? added.length === 1
@@ -1110,10 +1112,15 @@ function AtlasShell() {
     // One visit a day: wobbling GPS at a town or county line, or crossing it back and forth, isn't a new visit.
     const on = day ?? localDay(Date.now());
     if (visits.some((visit) => visit.visitedOn === on)) return false;
+    // An undated visit is the first one, from before visits had dates (or a moment
+    // ago): counting a second one on top of it the same day isn't a new visit.
+    if (visits.length === 1 && !visits[0]?.visitedOn && addedToday.current.has(current.id)) return false;
     await saveVisits(current.id, [...visits, { ...freshVisit(), visitedOn: on }]);
     return true;
   }
 
+  /** Places added during this session today, so their undated first visit counts as today's. */
+  const addedToday = useRef(new Set<string>());
   const revisitRef = useRef(revisit);
   revisitRef.current = revisit;
 
