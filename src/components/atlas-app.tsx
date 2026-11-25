@@ -35,6 +35,7 @@ import { SettingsPage } from "@/components/settings-page";
 import { GhostPanel } from "@/components/ghost-panel";
 import { FriendsPanel } from "@/components/friends-panel";
 import { PhotosPanel, PhotoViewer } from "@/components/photos-panel";
+import { updateWidget } from "@/lib/widget";
 import { matchPlace, tripFor, type RecordingTrip } from "@/lib/photo-file";
 import { choosePhotoPlace, loadParkShapes, matchPark } from "@/lib/park-photo";
 import { UpdatePrompt } from "@/components/update-prompt";
@@ -653,6 +654,11 @@ function AtlasShell() {
     if (!user?.id) return;
     return startChatChecks();
   }, [user?.id]);
+  // The home-screen widget (Android): today's new places, this month's points, tracking.
+  useEffect(() => {
+    if (!user?.id) return;
+    updateWidget(marks, trackTravel);
+  }, [marks, trackTravel, user?.id]);
   const unreadTotal = useChat(
     (state) =>
       Object.values(state.summary.friends).reduce((a, b) => a + b, 0) +
