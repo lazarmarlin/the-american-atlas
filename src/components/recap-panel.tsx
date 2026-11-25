@@ -3,6 +3,8 @@ import { flushDriveLog } from "@/lib/drive-log";
 import { formatMiles } from "@/lib/ghost-trail";
 import { nativeApp } from "@/lib/native";
 import { getRecap, periodRange, type Recap, type RecapPeriod } from "@/lib/recap";
+import { onThisDay, streaks, yearsAgo } from "@/lib/memories";
+import type { Mark } from "@/lib/marks";
 
 const PERIODS: [RecapPeriod, string][] = [
   ["month", "This month"],
@@ -78,7 +80,66 @@ function Stat({ value, label }: { value: string; label: string }) {
   );
 }
 
-export function RecapPanel({ name }: { name: string }) {
+/** Streaks and "on this day", above the period recap. */
+function LookBack({ marks, onOpenPlace }: { marks: Mark[]; onOpenPlace: (mark: Mark) => void }) {
+  const [all, setAll] = useState(false);
+  const memories = onThisDay(marks);
+  const run = streaks(marks);
+  if (!marks.length) return null;
+  const shown = all ? memories : memories.slice(0, 3);
+  return (
+    <div className="mb-5">
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-lg border border-line px-3 py-2">
+          <p className="font-serif text-2xl leading-tight">{run.days ? `${run.days} ${run.days === 1 ? "day" : "days"}` : "—"}</p>
+          <p className="text-xs text-muted">
+            {run.days ? (run.dayDone ? "in a row with a visit" : "in a row. Visit somewhere today to keep it") : "Visit somewhere today to start a streak"}
+          </p>
+        </div>
+        <div className="rounded-lg border border-line px-3 py-2">
+          <p className="font-serif text-2xl leading-tight">{run.weeks ? `${run.weeks} ${run.weeks === 1 ? "week" : "weeks"}` : "—"}</p>
+          <p className="text-xs text-muted">
+            {run.weeks
+              ? run.weekDone
+                ? "in a row with a new place"
+                : "in a row. A new place this week keeps it"
+              : "A new place this week starts a streak"}
+            {run.bestWeeks > run.weeks ? ` · best ${run.bestWeeks}` : ""}
+          </p>
+        </div>
+      </div>
+      {memories.length ? (
+        <div className="mt-4">
+          <p className="text-xs tracking-widest text-faint uppercase">On this day</p>
+          <ul className="mt-1 grid gap-2">
+            {shown.map((memory) => (
+              <li key={memory.mark.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpenPlace(memory.mark)}
+                  className="w-full rounded-lg border border-line px-3 py-2 text-left"
+                >
+                  <span className="block text-xs text-accent">{yearsAgo(memory.years)}</span>
+                  <span className="block font-serif text-lg leading-tight">{memory.mark.name}</span>
+                  <span className="block text-xs text-faint">
+                    {STATE_NAMES[memory.mark.state] ?? memory.mark.state} · {new Date(`${memory.day}T12:00:00`).getFullYear()}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {memories.length > 3 ? (
+            <button type="button" onClick={() => setAll(!all)} className="mt-1 h-10 text-sm text-muted">
+              {all ? "Fewer" : `All ${memories.length} from this day`}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function RecapPanel({ name, marks = [], onOpenPlace }: { name: string; marks?: Mark[]; onOpenPlace?: (mark: Mark) => void }) {
   const [period, setPeriod] = useState<RecapPeriod>("month");
   const [recap, setRecap] = useState<Recap | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -132,6 +193,9 @@ export function RecapPanel({ name }: { name: string }) {
   return (
     <div className="px-4 pb-4">
       <h2 className="font-serif text-2xl">Recap</h2>
+      <div className="mt-3">
+        <LookBack marks={marks} onOpenPlace={(mark) => onOpenPlace?.(mark)} />
+      </div>
       <div className="mt-3 flex gap-2">
         {PERIODS.map(([id, label]) => (
           <button
