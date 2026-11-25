@@ -7,6 +7,8 @@ import { onThisDay, streaks, yearsAgo } from "@/lib/memories";
 import type { Mark } from "@/lib/marks";
 
 const PERIODS: [RecapPeriod, string][] = [
+  ["today", "Today"],
+  ["week", "This week"],
   ["month", "This month"],
   ["last-month", "Last month"],
   ["year", "This year"],
@@ -176,7 +178,7 @@ export function RecapPanel({ name, marks = [], onOpenPlace }: { name: string; ma
       const result = await shareImage(
         blob,
         `atlas-recap-${recap.from}.png`,
-        `My ${range.label} on The American Atlas`,
+        `My ${range.title} on The American Atlas`,
       );
       if (result === "saved") setNote("Saved the card as an image.");
     } catch (err) {
@@ -196,7 +198,7 @@ export function RecapPanel({ name, marks = [], onOpenPlace }: { name: string; ma
       <div className="mt-3">
         <LookBack marks={marks} onOpenPlace={(mark) => onOpenPlace?.(mark)} />
       </div>
-      <div className="mt-3 flex gap-2">
+      <div className="mt-3 flex flex-wrap gap-2">
         {PERIODS.map(([id, label]) => (
           <button
             key={id}
@@ -204,7 +206,7 @@ export function RecapPanel({ name, marks = [], onOpenPlace }: { name: string; ma
             aria-pressed={period === id}
             onClick={() => setPeriod(id)}
             className={
-              "h-11 flex-1 rounded-lg border text-sm " +
+              "h-11 grow basis-[30%] rounded-lg border px-2 text-sm " +
               (period === id ? "border-ink bg-elevated" : "border-line text-muted")
             }
           >
