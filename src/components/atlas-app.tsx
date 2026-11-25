@@ -1922,7 +1922,7 @@ function AtlasShell() {
             </button>
           ) : null}
         </div>
-        {nextUp && !(friendLive || friendLines.length) && !selected ? (
+        {nextUp && !(friendLive || friendLines.length) && !tripRoutes && !selected ? (
           <button
             type="button"
             onClick={() => {
