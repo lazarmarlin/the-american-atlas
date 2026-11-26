@@ -28,6 +28,7 @@ import { missedFixes, nativeDelivery, noteHandledFix } from "@/lib/native-tracki
 import { startChatChecks, useChat } from "@/lib/chat-store";
 import { SendPlaceSheet } from "@/components/chat-send";
 import { MessageBoard } from "@/components/friend-chat";
+import { StopsLog } from "@/components/stops-log";
 import { TripRecap, type TripCard } from "@/components/trip-recap";
 import { flushTripTrack, noteTripFixes, trackLines } from "@/lib/trip-track";
 import { AtlasSplash, LoginScreen } from "@/components/login-screen";
@@ -2952,6 +2953,20 @@ function Yours({
   onBack: () => void;
   onOpen: (mark: Mark) => void;
 }) {
+  const [view, setView] = useState<"places" | "stops">(() => {
+    try {
+      return localStorage.getItem("atlas.yours-view") === "stops" ? "stops" : "places";
+    } catch {
+      return "places";
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("atlas.yours-view", view);
+    } catch {
+      /* fine */
+    }
+  }, [view]);
   if (marks.length === 0) {
     return (
       <div className="px-2 py-6">
@@ -2976,17 +2991,39 @@ function Yours({
           {stateName}
         </button>
       ) : null}
-      <ul>
-        {marks.map((mark) => (
-          <Row
-            key={mark.id}
-            mark={mark}
-            active={mark.id === selected}
-            saved
-            onOpen={() => onOpen(mark)}
-          />
+      {/* Places: one row per place. Stops: every visit, by day, week, month or state. */}
+      <div className="mb-2 flex items-center gap-1 px-1" role="tablist" aria-label="Show">
+        {(["places", "stops"] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={view === id}
+            onClick={() => setView(id)}
+            className={
+              "h-9 rounded-full px-4 text-sm transition-colors " +
+              (view === id ? "bg-ink font-medium text-bg" : "border border-line text-muted")
+            }
+          >
+            {id === "places" ? `Places · ${marks.length}` : "Stops"}
+          </button>
         ))}
-      </ul>
+      </div>
+      {view === "stops" ? (
+        <StopsLog marks={marks} onOpen={onOpen} />
+      ) : (
+        <ul>
+          {marks.map((mark) => (
+            <Row
+              key={mark.id}
+              mark={mark}
+              active={mark.id === selected}
+              saved
+              onOpen={() => onOpen(mark)}
+            />
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

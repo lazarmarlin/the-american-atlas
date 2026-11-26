@@ -16,6 +16,8 @@ export type Mark = {
   note: string;
   photo: string;
   visits: Visit[];
+  /** When it was added to the map (ms), for visits saved before they carried a date. */
+  addedAt?: number;
 };
 
 const SYSTEMS = new Set(["", "I", "US", "SR", "PK"]);
@@ -133,8 +135,10 @@ export const listMarks = createServerFn({ method: "GET" })
       note: string | null;
       photo: string | null;
       visits: string | null;
+      added_at: number | string | null;
     }>`
-      select poi_id, name, category, state, lat, lon, points, sys, geom, visited_on::text as visited_on, note, photo, visits
+      select poi_id, name, category, state, lat, lon, points, sys, geom, visited_on::text as visited_on, note, photo, visits,
+        (extract(epoch from created_at) * 1000)::bigint as added_at
       from marks
       where user_id = ${context.userId}
       order by created_at desc
@@ -161,6 +165,7 @@ export const listMarks = createServerFn({ method: "GET" })
         note: latest?.note ?? "",
         photo: latest?.photo ?? "",
         visits,
+        addedAt: Number(row.added_at) || undefined,
       };
     }));
   });
