@@ -37,7 +37,7 @@ import { GhostPanel } from "@/components/ghost-panel";
 import { remindOnThisDay } from "@/lib/memories";
 import { FriendsPanel } from "@/components/friends-panel";
 import { nextCounty, type NextCounty } from "@/lib/next-county";
-import { startDriveScreen, stopDriveScreen } from "@/lib/power";
+import { batteryInfo, lowPowerNext, startDriveScreen, stopDriveScreen } from "@/lib/power";
 import { PhotosPanel, PhotoViewer } from "@/components/photos-panel";
 import { updateWidget } from "@/lib/widget";
 import { noteLiveFix } from "@/lib/live-dot";
@@ -303,6 +303,8 @@ function AtlasShell() {
   // Location runs for tracking, or just to share it with picked friends.
   const sharingOnly = !trackTravel && shareOnly && liveViewers.length > 0;
   const locating = trackTravel || sharingOnly;
+  /** Battery at 20% or less: tracking takes fewer fixes until it's charging or above 30%. */
+  const [lowPower, setLowPower] = useState(false);
   const setTrackTravel = useSettings((s) => s.setTrackTravel);
   const fastAdd = useSettings((s) => s.fastAdd);
   const showParks = useSettings((s) => s.showParks);
@@ -964,6 +966,24 @@ function AtlasShell() {
       }
     }
 
+    // Low battery: tracking eases off (the effect restarts with gentler settings).
+    // Only while the app is on screen: Android won't let the location service
+    // start again from the background, so a restart there could end tracking.
+    let lastBattery = 0;
+    function checkBattery(force = false) {
+      if (!nativeApp || (!force && Date.now() - lastBattery < 3 * 60_000)) return;
+      lastBattery = Date.now();
+      void batteryInfo().then((info) => {
+        if (dead || document.visibilityState !== "visible") return;
+        setLowPower((cur) => lowPowerNext(cur, info));
+      });
+    }
+    checkBattery(true);
+    const batteryOnShow = () => {
+      if (document.visibilityState === "visible") checkBattery(true);
+    };
+    document.addEventListener("visibilitychange", batteryOnShow);
+
     let lastShare = 0;
     function shareLive(force = false) {
       if (!useLiveShare.getState().viewers.length) {
@@ -1017,6 +1037,7 @@ function AtlasShell() {
       // The map's dot follows every fix (the app itself only updates every few seconds):
       // the newest of them, whatever order they came in.
       if (latest) noteLiveFix(latest);
+      checkBattery();
       useGhost.getState().record(fixes);
       shareLive();
       if (!adding) return;
@@ -1070,7 +1091,8 @@ function AtlasShell() {
               : "Sharing your location with the friends you picked.",
             requestPermissions: true,
             stale: false,
-            distanceFilter: 80,
+            // Low battery: a fix at most once a minute, and only after moving 250 m.
+            ...(lowPower ? { distanceFilter: 250, minIntervalMs: 60_000 } : { distanceFilter: 80 }),
           },
           (location, error) => {
             if (dead) return;
@@ -1131,13 +1153,14 @@ function AtlasShell() {
       if (nativeApp) void import("@capgo/background-geolocation").then(({ BackgroundGeolocation }) => BackgroundGeolocation.stop());
       else navigator.geolocation.clearWatch(watch);
       delete host.atlasPushFixes;
+      document.removeEventListener("visibilitychange", batteryOnShow);
       window.removeEventListener("focus", refreshDot);
       document.removeEventListener("visibilitychange", refreshDot);
       window.clearInterval(beat);
       unsubLive();
       void clearLiveTrail({ data: { deviceId: deviceId() } }).catch(() => {});
     };
-  }, [setTrackTravel, setShareOnly, trackTravel, locating]);
+  }, [setTrackTravel, setShareOnly, trackTravel, locating, lowPower]);
 
   async function remove(id: string) {
     const previous = marks;
@@ -2402,6 +2425,7 @@ function AtlasShell() {
                   ? "Clear until you add a place"
                   : `${stats.points.toLocaleString()} pts · ${stats.states} states`}
               {offline ? " · Offline, kept on this device" : pendingSync ? " · Waiting to sync" : ""}
+              {lowPower && locating ? " · Low battery, tracking less often" : ""}
               {trackTravel ? " · Tracking" : ""}
               {passedNote ? ` · ${passedNote}` : ""}
             </div>

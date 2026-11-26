@@ -26,6 +26,23 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 @CapacitorPlugin(name = "Power")
 public class PowerPlugin extends Plugin {
 
+    /** Battery level (0–100) and whether it's charging, for tracking that eases off when low. */
+    @PluginMethod
+    public void battery(PluginCall call) {
+        JSObject out = new JSObject();
+        Intent state = getContext().registerReceiver(null, new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        if (state == null) {
+            call.reject("No battery info");
+            return;
+        }
+        int level = state.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
+        int scale = state.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100);
+        int status = state.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1);
+        out.put("level", level < 0 || scale <= 0 ? -1 : Math.round(level * 100f / scale));
+        out.put("charging", status == android.os.BatteryManager.BATTERY_STATUS_CHARGING || status == android.os.BatteryManager.BATTERY_STATUS_FULL);
+        call.resolve(out);
+    }
+
     @PluginMethod
     public void status(PluginCall call) {
         PowerManager pm = (PowerManager) getContext().getSystemService(android.content.Context.POWER_SERVICE);
