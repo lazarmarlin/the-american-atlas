@@ -1,5 +1,5 @@
 diff --git a/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/BackgroundGeolocationService.java b/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/BackgroundGeolocationService.java
-index ca20b4d..b874885 100644
+index ca20b4d..24e2506 100644
 --- a/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/BackgroundGeolocationService.java
 +++ b/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/BackgroundGeolocationService.java
 @@ -2,17 +2,26 @@ package com.capgo.capacitor_background_geolocation;
@@ -40,7 +40,7 @@ index ca20b4d..b874885 100644
  import androidx.core.location.LocationCompat;
  import androidx.core.location.LocationListenerCompat;
  import com.getcapacitor.Logger;
-@@ -63,6 +74,64 @@ public class BackgroundGeolocationService extends Service {
+@@ -63,6 +74,67 @@ public class BackgroundGeolocationService extends Service {
      private int locationLogMaxEntries;
      private PowerManager.WakeLock wakeLock;
  
@@ -62,6 +62,9 @@ index ca20b4d..b874885 100644
 +    // Each fix keeps the CPU up this long (enough to log it and POST it) instead of
 +    // holding it awake for as long as tracking runs.
 +    private static final long AWAKE_PER_FIX_MS = 30_000L;
++    // A fix that's only logged on the phone (nobody watching the live trail): a few seconds is plenty.
++    private static final long AWAKE_LOG_ONLY_MS = 5_000L;
++    private long awakeUntilMs = 0L;
 +    private boolean parked = false;
 +    private android.location.Location anchor;
 +    private long anchorAtMs = 0L;
@@ -105,7 +108,7 @@ index ca20b4d..b874885 100644
      // How long a GPS fix is considered "fresh" before we allow a NETWORK_PROVIDER fix through.
      private static final long NETWORK_FALLBACK_GRACE_MS = 20000L;
  
-@@ -84,6 +153,59 @@ public class BackgroundGeolocationService extends Service {
+@@ -84,6 +156,59 @@ public class BackgroundGeolocationService extends Service {
      private String nativePostUrl;
      private ExecutorService postExecutor;
  
@@ -165,7 +168,7 @@ index ca20b4d..b874885 100644
      @Override
      public IBinder onBind(Intent intent) {
          return binder;
-@@ -106,6 +228,7 @@ public class BackgroundGeolocationService extends Service {
+@@ -106,6 +231,7 @@ public class BackgroundGeolocationService extends Service {
              client.removeUpdates(locationCallback);
          }
          releaseMediaPlayer();
@@ -173,7 +176,7 @@ index ca20b4d..b874885 100644
          releaseWakeLock();
          stopWatchdog();
          stopSelf();
-@@ -129,6 +252,10 @@ public class BackgroundGeolocationService extends Service {
+@@ -129,6 +255,10 @@ public class BackgroundGeolocationService extends Service {
      @Override
      public int onStartCommand(Intent intent, int flags, int startId) {
          Context context = getApplicationContext();
@@ -184,7 +187,7 @@ index ca20b4d..b874885 100644
          if (!LocationStore.isEnabled(context)) {
              // The plugin starts this service with startForegroundService(), and Android
              // kills the app unless startForeground() follows within a few seconds. Promote
-@@ -163,8 +290,21 @@ public class BackgroundGeolocationService extends Service {
+@@ -163,8 +293,21 @@ public class BackgroundGeolocationService extends Service {
          if (client != null && locationCallback != null) {
              client.removeUpdates(locationCallback);
          }
@@ -206,7 +209,7 @@ index ca20b4d..b874885 100644
          releaseWakeLock();
          stopWatchdog();
          if (postExecutor != null) {
-@@ -188,18 +328,18 @@ public class BackgroundGeolocationService extends Service {
+@@ -188,18 +331,28 @@ public class BackgroundGeolocationService extends Service {
          mediaPlayer = null;
      }
  
@@ -220,6 +223,11 @@ index ca20b4d..b874885 100644
 -        if (wakeLock != null && wakeLock.isHeld()) {
 -            return;
 -        }
++        acquireWakeLock(AWAKE_PER_FIX_MS);
++    }
++
++    // Never cuts short a longer hold already running (a POST may still be going).
++    private void acquireWakeLock(long ms) {
          try {
 -            PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
 -            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BackgroundGeolocation::LocationWakeLock");
@@ -230,12 +238,17 @@ index ca20b4d..b874885 100644
 +                wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BackgroundGeolocation::LocationWakeLock");
 +                wakeLock.setReferenceCounted(false);
 +            }
++            long until = SystemClock.elapsedRealtime() + ms;
++            if (wakeLock.isHeld() && until <= awakeUntilMs) {
++                return;
++            }
 +            // Not reference-counted: each call just pushes the timeout out again.
-+            wakeLock.acquire(AWAKE_PER_FIX_MS);
++            wakeLock.acquire(ms);
++            awakeUntilMs = until;
          } catch (Exception e) {
              Logger.error("Error acquiring wake lock", e);
          }
-@@ -244,7 +384,10 @@ public class BackgroundGeolocationService extends Service {
+@@ -244,7 +397,10 @@ public class BackgroundGeolocationService extends Service {
          if (watchdogRunnable == null) {
              watchdogRunnable = this::restartLocationUpdates;
          }
@@ -247,7 +260,7 @@ index ca20b4d..b874885 100644
      }
  
      private void stopWatchdog() {
-@@ -269,6 +412,33 @@ public class BackgroundGeolocationService extends Service {
+@@ -269,6 +425,34 @@ public class BackgroundGeolocationService extends Service {
              }
          }
          startWatchdog();
@@ -275,13 +288,14 @@ index ca20b4d..b874885 100644
 +    private void forwardLocation(android.location.Location location) {
 +        // Awake long enough to log and POST this one; fixes that are filtered out
 +        // need nothing more than the callback itself.
-+        acquireWakeLock();
++        boolean posting = nativePostUrl != null && !LocationStore.isQuiet(getApplicationContext());
++        acquireWakeLock(posting ? AWAKE_PER_FIX_MS : AWAKE_LOG_ONLY_MS);
 +        lastForwarded = location;
 +        lastForwardAtMs = SystemClock.elapsedRealtime();
          if (locationLogEnabled) {
              boolean locationLogSqlite = LocationStore.getLocationLogSqlite(getApplicationContext());
              if (!locationLogSqlite || nativePostUrl == null) {
-@@ -353,12 +523,213 @@ public class BackgroundGeolocationService extends Service {
+@@ -353,12 +537,213 @@ public class BackgroundGeolocationService extends Service {
      }
  
      private long locationIntervalMs() {
@@ -497,7 +511,7 @@ index ca20b4d..b874885 100644
          } catch (SecurityException ignore) {
              // According to Android Studio, this method can throw a Security Exception if
              // permissions are not yet granted. Rather than check the permissions, which is fiddly,
-@@ -377,7 +748,7 @@ public class BackgroundGeolocationService extends Service {
+@@ -377,7 +762,7 @@ public class BackgroundGeolocationService extends Service {
                  client.requestLocationUpdates(
                      LocationManager.NETWORK_PROVIDER,
                      locationIntervalMs(),
@@ -506,7 +520,7 @@ index ca20b4d..b874885 100644
                      locationCallback
                  );
              }
-@@ -393,6 +764,8 @@ public class BackgroundGeolocationService extends Service {
+@@ -393,6 +778,8 @@ public class BackgroundGeolocationService extends Service {
      // it appears that 'startForeground' is idempotent, so we just call it repeatedly
      // each time a background watcher is added.
      private void promoteToForeground(String notificationTitle, String notificationMessage) {
@@ -515,7 +529,7 @@ index ca20b4d..b874885 100644
          try {
              // This method has been known to fail due to weird
              // permission bugs, so we prevent any exceptions from
-@@ -406,6 +779,7 @@ public class BackgroundGeolocationService extends Service {
+@@ -406,6 +793,7 @@ public class BackgroundGeolocationService extends Service {
              } else {
                  startForeground(NOTIFICATION_ID, createBackgroundNotification(notificationTitle, notificationMessage));
              }
@@ -523,7 +537,7 @@ index ca20b4d..b874885 100644
          } catch (Exception exception) {
              Logger.error("Failed to foreground service", exception);
          }
-@@ -468,6 +842,9 @@ public class BackgroundGeolocationService extends Service {
+@@ -468,6 +856,9 @@ public class BackgroundGeolocationService extends Service {
                  client.removeUpdates(locationCallback);
              }
              locationCallback = createLocationListener(BackgroundGeolocationService.this);
@@ -533,7 +547,7 @@ index ca20b4d..b874885 100644
              requestLocationUpdates();
              // Arm the watchdog here so rejected network fixes during the grace period cannot
              // leave tracking without a restart path if GPS_PROVIDER goes silent.
-@@ -479,6 +856,7 @@ public class BackgroundGeolocationService extends Service {
+@@ -479,6 +870,7 @@ public class BackgroundGeolocationService extends Service {
          }
  
          String stop() {
@@ -541,7 +555,7 @@ index ca20b4d..b874885 100644
              LocationStore.clear(getApplicationContext());
              nativePostUrl = null;
              stopWatchdog();
-@@ -491,6 +869,7 @@ public class BackgroundGeolocationService extends Service {
+@@ -491,6 +883,7 @@ public class BackgroundGeolocationService extends Service {
              ServiceCompat.stopForeground(BackgroundGeolocationService.this, ServiceCompat.STOP_FOREGROUND_REMOVE);
              stopSelf();
              releaseMediaPlayer();
@@ -549,7 +563,7 @@ index ca20b4d..b874885 100644
              releaseWakeLock();
              return callbackId;
          }
-@@ -529,12 +908,22 @@ public class BackgroundGeolocationService extends Service {
+@@ -529,12 +922,22 @@ public class BackgroundGeolocationService extends Service {
      }
  
      private Notification createBackgroundNotification(String backgroundTitle, String backgroundMessage) {
@@ -572,7 +586,7 @@ index ca20b4d..b874885 100644
  
          try {
              String name = getAppString("capacitor_background_geolocation_notification_icon", "mipmap/ic_launcher", getApplicationContext());
-@@ -569,11 +958,110 @@ public class BackgroundGeolocationService extends Service {
+@@ -569,11 +972,110 @@ public class BackgroundGeolocationService extends Service {
                      PendingIntent.FLAG_CANCEL_CURRENT | PendingIntent.FLAG_IMMUTABLE
                  )
              );
