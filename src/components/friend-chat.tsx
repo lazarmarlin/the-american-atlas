@@ -1254,11 +1254,11 @@ export function MessageBoard({
           className="h-11 w-full rounded-lg border border-line bg-bg px-3 text-base text-ink outline-none placeholder:text-faint"
         />
       </form>
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3">
         {note ? <p className="mb-2 text-sm text-accent">{note}</p> : null}
         {hits ? (
           hits.length ? (
-            <ul className="mb-3 grid gap-1">
+            <ul className="mb-3 grid grid-cols-[minmax(0,1fr)] gap-1">
               {hits.map((hit) => (
                 <li key={hit.messageId}>
                   <button
@@ -1281,7 +1281,7 @@ export function MessageBoard({
         ) : null}
         {rows === null && !note ? <p className="text-sm text-muted">Loading…</p> : null}
         {rows && rows.length === 0 ? <p className="text-sm text-muted">No friends yet. A chat shows up here once you add one.</p> : null}
-        <ul className="grid gap-1">
+        <ul className="grid grid-cols-[minmax(0,1fr)] gap-1">
           {rows?.map((row) => {
             const n = row.thread.kind === "friend" ? unread.friends[row.thread.id] : unread.groups[row.thread.id];
             return (
