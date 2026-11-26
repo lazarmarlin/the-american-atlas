@@ -1,8 +1,20 @@
 diff --git a/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/BackgroundGeolocationService.java b/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/BackgroundGeolocationService.java
-index ca20b4d..459e61c 100644
+index ca20b4d..b874885 100644
 --- a/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/BackgroundGeolocationService.java
 +++ b/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/BackgroundGeolocationService.java
-@@ -10,6 +10,10 @@ import android.content.pm.ServiceInfo;
+@@ -2,17 +2,26 @@ package com.capgo.capacitor_background_geolocation;
+ 
+ import android.annotation.SuppressLint;
+ import android.app.Notification;
++import android.app.NotificationManager;
+ import android.app.PendingIntent;
+ import android.app.Service;
++import android.content.BroadcastReceiver;
+ import android.content.Context;
+ import android.content.Intent;
++import android.content.IntentFilter;
++import android.content.SharedPreferences;
+ import android.content.pm.ServiceInfo;
  import android.content.res.AssetFileDescriptor;
  import android.content.res.AssetManager;
  import android.graphics.Color;
@@ -13,7 +25,22 @@ index ca20b4d..459e61c 100644
  import android.location.LocationListener;
  import android.location.LocationManager;
  import android.media.MediaPlayer;
-@@ -63,6 +67,32 @@ public class BackgroundGeolocationService extends Service {
++import android.os.BatteryManager;
+ import android.os.Binder;
+ import android.os.Build;
+ import android.os.Handler;
+@@ -20,8 +29,10 @@ import android.os.IBinder;
+ import android.os.Looper;
+ import android.os.PowerManager;
+ import android.os.SystemClock;
++import android.text.format.DateUtils;
+ import androidx.core.app.NotificationCompat;
+ import androidx.core.app.ServiceCompat;
++import androidx.core.content.ContextCompat;
+ import androidx.core.location.LocationCompat;
+ import androidx.core.location.LocationListenerCompat;
+ import com.getcapacitor.Logger;
+@@ -63,6 +74,64 @@ public class BackgroundGeolocationService extends Service {
      private int locationLogMaxEntries;
      private PowerManager.WakeLock wakeLock;
  
@@ -43,10 +70,102 @@ index ca20b4d..459e61c 100644
 +    private LocationListener parkedListener;
 +    private TriggerEventListener motionTrigger;
 +
++    // --- Charging, pace and the notification (American Atlas patch) ---
++    // Plugged in: a fix forwarded every 25 m (at most one per 2 s), never parked,
++    // and low power's once-a-minute limit is lifted, all without restarting the
++    // service. On battery, GPS is asked for fixes less often at walking pace
++    // (still several per distance-filter step), so the CPU can sleep in between.
++    // The notification can carry the app's own lines (today's places, next county)
++    // and "I'm here" / "Stop tracking" buttons.
++    static final String ACTION_STOP = "com.capgo.capacitor_background_geolocation.STOP";
++    /** On the launch intent from the notification's "I'm here" button. */
++    public static final String EXTRA_APP_ACTION = "atlas.action";
++    private static final String NOTE_PREFS = "AtlasTrackingNote";
++    private static final String STOP_PREFS = "AtlasTrackingStop";
++    private static final float CHARGING_DISTANCE_M = 25f;
++    private static final long CHARGING_MIN_GAP_MS = 2000L;
++    // Slower fixes only after this long at the slower pace (faster ones straight away).
++    private static final long SLOWER_AFTER_MS = 20_000L;
++    private static volatile BackgroundGeolocationService running;
++    /** Told when "Stop tracking" was tapped on the notification (the app's own code sets it). */
++    public static volatile Runnable stoppedListener;
++    private boolean charging = false;
++    private BroadcastReceiver powerReceiver;
++    private long requestedIntervalMs = 0L;
++    private long slowerSinceMs = 0L;
++    private float recentSpeed = 0f;
++    private boolean promoted = false;
++    private volatile long parkedAtMs = 0L;
++    // Parked with the motion sensor armed and nobody watching the live trail:
++    // the backup network check (and the stop's heartbeat) can be every 3 minutes.
++    private static final long PARKED_CHECK_QUIET_MS = 3 * 60_000L;
++    private String baseTitle;
++    private String baseMessage;
++
      // How long a GPS fix is considered "fresh" before we allow a NETWORK_PROVIDER fix through.
      private static final long NETWORK_FALLBACK_GRACE_MS = 20000L;
  
-@@ -106,6 +136,7 @@ public class BackgroundGeolocationService extends Service {
+@@ -84,6 +153,59 @@ public class BackgroundGeolocationService extends Service {
+     private String nativePostUrl;
+     private ExecutorService postExecutor;
+ 
++    @Override
++    public void onCreate() {
++        super.onCreate();
++        running = this;
++        charging = pluggedIn(this);
++        powerReceiver = new BroadcastReceiver() {
++            @Override
++            public void onReceive(Context context, Intent intent) {
++                onChargingChanged(Intent.ACTION_POWER_CONNECTED.equals(intent.getAction()));
++            }
++        };
++        IntentFilter filter = new IntentFilter();
++        filter.addAction(Intent.ACTION_POWER_CONNECTED);
++        filter.addAction(Intent.ACTION_POWER_DISCONNECTED);
++        try {
++            ContextCompat.registerReceiver(this, powerReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
++        } catch (Exception e) {
++            powerReceiver = null;
++            Logger.error("Could not watch the charger", e);
++        }
++    }
++
++    private static boolean pluggedIn(Context context) {
++        try {
++            Intent state = context.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
++            return state != null && state.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0;
++        } catch (Exception e) {
++            return false;
++        }
++    }
++
++    private void onChargingChanged(boolean now) {
++        if (now == charging) {
++            return;
++        }
++        charging = now;
++        Logger.info(now ? "Plugged in: full detail" : "On battery: normal detail");
++        if (client == null || locationCallback == null) {
++            return;
++        }
++        if (parked) {
++            if (now) {
++                unpark("plugged in");
++            }
++            return;
++        }
++        if (requestedIntervalMs != locationIntervalMs()) {
++            client.removeUpdates(locationCallback);
++            requestLocationUpdates();
++            startWatchdog();
++        }
++    }
++
+     @Override
+     public IBinder onBind(Intent intent) {
+         return binder;
+@@ -106,6 +228,7 @@ public class BackgroundGeolocationService extends Service {
              client.removeUpdates(locationCallback);
          }
          releaseMediaPlayer();
@@ -54,15 +173,40 @@ index ca20b4d..459e61c 100644
          releaseWakeLock();
          stopWatchdog();
          stopSelf();
-@@ -165,6 +196,7 @@ public class BackgroundGeolocationService extends Service {
+@@ -129,6 +252,10 @@ public class BackgroundGeolocationService extends Service {
+     @Override
+     public int onStartCommand(Intent intent, int flags, int startId) {
+         Context context = getApplicationContext();
++        if (intent != null && ACTION_STOP.equals(intent.getAction())) {
++            stopFromNotification();
++            return START_NOT_STICKY;
++        }
+         if (!LocationStore.isEnabled(context)) {
+             // The plugin starts this service with startForegroundService(), and Android
+             // kills the app unless startForeground() follows within a few seconds. Promote
+@@ -163,8 +290,21 @@ public class BackgroundGeolocationService extends Service {
+         if (client != null && locationCallback != null) {
+             client.removeUpdates(locationCallback);
          }
++        promoted = false;
++        if (running == this) {
++            running = null;
++        }
++        if (powerReceiver != null) {
++            try {
++                unregisterReceiver(powerReceiver);
++            } catch (Exception ignore) {
++                // Already gone.
++            }
++            powerReceiver = null;
++        }
          super.onDestroy();
          releaseMediaPlayer();
 +        leaveParked();
          releaseWakeLock();
          stopWatchdog();
          if (postExecutor != null) {
-@@ -188,18 +220,18 @@ public class BackgroundGeolocationService extends Service {
+@@ -188,18 +328,18 @@ public class BackgroundGeolocationService extends Service {
          mediaPlayer = null;
      }
  
@@ -91,7 +235,7 @@ index ca20b4d..459e61c 100644
          } catch (Exception e) {
              Logger.error("Error acquiring wake lock", e);
          }
-@@ -244,7 +276,10 @@ public class BackgroundGeolocationService extends Service {
+@@ -244,7 +384,10 @@ public class BackgroundGeolocationService extends Service {
          if (watchdogRunnable == null) {
              watchdogRunnable = this::restartLocationUpdates;
          }
@@ -103,20 +247,24 @@ index ca20b4d..459e61c 100644
      }
  
      private void stopWatchdog() {
-@@ -268,7 +303,26 @@ public class BackgroundGeolocationService extends Service {
-                 return;
+@@ -269,6 +412,33 @@ public class BackgroundGeolocationService extends Service {
              }
          }
-+        acquireWakeLock();
          startWatchdog();
 +        if (currentDistanceFilter > 0 && LocationManager.GPS_PROVIDER.equals(location.getProvider())) {
 +            noteStill(location);
++            notePace(location);
 +        }
 +        // The distance filter (LocationManager used to apply it, but then a parked
 +        // phone sent nothing at all and the watchdog kept restarting GPS).
 +        // A still phone still checks in now and then (see onParkedFix).
-+        boolean due = SystemClock.elapsedRealtime() - lastForwardAtMs >= HEARTBEAT_MS;
-+        if (currentDistanceFilter <= 0 || lastForwarded == null || due || lastForwarded.distanceTo(location) >= currentDistanceFilter) {
++        long sinceForward = SystemClock.elapsedRealtime() - lastForwardAtMs;
++        boolean due = sinceForward >= HEARTBEAT_MS;
++        boolean far = lastForwarded != null && lastForwarded.distanceTo(location) >= distanceFilterNow();
++        if (charging && sinceForward < CHARGING_MIN_GAP_MS) {
++            far = false;
++        }
++        if (currentDistanceFilter <= 0 || lastForwarded == null || due || far) {
 +            forwardLocation(location);
 +        }
 +        if (shouldPark()) {
@@ -125,15 +273,71 @@ index ca20b4d..459e61c 100644
 +    }
 +
 +    private void forwardLocation(android.location.Location location) {
++        // Awake long enough to log and POST this one; fixes that are filtered out
++        // need nothing more than the callback itself.
++        acquireWakeLock();
 +        lastForwarded = location;
 +        lastForwardAtMs = SystemClock.elapsedRealtime();
          if (locationLogEnabled) {
              boolean locationLogSqlite = LocationStore.getLocationLogSqlite(getApplicationContext());
              if (!locationLogSqlite || nativePostUrl == null) {
-@@ -356,9 +410,154 @@ public class BackgroundGeolocationService extends Service {
-         return currentMinIntervalMs > 0 ? currentMinIntervalMs : 1000L;
+@@ -353,12 +523,213 @@ public class BackgroundGeolocationService extends Service {
      }
  
+     private long locationIntervalMs() {
+-        return currentMinIntervalMs > 0 ? currentMinIntervalMs : 1000L;
++        if (currentDistanceFilter <= 0) {
++            return currentMinIntervalMs > 0 ? currentMinIntervalMs : 1000L;
++        }
++        if (charging) {
++            return 1000L;
++        }
++        if (currentMinIntervalMs > 0) {
++            return currentMinIntervalMs;
++        }
++        // Several fixes per distance-filter step at any pace (80 m: about 15 m apart walking).
++        if (recentSpeed >= 8f) {
++            return 1000L;
++        }
++        if (recentSpeed >= 3f) {
++            return 2000L;
++        }
++        return 5000L;
++    }
++
++    private float distanceFilterNow() {
++        return charging ? Math.min(currentDistanceFilter, CHARGING_DISTANCE_M) : currentDistanceFilter;
++    }
++
++    // Faster fixes as soon as the pace calls for them; slower ones after a while at the slower pace.
++    private void notePace(android.location.Location fix) {
++        if (!fix.hasSpeed()) {
++            return;
++        }
++        recentSpeed = fix.getSpeed();
++        if (parked || client == null || locationCallback == null) {
++            return;
++        }
++        long want = locationIntervalMs();
++        if (want == requestedIntervalMs) {
++            slowerSinceMs = 0L;
++            return;
++        }
++        long now = SystemClock.elapsedRealtime();
++        if (want > requestedIntervalMs) {
++            if (slowerSinceMs == 0L) {
++                slowerSinceMs = now;
++                return;
++            }
++            if (now - slowerSinceMs < SLOWER_AFTER_MS) {
++                return;
++            }
++        }
++        slowerSinceMs = 0L;
++        client.removeUpdates(locationCallback);
++        requestLocationUpdates();
++    }
++
 +    // Standing still? Remembers where GPS settled and since when.
 +    private void noteStill(android.location.Location fix) {
 +        float slack = PARK_RADIUS_M;
@@ -149,6 +353,7 @@ index ca20b4d..459e61c 100644
 +    private boolean shouldPark() {
 +        return (
 +            !parked &&
++            !charging &&
 +            currentDistanceFilter > 0 &&
 +            anchor != null &&
 +            SystemClock.elapsedRealtime() - anchorAtMs >= PARK_AFTER_MS
@@ -204,16 +409,18 @@ index ca20b4d..459e61c 100644
 +            return;
 +        }
 +        parked = true;
++        parkedAtMs = SystemClock.elapsedRealtime();
 +        stopWatchdog();
 +        client.removeUpdates(locationCallback);
 +        LocationListenerCompat listener = this::onParkedFix;
 +        parkedListener = listener;
 +        try {
++            long every = motionTrigger != null && LocationStore.isQuiet(getApplicationContext()) ? PARKED_CHECK_QUIET_MS : PARKED_CHECK_MS;
 +            if (network) {
-+                client.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, PARKED_CHECK_MS, 0f, parkedListener, Looper.getMainLooper());
++                client.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, every, 0f, parkedListener, Looper.getMainLooper());
 +            }
 +            // Free: fixes other apps asked for.
-+            client.requestLocationUpdates(LocationManager.PASSIVE_PROVIDER, PARKED_CHECK_MS, 0f, parkedListener, Looper.getMainLooper());
++            client.requestLocationUpdates(LocationManager.PASSIVE_PROVIDER, every, 0f, parkedListener, Looper.getMainLooper());
 +        } catch (SecurityException | IllegalArgumentException ignore) {
 +            // Permission revoked or provider missing: the motion trigger still works.
 +        }
@@ -224,7 +431,6 @@ index ca20b4d..459e61c 100644
 +        if (!parked) {
 +            return;
 +        }
-+        acquireWakeLock();
 +        boolean usable = fix.hasAccuracy() && fix.getAccuracy() <= UNPARK_MAX_ACCURACY_M;
 +        if (usable && anchor != null && anchor.distanceTo(fix) > Math.max(UNPARK_MIN_M, 2 * fix.getAccuracy())) {
 +            unpark("a fix away from the spot");
@@ -254,6 +460,8 @@ index ca20b4d..459e61c 100644
 +        Logger.info("Unparked (" + why + "): GPS back on");
 +        leaveParked();
 +        acquireWakeLock();
++        // Quick fixes to start with (likely driving off); they ease off again if not.
++        recentSpeed = 8f;
 +        // A false alarm (the phone picked up, not driven off) parks again after
 +        // PARK_AFTER_MS more at the same spot.
 +        anchorAtMs = SystemClock.elapsedRealtime();
@@ -265,6 +473,7 @@ index ca20b4d..459e61c 100644
 +    // Drops parked mode's listeners without turning GPS back on (stop, teardown, restart).
 +    private void leaveParked() {
 +        parked = false;
++        parkedAtMs = 0L;
 +        if (client != null && parkedListener != null) {
 +            client.removeUpdates(parkedListener);
 +        }
@@ -277,16 +486,18 @@ index ca20b4d..459e61c 100644
 +            }
 +            motionTrigger = null;
 +        }
-+    }
-+
+     }
+ 
      private void requestLocationUpdates() {
++        requestedIntervalMs = locationIntervalMs();
++        slowerSinceMs = 0L;
          try {
 -            client.requestLocationUpdates(LocationManager.GPS_PROVIDER, locationIntervalMs(), currentDistanceFilter, locationCallback);
-+            client.requestLocationUpdates(LocationManager.GPS_PROVIDER, locationIntervalMs(), 0f, locationCallback);
++            client.requestLocationUpdates(LocationManager.GPS_PROVIDER, requestedIntervalMs, 0f, locationCallback);
          } catch (SecurityException ignore) {
              // According to Android Studio, this method can throw a Security Exception if
              // permissions are not yet granted. Rather than check the permissions, which is fiddly,
-@@ -377,7 +576,7 @@ public class BackgroundGeolocationService extends Service {
+@@ -377,7 +748,7 @@ public class BackgroundGeolocationService extends Service {
                  client.requestLocationUpdates(
                      LocationManager.NETWORK_PROVIDER,
                      locationIntervalMs(),
@@ -295,7 +506,24 @@ index ca20b4d..459e61c 100644
                      locationCallback
                  );
              }
-@@ -468,6 +667,9 @@ public class BackgroundGeolocationService extends Service {
+@@ -393,6 +764,8 @@ public class BackgroundGeolocationService extends Service {
+     // it appears that 'startForeground' is idempotent, so we just call it repeatedly
+     // each time a background watcher is added.
+     private void promoteToForeground(String notificationTitle, String notificationMessage) {
++        baseTitle = notificationTitle;
++        baseMessage = notificationMessage;
+         try {
+             // This method has been known to fail due to weird
+             // permission bugs, so we prevent any exceptions from
+@@ -406,6 +779,7 @@ public class BackgroundGeolocationService extends Service {
+             } else {
+                 startForeground(NOTIFICATION_ID, createBackgroundNotification(notificationTitle, notificationMessage));
+             }
++            promoted = true;
+         } catch (Exception exception) {
+             Logger.error("Failed to foreground service", exception);
+         }
+@@ -468,6 +842,9 @@ public class BackgroundGeolocationService extends Service {
                  client.removeUpdates(locationCallback);
              }
              locationCallback = createLocationListener(BackgroundGeolocationService.this);
@@ -305,7 +533,15 @@ index ca20b4d..459e61c 100644
              requestLocationUpdates();
              // Arm the watchdog here so rejected network fixes during the grace period cannot
              // leave tracking without a restart path if GPS_PROVIDER goes silent.
-@@ -491,6 +693,7 @@ public class BackgroundGeolocationService extends Service {
+@@ -479,6 +856,7 @@ public class BackgroundGeolocationService extends Service {
+         }
+ 
+         String stop() {
++            promoted = false;
+             LocationStore.clear(getApplicationContext());
+             nativePostUrl = null;
+             stopWatchdog();
+@@ -491,6 +869,7 @@ public class BackgroundGeolocationService extends Service {
              ServiceCompat.stopForeground(BackgroundGeolocationService.this, ServiceCompat.STOP_FOREGROUND_REMOVE);
              stopSelf();
              releaseMediaPlayer();
@@ -313,3 +549,204 @@ index ca20b4d..459e61c 100644
              releaseWakeLock();
              return callbackId;
          }
+@@ -529,12 +908,22 @@ public class BackgroundGeolocationService extends Service {
+     }
+ 
+     private Notification createBackgroundNotification(String backgroundTitle, String backgroundMessage) {
++        String[] note = currentNote(getApplicationContext());
++        if (note != null) {
++            backgroundTitle = note[0];
++            backgroundMessage = note[1];
++        }
+         NotificationCompat.Builder builder = new NotificationCompat.Builder(getApplicationContext(), NOTIFICATION_CHANNEL_ID)
+             .setContentTitle(backgroundTitle)
+             .setContentText(backgroundMessage)
+             .setOngoing(true)
++            .setOnlyAlertOnce(true)
++            .setShowWhen(false)
+             .setPriority(NotificationCompat.PRIORITY_HIGH)
+             .setWhen(System.currentTimeMillis());
++        if (note != null && backgroundMessage != null && !backgroundMessage.isEmpty()) {
++            builder.setStyle(new NotificationCompat.BigTextStyle().bigText(backgroundMessage));
++        }
+ 
+         try {
+             String name = getAppString("capacitor_background_geolocation_notification_icon", "mipmap/ic_launcher", getApplicationContext());
+@@ -569,11 +958,110 @@ public class BackgroundGeolocationService extends Service {
+                     PendingIntent.FLAG_CANCEL_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                 )
+             );
++            Intent here = new Intent(launchIntent).putExtra(EXTRA_APP_ACTION, "here");
++            builder.addAction(
++                0,
++                "I'm here",
++                PendingIntent.getActivity(getApplicationContext(), 1, here, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)
++            );
+         }
++        Intent stop = new Intent(getApplicationContext(), BackgroundGeolocationService.class).setAction(ACTION_STOP);
++        builder.addAction(
++            0,
++            "Stop tracking",
++            PendingIntent.getService(getApplicationContext(), 2, stop, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)
++        );
+ 
+         return builder.build();
+     }
+ 
++    // The app's own lines for the notification, if it set some today.
++    private static String[] currentNote(Context context) {
++        SharedPreferences prefs = context.getSharedPreferences(NOTE_PREFS, Context.MODE_PRIVATE);
++        String title = prefs.getString("title", null);
++        if (title == null || title.isEmpty() || !DateUtils.isToday(prefs.getLong("at", 0L))) {
++            return null;
++        }
++        return new String[] { title, prefs.getString("text", "") };
++    }
++
++    /**
++     * Sets the notification's lines (null title: back to the start() ones). Kept
++     * for the rest of the day, so a restart after the app is gone still shows them.
++     */
++    public static void setNote(Context context, String title, String text) {
++        SharedPreferences.Editor editor = context.getSharedPreferences(NOTE_PREFS, Context.MODE_PRIVATE).edit();
++        if (title == null || title.isEmpty()) {
++            editor.clear();
++        } else {
++            editor.putString("title", title).putString("text", text == null ? "" : text).putLong("at", System.currentTimeMillis());
++        }
++        editor.apply();
++        BackgroundGeolocationService service = running;
++        if (service != null) {
++            service.watchdogHandler.post(service::refreshNotification);
++        }
++    }
++
++    // Only while tracking shows its notification, so a late update can't leave one behind.
++    private void refreshNotification() {
++        if (!promoted) {
++            return;
++        }
++        try {
++            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
++            if (manager != null) {
++                manager.notify(NOTIFICATION_ID, createBackgroundNotification(baseTitle, baseMessage));
++            }
++        } catch (Exception e) {
++            Logger.error("Could not update the notification", e);
++        }
++    }
++
++    /** Your live trail just got a viewer (or tracking restarted): post the next fix straight away. */
++    public static void postSoon(Context context) {
++        LocationStore.postSoon(context);
++    }
++
++    /** Since when the phone has been parked with GPS off (elapsedRealtime), or 0 if it isn't. */
++    public static long parkedSinceMs() {
++        BackgroundGeolocationService service = running;
++        return service != null && service.parked ? service.parkedAtMs : 0L;
++    }
++
++    /** "Stop tracking" was tapped on the notification earlier (and forgets it). */
++    public static boolean takeStoppedFromNotification(Context context) {
++        SharedPreferences prefs = context.getSharedPreferences(STOP_PREFS, Context.MODE_PRIVATE);
++        boolean stopped = prefs.getBoolean("stopped", false);
++        if (stopped) {
++            prefs.edit().remove("stopped").apply();
++        }
++        return stopped;
++    }
++
++    // Same as the plugin's stop(), from the notification: the app's code is told
++    // (or finds out when it opens) so it turns tracking off too.
++    private void stopFromNotification() {
++        Context context = getApplicationContext();
++        LocationStore.clear(context);
++        context.getSharedPreferences(STOP_PREFS, Context.MODE_PRIVATE).edit().putBoolean("stopped", true).apply();
++        nativePostUrl = null;
++        promoted = false;
++        stopWatchdog();
++        if (client != null && locationCallback != null) {
++            client.removeUpdates(locationCallback);
++        }
++        leaveParked();
++        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
++        stopSelf();
++        releaseMediaPlayer();
++        releaseWakeLock();
++        Runnable listener = stoppedListener;
++        if (listener != null) {
++            listener.run();
++        }
++    }
++
+     // Gets the identifier of the app's resource by name, returning 0 if not found.
+     // The name comes from the host app's configuration, so it can only be resolved by
+     // reflection; the compile-time R class of this library does not contain it.
+diff --git a/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/LocationStore.java b/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/LocationStore.java
+index c40047c..f32f12a 100644
+--- a/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/LocationStore.java
++++ b/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/LocationStore.java
+@@ -34,6 +34,12 @@ final class LocationStore {
+     private static final String KEY_LOCATION_LOG_MAX_ENTRIES = "locationLogMaxEntries";
+     private static final String KEY_LOCATION_LOG_SQLITE = "locationLogSqlite";
+     private static final String KEY_LAST_POST_TIME = "lastPostTime";
++    // American Atlas patch: the server answers "X-Atlas-Live: 0" when nobody is
++    // watching your live trail, and then fixes are only logged on the phone
++    // (posting is all radio and battery for nothing) apart from one every
++    // QUIET_FOR_MS, to find out when somebody starts watching again.
++    private static final String KEY_QUIET_UNTIL = "quietUntil";
++    private static final long QUIET_FOR_MS = 10 * 60_000L;
+ 
+     private LocationStore() {}
+ 
+@@ -80,6 +86,7 @@ final class LocationStore {
+                 .remove(KEY_LAST_POST_TIME);
+         }
+         editor
++            .remove(KEY_QUIET_UNTIL)
+             .putBoolean(KEY_LOCATION_LOG, locationLog)
+             .putInt(KEY_LOCATION_LOG_MAX_ENTRIES, locationLogMaxEntries)
+             .putBoolean(KEY_LOCATION_LOG_SQLITE, locationLogSqlite)
+@@ -156,6 +163,19 @@ final class LocationStore {
+         return true;
+     }
+ 
++    /** Nobody watching your live trail (as of the last post): fixes stay on the phone for now. */
++    static boolean isQuiet(Context context) {
++        long until = prefs(context).getLong(KEY_QUIET_UNTIL, 0L);
++        long now = System.currentTimeMillis();
++        // A clock set back can't leave it quiet for long.
++        return until > now && until - now <= QUIET_FOR_MS;
++    }
++
++    /** Post the next fix whatever the last answer was (somebody may have started watching). */
++    static void postSoon(Context context) {
++        prefs(context).edit().remove(KEY_QUIET_UNTIL).apply();
++    }
++
+     static void markPosted(Context context, long locationTimeMs) {
+         prefs(context).edit().putLong(KEY_LAST_POST_TIME, locationTimeMs).apply();
+     }
+@@ -179,7 +199,7 @@ final class LocationStore {
+             return;
+         }
+         long locationTimeMs = data.optLong("time", System.currentTimeMillis());
+-        if (!shouldPost(context, locationTimeMs)) {
++        if (!shouldPost(context, locationTimeMs) || isQuiet(context)) {
+             return;
+         }
+         HttpURLConnection connection = null;
+@@ -206,6 +226,12 @@ final class LocationStore {
+                 throw new IOException("Location POST failed with response code: " + responseCode);
+             }
+             markPosted(context, locationTimeMs);
++            String live = connection.getHeaderField("X-Atlas-Live");
++            if ("0".equals(live)) {
++                prefs(context).edit().putLong(KEY_QUIET_UNTIL, System.currentTimeMillis() + QUIET_FOR_MS).apply();
++            } else {
++                prefs(context).edit().remove(KEY_QUIET_UNTIL).apply();
++            }
+             if (logId != -1) {
+                 LocationLog log = LocationLog.getInstance(context);
+                 log.update(logId, LocationLog.STATUS_SENT, responseCode, null);

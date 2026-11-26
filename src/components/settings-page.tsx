@@ -785,6 +785,7 @@ function shrinkPhoto(file: File) {
 /** Save a state's base map on the device for driving without a signal. */
 function OfflineMapsSection() {
   const maps = useOfflineMaps();
+  const { mapsAhead, set: setDrive } = useDrive();
   const [states, setStates] = useState<StateInfo[]>([]);
   const [pick, setPick] = useState("");
   useEffect(() => {
@@ -803,6 +804,34 @@ function OfflineMapsSection() {
       <p className="mt-1 text-sm text-muted">
         Maps that work with no signal. Use Wi-Fi (20–150 MB a state).
       </p>
+      <div className="mt-3 rounded-card border border-line bg-surface/60 p-3">
+        <p className="text-sm">Save maps ahead</p>
+        <div className="mt-2 grid grid-cols-3 gap-1 rounded-xl bg-bg/60 p-1" role="radiogroup" aria-label="Save maps ahead">
+          {(
+            [
+              ["off", "Off"],
+              ["wifi", "On Wi-Fi"],
+              ["any", "Always"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={mapsAhead === id}
+              onClick={() => setDrive({ mapsAhead: id })}
+              className={"h-10 rounded-lg text-sm transition-colors " + (mapsAhead === id ? "bg-elevated text-ink shadow-sm" : "text-faint active:bg-elevated/50")}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-xs text-faint">
+          {mapsAhead === "off"
+            ? "Only the states you save below."
+            : `The state you're in and the ones close by or ahead${mapsAhead === "any" ? ", on mobile data too" : ""}. Up to 6, oldest go first.`}
+        </p>
+      </div>
       <div className="mt-3 flex gap-2">
         <select
           value={pick}
@@ -853,7 +882,7 @@ function OfflineMapsSection() {
               <span className="min-w-0 flex-1">
                 <span className="block text-sm">{name(region.abbr)}</span>
                 <span className="block text-xs text-faint">
-                  {formatBytes(region.bytes)} · saved {new Date(region.savedAt).toLocaleDateString()}
+                  {formatBytes(region.bytes)} · {region.auto ? "saved ahead" : "saved"} {new Date(region.savedAt).toLocaleDateString()}
                 </span>
               </span>
               <button type="button" onClick={() => void maps.remove(region.abbr)} className="h-10 px-2 text-sm text-faint">

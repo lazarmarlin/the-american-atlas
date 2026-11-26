@@ -47,6 +47,9 @@ final class MessageWatch {
     private static final String PREFS = "atlas.message-watch";
     private static final String WORK = "atlas-message-check";
     private static final long EVERY_MS = 60_000;
+    /** Parked (GPS off) for this long with the app closed: check every 3 minutes instead (saves battery overnight). */
+    private static final long PARKED_SLOW_AFTER_MS = 20 * 60_000;
+    private static final long PARKED_EVERY_MS = 3 * 60_000;
     private static final int KEEP_SEEN = 200;
 
     /** The app is on screen (set by MessageWatchPlugin). */
@@ -103,7 +106,10 @@ final class MessageWatch {
         if (!configured(app) || !(foreground || tracking(app))) return;
         AlarmManager alarms = app.getSystemService(AlarmManager.class);
         if (alarms == null) return;
-        alarms.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + EVERY_MS, MessageAlarm.intent(app));
+        long every = EVERY_MS;
+        long parkedSince = com.capgo.capacitor_background_geolocation.BackgroundGeolocationService.parkedSinceMs();
+        if (!foreground && parkedSince > 0 && SystemClock.elapsedRealtime() - parkedSince > PARKED_SLOW_AFTER_MS) every = PARKED_EVERY_MS;
+        alarms.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + every, MessageAlarm.intent(app));
     }
 
     /** Make sure both checks are running (safe to call often). */
