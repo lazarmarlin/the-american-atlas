@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Award, Car, ChartColumn, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleParking, CirclePlus, Compass, GripVertical, Images, Locate, Mail, MapPinned, Navigation, Route as RouteIcon, Search, Settings, Users, X } from "lucide-react";
+import { Award, Car, ChartColumn, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleParking, CirclePlus, Compass, GripVertical, Images, Locate, LocateFixed, Mail, MapPinned, Navigation, Route as RouteIcon, Search, Settings, Users, X } from "lucide-react";
 import { useCurrentUser, useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
   loadMeta,
@@ -31,6 +31,7 @@ import { onNotificationOpen } from "@/lib/message-watch";
 import { SendPlaceSheet, SendToSheet } from "@/components/chat-send";
 import { MessageBoard } from "@/components/friend-chat";
 import { StopsLog, type GroupSpot } from "@/components/stops-log";
+import { nameHere, setHereStates } from "@/lib/here";
 import { flushStops, forgetPendingStop, keepStop, noteStopFixes, pendingStops } from "@/lib/stop-detect";
 import { listStops, removeStop, type GpsStop } from "@/lib/stops";
 import { TripRecap, type TripCard } from "@/components/trip-recap";
@@ -205,14 +206,6 @@ function sameSettings(a: AccountSettings, b: AccountSettings) {
 /** Places that are areas or lines, not spots; a trip's line skips them. */
 const AREA_KINDS = new Set(["county", "route", "state", "reservation", "drive", "forest", "seashore"]);
 
-function hereHint(fix: Fix | null, marks: Mark[], stops: GpsStop[]) {
-  if (!fix) return "Location isn't on.";
-  const place = closestPlace(fix, marks);
-  if (place) return place.name;
-  const stop = stops.find((item) => milesBetween(fix.lat, fix.lon, item.lat, item.lon) < 0.5 || Date.now() - item.end < 30 * 60 * 1000);
-  return stop?.label || "Your current spot";
-}
-
 /**
  * Whether a place's point says which county you were in. Not for roads,
  * scenic drives or big areas (parks, forests, reservations, refuges, shores,
@@ -293,7 +286,8 @@ function AtlasShell() {
   /** The map's place card tucked down to just its name. */
   const [cardSmall, setCardSmall] = useState(false);
   /** A place opened from a chat: shown alone on the map; closing it goes back to the chat. */
-  const [spot, setSpot] = useState<{ id: string; lon: number; lat: number; from: Thread | null; sheet: number; viaMail?: boolean } | null>(null);
+  /** `label`: an "I'm here" spot (no place card), shown in a card at the top with a close button. */
+  const [spot, setSpot] = useState<{ id: string; lon: number; lat: number; from: Thread | null; sheet: number; viaMail?: boolean; label?: string } | null>(null);
   /** The chat the mail page reopens (coming back from a place shown on the map). */
   const [mailThread, setMailThread] = useState<Thread | null>(null);
   const [resumeChat, setResumeChat] = useState<Thread | null>(null);
@@ -505,7 +499,10 @@ function AtlasShell() {
     window.addEventListener("offline", onOffline);
     loadMeta()
       .then((next) => {
-        if (!dead) setMeta(next);
+        if (!dead) {
+          setMeta(next);
+          setHereStates(next.states);
+        }
       })
       .catch((err: unknown) => {
         if (!dead) setError(err instanceof Error ? err.message : "The atlas didn't load.");
@@ -972,6 +969,23 @@ function AtlasShell() {
 
   const [sendPlace, setSendPlace] = useState<Mark | null>(null);
   const [fitTo, setFitTo] = useState<{ tick: number; points: [number, number][]; maxZoom: number } | null>(null);
+
+  /** "I'm here" from Drive: the name of the spot, worked out when it opens. */
+  const [hereLabel, setHereLabel] = useState<string | null>(null);
+  useEffect(() => {
+    if (!hereOpen) {
+      setHereLabel(null);
+      return;
+    }
+    const fix = tracker ?? you;
+    if (!fix) return;
+    let live = true;
+    void nameHere(fix, marks).then((spot) => live && setHereLabel(spot.label + (spot.state ? `, ${spot.state}` : "")));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hereOpen]);
 
   /** A group from the Stops view on the map (its name and count replace the card at the top). */
   const [group, setGroup] = useState<{ label: string; spots: GroupSpot[] } | null>(null);
@@ -1769,7 +1783,8 @@ function AtlasShell() {
 
   // The spotlit place's card closed: back into the chat it came from. Another place picked: just drop it.
   useEffect(() => {
-    if (!spot || selected === spot.id) return;
+    // An "I'm here" spot has no place card: it stays until it's closed (or another place is picked).
+    if (!spot || selected === spot.id || (spot.label && selected === null)) return;
     setSpot(null);
     if (selected === null && spot.from && spot.viaMail) {
       setMailThread(spot.from);
@@ -1786,6 +1801,10 @@ function AtlasShell() {
 
   const sheetBack = useRef<() => boolean>(() => false);
   sheetBack.current = () => {
+    if (spot?.label) {
+      setSpot(null);
+      return true;
+    }
     // A place card (from the list or the map) closes first, at any sheet height.
     if (focus || mapCard || roadBack) {
       closeCard();
@@ -2538,10 +2557,10 @@ function AtlasShell() {
               setSheet(8);
               window.setTimeout(() => setSheetInstant(false), 80);
             }}
-            onOpenHere={(lat, lon) => {
+            onOpenHere={(lat, lon, label) => {
               setMailOpen(false);
               setMailThread(null);
-              setSpot({ id: `here:${lat.toFixed(3)},${lon.toFixed(3)}`, lat, lon, from: null, sheet });
+              setSpot({ id: `here:${lat.toFixed(3)},${lon.toFixed(3)}`, lat, lon, from: null, sheet, label: label ?? "Here" });
               setSheetInstant(true);
               setSheet(8);
               window.setTimeout(() => setSheetInstant(false), 80);
@@ -2597,27 +2616,13 @@ function AtlasShell() {
           {hereOpen ? (
             <SendToSheet
               label="I'm here"
-              hint={hereHint(tracker ?? you, marks, gpsStops)}
+              hint={hereLabel ?? (tracker ?? you ? "Finding where you are…" : "Location isn't on.")}
               onClose={() => setHereOpen(false)}
               onSend={async (thread) => {
                 const fix = tracker ?? you;
                 if (!fix) throw new Error("Location isn't on.");
-                const place = closestPlace(fix, marks);
                 const id = `m-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-                if (place) {
-                  const visitedOn = [...place.visits].map((visit) => visit.visitedOn).filter(Boolean).sort().at(-1) ?? null;
-                  await sendToThread({ data: { thread, id, kind: "place", place: { id: place.id, state: place.state, lat: place.lat, lon: place.lon, visitedOn } } });
-                  return;
-                }
-                const stop = gpsStops.find((item) => milesBetween(fix.lat, fix.lon, item.lat, item.lon) < 0.5 || Date.now() - item.end < 30 * 60 * 1000);
-                await sendToThread({
-                  data: {
-                    thread,
-                    id,
-                    kind: "here",
-                    here: { label: stop?.label || "Here", lat: stop?.lat ?? fix.lat, lon: stop?.lon ?? fix.lon, state: stop?.state || "", placeId: stop?.poiId ?? null },
-                  },
-                });
+                await sendToThread({ data: { thread, id, kind: "here", here: await nameHere(fix, marks) } });
               }}
             />
           ) : null}
@@ -2667,6 +2672,15 @@ function AtlasShell() {
             >
               Added {addedFlash.name}
             </button>
+          ) : null}
+          {spot?.label ? (
+            <div className="pointer-events-auto flex w-[min(20rem,calc(100vw-5.5rem))] items-center gap-2 rounded-card border border-line bg-surface/95 py-2 pr-1 pl-3 shadow-sm backdrop-blur-sm">
+              <LocateFixed className="size-4 shrink-0 text-accent" aria-hidden />
+              <span className="min-w-0 flex-1 text-sm leading-snug">{spot.label}</span>
+              <button type="button" onClick={() => setSpot(null)} aria-label="Close" className="grid size-9 shrink-0 place-items-center rounded-full text-muted active:bg-elevated">
+                <X className="size-4" />
+              </button>
+            </div>
           ) : null}
           {group ? (
             <div className="pointer-events-auto w-[min(20rem,calc(100vw-5.5rem))] rounded-card border border-line bg-surface/95 shadow-sm backdrop-blur-sm">
@@ -2719,7 +2733,7 @@ function AtlasShell() {
               ) : null}
             </div>
           ) : null}
-          <div className={"pointer-events-auto rounded-card border border-line bg-surface/95 px-3 py-2 backdrop-blur-sm " + (group ? "hidden" : "")}>
+          <div className={"pointer-events-auto rounded-card border border-line bg-surface/95 px-3 py-2 backdrop-blur-sm " + (group || spot?.label ? "hidden" : "")}>
             <div className="font-serif text-lg leading-none">{stats.places.toLocaleString()} on the map</div>
             <div className="mt-1 text-xs text-muted">
               {stateAbbr
@@ -3159,9 +3173,9 @@ function AtlasShell() {
                 visitedOn: [...mark.visits].map((visit) => visit.visitedOn).filter(Boolean).sort().at(-1) ?? null,
               }))}
               you={tracker ?? you}
-              onOpenHere={(lat, lon) => {
+              onOpenHere={(lat, lon, label) => {
                 setFriendId(null);
-                setSpot({ id: `here:${lat.toFixed(3)},${lon.toFixed(3)}`, lat, lon, from: null, sheet });
+                setSpot({ id: `here:${lat.toFixed(3)},${lon.toFixed(3)}`, lat, lon, from: null, sheet, label: label ?? "Here" });
                 setSheetInstant(true);
                 setSheet(8);
                 window.setTimeout(() => setSheetInstant(false), 80);

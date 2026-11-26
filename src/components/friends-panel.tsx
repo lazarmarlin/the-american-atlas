@@ -87,7 +87,7 @@ export function FriendsPanel({
   onAddToMap: (photo: ChatPhoto, place: ChatPlaceOption) => Promise<void>;
   /** Show a place from a chat; `from` is the chat to come back to. */
   onOpenPlace: (place: ChatPlace, from?: Thread) => void;
-  onOpenHere?: (lat: number, lon: number) => void;
+  onOpenHere?: (lat: number, lon: number, label?: string) => void;
   /** The friend whose live trail is on the map. */
   watchingLive?: string | null;
   /** A chat to reopen (coming back from a place shown on the map). */

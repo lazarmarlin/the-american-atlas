@@ -39,7 +39,7 @@ export function SharedInChat({
   onClose: () => void;
   onOpenPlace?: (place: ChatPlace) => void;
   onOpenTrail?: (lines: [number, number][][]) => void;
-  onOpenHere?: (lat: number, lon: number) => void;
+  onOpenHere?: (lat: number, lon: number, label?: string) => void;
 }) {
   const [rows, setRows] = useState<ChatMessage[] | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -110,7 +110,7 @@ function SharedRow({
   row: ChatMessage;
   onOpenPlace?: (place: ChatPlace) => void;
   onOpenTrail?: (lines: [number, number][][]) => void;
-  onOpenHere?: (lat: number, lon: number) => void;
+  onOpenHere?: (lat: number, lon: number, label?: string) => void;
   onClose: () => void;
 }) {
   const title =
@@ -151,7 +151,7 @@ function SharedRow({
           visitedOn: null,
           visited: false,
         });
-      } else onOpenHere?.(row.here.lat, row.here.lon);
+      } else onOpenHere?.(row.here.lat, row.here.lon, `${row.fromName} was here · ${row.here.label}`);
     } else if (row.kind === "link") {
       window.open(row.body, "_blank", "noopener");
     }

@@ -2,17 +2,18 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { createPortal } from "react-dom";
 import { useChat } from "@/lib/chat-store";
 import { deleteMessage, listThread, loadThreadPhoto, messageBoard, searchChats, sendToThread, setThreadPin, toggleReaction, type BoardItem, type ChatDay, type ChatHere, type ChatHit, type ChatMessage, type ChatPlace, type ChatTrail, type Thread } from "@/lib/messages";
-import { closestPlace, milesBetween, type Fix } from "@/lib/nearby";
+import { milesBetween, type Fix } from "@/lib/nearby";
 import { readGps } from "@/lib/photo-file";
 import { categoryName } from "@/lib/place-kinds";
 import { pushBack, useBackClose } from "@/lib/sheet-back";
+import { nameHere } from "@/lib/here";
 import { dropFromOutbox, isConnectionError, onOutboxSent, retryFromOutbox, sendOrQueue, useOutbox } from "@/lib/chat-outbox";
 import { cacheBoard, cachePhoto, cacheThread, cachedBoard, cachedPhoto, cachedThread } from "@/lib/chat-cache";
 import { savePhoto } from "@/lib/save-photo";
 import { freshPoints, thinTrail, useGhost, type GhostPoint } from "@/lib/ghost-trail";
 import { useSettings } from "@/lib/atlas-settings";
 import { trailCard } from "@/lib/trail-card";
-import { Copy, Download, Map as MapIcon, MapPinPlus, Maximize2, Pin, Reply, Trash2, Undo2, Users, X, Clock } from "lucide-react";
+import { Camera, Clock, Copy, Download, LocateFixed, Map as MapIcon, MapPinned, MapPinPlus, Maximize2, Pin, Reply, Route, Send, Trash2, Undo2, Users, X } from "lucide-react";
 import { TripSketch, tripDates } from "@/components/trip-recap";
 import { Images, ImageIcon, Settings } from "lucide-react";
 import { WallpaperScreen, wallpaperFor } from "@/components/chat-wallpaper";
@@ -134,7 +135,7 @@ export function ChatThread({
   onAddToMap: (photo: ChatPhoto, place: ChatPlaceOption) => Promise<void>;
   onOpenPlace?: (place: ChatPlace) => void;
   onOpenTrail?: (lines: [number, number][][]) => void;
-  onOpenHere?: (lat: number, lon: number) => void;
+  onOpenHere?: (lat: number, lon: number, label?: string) => void;
   /** Where you are, so "I'm here" can send the place you're in. */
   you?: Fix | null;
   /** A picture behind the messages. */
@@ -419,19 +420,29 @@ export function ChatThread({
     await deliver(message, { thread, id, kind: "place", place: card }, setNote);
   }
 
+  /** The name of the spot you're in, worked out when the + menu opens. */
+  const [hereName, setHereName] = useState<ChatHere | null>(null);
+  useEffect(() => {
+    if (!attach || !you) {
+      if (!attach) setHereName(null);
+      return;
+    }
+    let live = true;
+    void nameHere(you, places).then((spot) => live && setHereName(spot));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attach]);
+
   async function sendHere() {
     setAttach(false);
     if (!you) {
       setNote("Location isn't on.");
       return;
     }
-    const near = closestPlace(you, places);
-    if (near?.state) {
-      await sendPlace(near);
-      return;
-    }
     const id = newId();
-    const card: ChatHere = { label: "Here", lat: you.lat, lon: you.lon, state: "", placeId: null };
+    const card: ChatHere = hereName ?? (await nameHere(you, places));
     const message = optimistic({ id, kind: "here", body: "", thumb: "", lat: you.lat, lon: you.lon, takenAt: null, place: null, here: card });
     await deliver(message, { thread, id, kind: "here", here: card }, setNote);
   }
@@ -710,9 +721,14 @@ export function ChatThread({
                 ) : null}
                 {row.kind === "here" && row.here ? (
                   <div className="py-1">
-                    <span className="block text-xs tracking-widest text-faint uppercase">{mine ? "I'm here" : `${row.fromName} is here`}</span>
-                    <span className="mt-0.5 block font-serif text-lg leading-tight">{row.here.label}</span>
-                    {row.here.state ? <span className="block text-xs text-muted">{row.here.state}</span> : null}
+                    <span className="flex items-center gap-1.5 text-xs tracking-widest text-faint uppercase">
+                      <LocateFixed className="size-3.5 text-accent" aria-hidden="true" />
+                      {mine ? "I'm here" : `${row.fromName} is here`}
+                    </span>
+                    <span className="mt-1 block font-serif text-lg leading-tight">{row.here.label}</span>
+                    <span className="block text-xs text-muted">
+                      {[row.here.state, timeText(row.at)].filter(Boolean).join(" · ")}
+                    </span>
                     <button
                       type="button"
                       onClick={() => {
@@ -729,7 +745,7 @@ export function ChatThread({
                             visitedOn: null,
                             visited: false,
                           });
-                        } else onOpenHere?.(here.lat, here.lon);
+                        } else onOpenHere?.(here.lat, here.lon, `${mine ? "You were" : `${row.fromName} was`} here · ${here.label} · ${timeText(row.at)}`);
                       }}
                       className="my-1.5 h-10 w-full rounded-lg border border-line text-sm"
                     >
@@ -890,46 +906,67 @@ export function ChatThread({
       </form>
 
       {attach ? (
-        <Sheet label="Send" onClose={() => setAttach(false)}>
+        <Sheet label="Send" onClose={() => setAttach(false)} bare>
+          {/* Where you are, sent in one tap. */}
           <button
             type="button"
             disabled={!you}
             onClick={() => void sendHere()}
-            className="h-11 w-full rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
+            className="flex w-full items-center gap-3 rounded-xl border border-line bg-elevated/70 p-3 text-left disabled:opacity-60 active:bg-elevated"
           >
-            {you ? (closestPlace(you, places)?.name ? `I'm here · ${closestPlace(you, places)?.name}` : "I'm here") : "I'm here"}
+            <span className="relative grid size-11 shrink-0 place-items-center rounded-full bg-accent/15 text-accent">
+              {you ? <span className="absolute inset-0 animate-ping rounded-full bg-accent/20" aria-hidden="true" /> : null}
+              <LocateFixed className="relative size-5" aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] font-medium">I'm here</span>
+              <span className="block truncate text-xs text-muted">
+                {!you ? "Turn on location to send where you are" : hereName ? hereName.label + (hereName.state ? `, ${hereName.state}` : "") : "Finding where you are…"}
+              </span>
+            </span>
+            <Send className="size-4 shrink-0 text-muted" aria-hidden="true" />
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setAttach(false);
-              photoInput.current?.click();
-            }}
-            className="mt-2 h-11 w-full rounded-lg border border-line text-sm"
-          >
-            A photo
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setQuery("");
-              setSharing(true);
-              setAttach(false);
-            }}
-            className="mt-2 h-11 w-full rounded-lg border border-line text-sm"
-          >
-            A place you've been
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setAttach(false);
-              setTrailsOpen(true);
-            }}
-            className="mt-2 h-11 w-full rounded-lg border border-line text-sm"
-          >
-            A ghost trail
-          </button>
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            {(
+              [
+                [
+                  "Photo",
+                  <Camera key="i" className="size-5" />,
+                  () => {
+                    setAttach(false);
+                    photoInput.current?.click();
+                  },
+                ],
+                [
+                  "Place",
+                  <MapPinned key="i" className="size-5" />,
+                  () => {
+                    setQuery("");
+                    setSharing(true);
+                    setAttach(false);
+                  },
+                ],
+                [
+                  "Trail",
+                  <Route key="i" className="size-5" />,
+                  () => {
+                    setAttach(false);
+                    setTrailsOpen(true);
+                  },
+                ],
+              ] as const
+            ).map(([label, icon, onClick]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={onClick}
+                className="flex aspect-[5/4] flex-col items-center justify-center gap-2 rounded-xl border border-line text-sm active:bg-elevated"
+              >
+                <span className="grid size-10 place-items-center rounded-full bg-elevated text-ink">{icon}</span>
+                {label}
+              </button>
+            ))}
+          </div>
         </Sheet>
       ) : null}
 
@@ -1581,7 +1618,7 @@ export function MessageBoard({
   onAddToMap: (photo: ChatPhoto, place: ChatPlaceOption) => Promise<void>;
   onOpenPlace?: (place: ChatPlace, from?: Thread) => void;
   onOpenTrail?: (lines: [number, number][][]) => void;
-  onOpenHere?: (lat: number, lon: number) => void;
+  onOpenHere?: (lat: number, lon: number, label?: string) => void;
   you?: Fix | null;
   onClose: () => void;
   /** Open straight into this chat (back from a place it sent). */
