@@ -13,7 +13,7 @@ import { savePhoto } from "@/lib/save-photo";
 import { freshPoints, thinTrail, useGhost, type GhostPoint } from "@/lib/ghost-trail";
 import { useSettings } from "@/lib/atlas-settings";
 import { trailCard } from "@/lib/trail-card";
-import { Copy, Download, Map as MapIcon, MapPinPlus, Maximize2, Pin, Reply, Trash2, Undo2, Users, X, Clock } from "lucide-react";
+import { Clock, Copy, Download, LogOut, Map as MapIcon, MapPinPlus, Maximize2, MoreHorizontal, Pin, Reply, Trash2, Undo2, Users, X } from "lucide-react";
 import { TripSketch, tripDates } from "@/components/trip-recap";
 import { Images, ImageIcon, Settings } from "lucide-react";
 import { WallpaperScreen, wallpaperFor } from "@/components/chat-wallpaper";
@@ -1516,54 +1516,48 @@ export function ChatScreen({
       <ChatThread {...chat} wallpaper={wallpaper} look={look} fill />
       {more ? (
         <Sheet label={title} onClose={() => setMore(false)}>
-          <div className="grid gap-2">
-            <button
-              type="button"
+          <div className="overflow-hidden rounded-xl border border-line">
+            <MenuRow
+              icon={<Images className="size-[18px]" />}
+              label="Shared in this chat"
               onClick={() => {
                 setMore(false);
                 setSharedOpen(true);
               }}
-              className="flex h-12 w-full items-center gap-3 rounded-lg border border-line px-3 text-sm text-accent"
-            >
-              <Images className="size-4" aria-hidden="true" />
-              Shared in this chat
-            </button>
-            <button
-              type="button"
+            />
+            <MenuRow
+              icon={<ImageIcon className="size-[18px]" />}
+              label="Wallpaper"
               onClick={() => {
                 setMore(false);
                 setWallOpen(true);
               }}
-              className="flex h-12 w-full items-center gap-3 rounded-lg border border-line px-3 text-sm text-accent"
-            >
-              <ImageIcon className="size-4" aria-hidden="true" />
-              Wallpaper
-            </button>
-            <button
-              type="button"
+            />
+            <MenuRow
+              icon={<Settings className="size-[18px]" />}
+              label="Chat settings"
               onClick={() => {
                 setMore(false);
                 setSettingsOpen(true);
               }}
-              className="flex h-12 w-full items-center gap-3 rounded-lg border border-line px-3 text-sm text-accent"
-            >
-              <Settings className="size-4" aria-hidden="true" />
-              Settings
-            </button>
-            {actions.map((action) => (
-              <button
-                key={action.label}
-                type="button"
-                onClick={() => {
-                  setMore(false);
-                  action.onClick();
-                }}
-                className={"h-11 w-full rounded-lg border border-line text-sm " + (action.danger ? "text-accent" : "")}
-              >
-                {action.label}
-              </button>
-            ))}
+            />
           </div>
+          {actions.length ? (
+            <div className="mt-2 overflow-hidden rounded-xl border border-line">
+              {actions.map((action) => (
+                <MenuRow
+                  key={action.label}
+                  danger={action.danger}
+                  icon={action.danger ? <LogOut className="size-[18px]" /> : <MoreHorizontal className="size-[18px]" />}
+                  label={action.label}
+                  onClick={() => {
+                    setMore(false);
+                    action.onClick();
+                  }}
+                />
+              ))}
+            </div>
+          ) : null}
         </Sheet>
       ) : null}
       {settingsOpen ? (

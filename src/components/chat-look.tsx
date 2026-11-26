@@ -5,7 +5,7 @@
  */
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { BellOff, Image, SunMedium, Type, UserRound, Users } from "lucide-react";
+import { BellOff, ChevronLeft, ChevronRight, Image, Plus, SunMedium, Users } from "lucide-react";
 import { WallpaperScreen } from "@/components/chat-wallpaper";
 import { LOOK_DEFAULT, writeLook, type ChatLook } from "@/lib/chat-look";
 import type { Thread } from "@/lib/messages";
@@ -55,32 +55,49 @@ export function ChatLookScreen({
     }
   }
 
+  const sizes = { sm: "text-[13px]", md: "text-[15px]", lg: "text-[18px]" } as const;
   return createPortal(
     <div role="dialog" aria-label="Chat settings" className="screen-top fixed inset-0 z-[70] flex flex-col bg-bg text-ink">
-      <header className="flex shrink-0 items-center gap-2 border-b border-line px-2 py-2">
-        <button type="button" onClick={onClose} className="flex h-11 items-center gap-1 px-2 text-sm text-accent">
-          ‹ Chat
+      <header className="flex shrink-0 items-center gap-1 border-b border-line px-2 pb-2">
+        <button type="button" onClick={onClose} className="-ml-1 flex h-11 items-center gap-0.5 rounded-full pr-3 pl-1 text-sm text-muted active:bg-elevated">
+          <ChevronLeft className="size-5" aria-hidden="true" />
+          Chat
         </button>
-        <p className="min-w-0 flex-1 truncate text-right font-serif text-lg">Settings</p>
+        <p className="min-w-0 flex-1 truncate pr-2 text-right font-serif text-lg">{look.nick || name}</p>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <label className="block">
-          <span className="flex items-center gap-2 text-sm text-accent">
-            <UserRound className="size-4" aria-hidden="true" />
-            Name on this phone
-          </span>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-8">
+        {/* What the chat will look like. */}
+        <div
+          className="overflow-hidden rounded-card border border-line px-3 py-4"
+          style={{ background: look.plain || "var(--color-surface)", opacity: 1 }}
+          aria-hidden="true"
+        >
+          <div className="flex justify-start">
+            <div className={"max-w-[75%] rounded-2xl rounded-bl-md border border-line px-3 py-2 " + sizes[look.text]} style={bubblePreview(look.their, look.theirFade)}>
+              Where are you?
+            </div>
+          </div>
+          <div className="mt-2 flex justify-end">
+            <div className={"max-w-[75%] rounded-2xl rounded-br-md border border-line bg-elevated px-3 py-2 " + sizes[look.text]} style={bubblePreview(look.mine, look.mineFade)}>
+              Just crossed into Kansas
+            </div>
+          </div>
+        </div>
+
+        <Card label="Name">
           <input
             value={look.nick}
             placeholder={name}
             maxLength={40}
+            aria-label="Name on this phone"
             onChange={(event) => commit({ ...look, nick: event.target.value })}
-            className="mt-2 h-11 w-full rounded-lg border border-line bg-bg px-3 text-base text-ink outline-none placeholder:text-faint"
+            className="h-11 w-full rounded-lg border border-line bg-bg px-3 text-base text-ink outline-none placeholder:text-faint focus:border-ink/50"
           />
-          <span className="mt-1 block text-xs text-faint">{thread.kind === "group" ? "The trip chat keeps its real name for everyone else." : `${name} still sees their own name.`}</span>
-        </label>
+          <p className="mt-1.5 text-xs text-faint">Only on this phone.</p>
+        </Card>
 
-        <Section icon={<Type className="size-4" />} title="Text size">
-          <div className="flex gap-2">
+        <Card label="Text size">
+          <div className="grid grid-cols-3 gap-1 rounded-xl bg-bg/60 p-1" role="radiogroup" aria-label="Text size">
             {(
               [
                 ["sm", "Small"],
@@ -91,106 +108,67 @@ export function ChatLookScreen({
               <button
                 key={id}
                 type="button"
-                aria-pressed={look.text === id}
+                role="radio"
+                aria-checked={look.text === id}
                 onClick={() => commit({ ...look, text: id })}
-                className={"h-11 flex-1 rounded-lg border text-sm " + (look.text === id ? "border-accent text-accent" : "border-line text-muted")}
+                className={"h-10 rounded-lg text-sm transition-colors " + (look.text === id ? "bg-elevated text-ink shadow-sm" : "text-faint active:bg-elevated/50")}
               >
                 {label}
               </button>
             ))}
           </div>
-        </Section>
+        </Card>
 
-        <Swatches
-          title="Your bubbles"
-          hint="Only you see this color on the messages you send."
-          color={look.mine}
-          fade={look.mineFade}
-          align="end"
-          onColor={(mine) => commit({ ...look, mine })}
-          onFade={(mineFade) => commit({ ...look, mineFade })}
-        />
-        <Swatches
-          title="Their bubbles"
-          hint={`Only you see this. ${name} still sees the usual bubbles.`}
-          color={look.their}
-          fade={look.theirFade}
-          align="start"
-          onColor={(their) => commit({ ...look, their })}
-          onFade={(theirFade) => commit({ ...look, theirFade })}
-        />
-
-        <button
-          type="button"
-          role="switch"
-          aria-checked={look.shared}
-          onClick={() => commit({ ...look, shared: !look.shared })}
-          className="mt-4 flex w-full items-center gap-3 rounded-lg border border-line px-3 py-3 text-left"
-        >
-          <Users className="size-4 shrink-0 text-accent" aria-hidden="true" />
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm text-accent">Same colors for both of us</span>
-            <span className="block text-xs text-faint">{thread.kind === "group" ? "Everyone in this chat" : "A message you send stays one color on both phones"}</span>
-          </span>
-          <span className={"grid h-6 w-10 shrink-0 place-items-center rounded-full " + (look.shared ? "bg-accent" : "bg-line")}>
-            <span className={"size-5 rounded-full bg-bg " + (look.shared ? "translate-x-2" : "-translate-x-2")} />
-          </span>
-        </button>
-
-        <button type="button" onClick={() => setWall(true)} className="mt-3 flex h-12 w-full items-center gap-3 rounded-lg border border-line px-3 text-left text-sm text-accent">
-          <Image className="size-4" aria-hidden="true" />
-          Wallpaper
-        </button>
-
-        <Section icon={<SunMedium className="size-4" />} title="Wallpaper strength">
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={look.dim}
-            aria-label="Wallpaper strength"
-            onChange={(event) => commit({ ...look, dim: Number(event.target.value) })}
-            className="w-full accent-[#e23d2b]"
+        <Card label="Bubbles">
+          <Swatches title="Yours" color={look.mine} fade={look.mineFade} onColor={(mine) => commit({ ...look, mine })} onFade={(mineFade) => commit({ ...look, mineFade })} />
+          <div className="my-3 border-t border-line" />
+          <Swatches title={thread.kind === "group" ? "Everyone else's" : `${name.split(" ")[0]}'s`} color={look.their} fade={look.theirFade} onColor={(their) => commit({ ...look, their })} onFade={(theirFade) => commit({ ...look, theirFade })} />
+          <div className="my-3 border-t border-line" />
+          <ToggleRow
+            icon={<Users className="size-[18px]" aria-hidden="true" />}
+            label="Same colors on their phone"
+            hint={thread.kind === "group" ? "Everyone in this chat" : undefined}
+            on={look.shared}
+            onToggle={() => commit({ ...look, shared: !look.shared })}
           />
-          <span className="mt-1 block text-xs text-faint">Left is brighter. Right lets the picture sit further back.</span>
-        </Section>
+        </Card>
 
-        <Section icon={<span className="size-4 rounded-sm border border-accent" />} title="Plain background">
-          <p className="text-xs text-faint">A color instead of a picture. The wallpaper stays saved.</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button
-              type="button"
-              aria-pressed={!look.plain}
-              onClick={() => commit({ ...look, plain: "" })}
-              className={"h-11 rounded-full border px-3 text-sm " + (!look.plain ? "border-accent text-accent" : "border-line text-muted")}
-            >
+        <Card label="Background">
+          <button type="button" onClick={() => setWall(true)} className="flex h-11 w-full items-center gap-3 text-left text-sm">
+            <Image className="size-[18px] shrink-0 text-muted" aria-hidden="true" />
+            <span className="min-w-0 flex-1">Wallpaper</span>
+            <ChevronRight className="size-4 shrink-0 text-faint" aria-hidden="true" />
+          </button>
+          <label className="mt-2 flex items-center gap-3 text-xs text-muted">
+            <SunMedium className="size-4 shrink-0 text-faint" aria-hidden="true" />
+            <span className="shrink-0">Strength</span>
+            <input type="range" min={0} max={100} value={look.dim} onChange={(event) => commit({ ...look, dim: Number(event.target.value) })} className="min-w-0 flex-1 accent-ink" />
+          </label>
+          <div className="my-3 border-t border-line" />
+          <p className="text-xs text-muted">Or a plain color</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Chip on={!look.plain} onClick={() => commit({ ...look, plain: "" })}>
               Picture
-            </button>
+            </Chip>
             {COLORS.map((swatch) => (
               <Swatch key={swatch} color={swatch} on={look.plain.toLowerCase() === swatch} onPick={() => commit({ ...look, plain: swatch })} />
             ))}
             <CustomColor value={look.plain || "#1c1f18"} onPick={(plain) => commit({ ...look, plain })} />
           </div>
-        </Section>
+        </Card>
 
-        <button
-          type="button"
-          role="switch"
-          aria-checked={look.quiet}
-          onClick={() => commit({ ...look, quiet: !look.quiet })}
-          className="mt-4 flex w-full items-center gap-3 rounded-lg border border-line px-3 py-3 text-left"
-        >
-          <BellOff className="size-4 shrink-0 text-accent" aria-hidden="true" />
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm text-accent">Quiet this chat</span>
-            <span className="block text-xs text-faint">No buzz unless you have it open. The count still shows.</span>
-          </span>
-          <span className={"grid h-6 w-10 shrink-0 place-items-center rounded-full " + (look.quiet ? "bg-accent" : "bg-line")}>
-            <span className={"size-5 rounded-full bg-bg " + (look.quiet ? "translate-x-2" : "-translate-x-2")} />
-          </span>
-        </button>
+        <Card label="Notifications">
+          <ToggleRow
+            icon={<BellOff className="size-[18px]" aria-hidden="true" />}
+            label="Quiet this chat"
+            hint="No buzz. The count still shows."
+            on={look.quiet}
+            onToggle={() => commit({ ...look, quiet: !look.quiet })}
+          />
+        </Card>
+
         {note ? <p className="mt-3 text-sm text-muted">{note}</p> : null}
-        <button type="button" onClick={() => commit({ ...LOOK_DEFAULT })} className="mt-4 mb-2 h-11 w-full rounded-lg border border-line text-sm text-accent">
+        <button type="button" onClick={() => commit({ ...LOOK_DEFAULT })} className="mt-5 h-11 w-full rounded-lg text-sm text-muted active:bg-elevated">
           Reset this chat
         </button>
       </div>
@@ -200,66 +178,74 @@ export function ChatLookScreen({
   );
 }
 
-function Section({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
+/** A group of settings with a small label above it, like the rest of the app. */
+function Card({ label, children }: { label: string; children: ReactNode }) {
   return (
     <section className="mt-5">
-      <h2 className="flex items-center gap-2 font-serif text-xl text-accent">
-        {icon}
-        {title}
-      </h2>
-      <div className="mt-2">{children}</div>
+      <p className="mb-2 px-1 text-xs tracking-widest text-faint uppercase">{label}</p>
+      <div className="rounded-card border border-line bg-surface/60 p-3">{children}</div>
     </section>
+  );
+}
+
+function ToggleRow({ icon, label, hint, on, onToggle }: { icon: ReactNode; label: string; hint?: string; on: boolean; onToggle: () => void }) {
+  return (
+    <button type="button" role="switch" aria-checked={on} onClick={onToggle} className="flex min-h-11 w-full items-center gap-3 text-left">
+      <span className={"shrink-0 " + (on ? "text-ink" : "text-muted")}>{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm">{label}</span>
+        {hint ? <span className="block text-xs text-faint">{hint}</span> : null}
+      </span>
+      <span className={"flex h-7 w-12 shrink-0 items-center rounded-full p-0.5 transition-colors " + (on ? "bg-ink" : "bg-line")}>
+        <span className={"size-6 rounded-full shadow-sm transition-transform " + (on ? "translate-x-5 bg-bg" : "translate-x-0 bg-muted")} />
+      </span>
+    </button>
+  );
+}
+
+function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onClick}
+      className={"h-9 rounded-full px-4 text-sm transition-colors " + (on ? "bg-ink font-medium text-bg" : "border border-line text-muted")}
+    >
+      {children}
+    </button>
   );
 }
 
 function Swatches({
   title,
-  hint,
   color,
   fade,
-  align,
   onColor,
   onFade,
 }: {
   title: string;
-  hint: string;
   color: string;
   fade: number;
-  align: "start" | "end";
   onColor: (color: string) => void;
   onFade: (fade: number) => void;
 }) {
   return (
-    <section className="mt-5">
-      <h2 className="font-serif text-xl">{title}</h2>
-      <p className="mt-1 text-xs text-faint">{hint}</p>
-      <div className={"mt-3 flex " + (align === "end" ? "justify-end" : "justify-start")}>
-        <div
-          className={"max-w-[70%] rounded-2xl border border-line px-3 py-2 text-[15px] " + (align === "end" ? "rounded-br-md bg-elevated" : "rounded-bl-md")}
-          style={bubblePreview(color, fade)}
-        >
-          Like this
-        </div>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          type="button"
-          aria-pressed={!color}
-          onClick={() => onColor("")}
-          className={"h-11 rounded-full border px-3 text-sm " + (!color ? "border-accent text-accent" : "border-line text-muted")}
-        >
+    <div>
+      <p className="text-sm">{title}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Chip on={!color} onClick={() => onColor("")}>
           Default
-        </button>
+        </Chip>
         {COLORS.map((swatch) => (
           <Swatch key={swatch} color={swatch} on={color.toLowerCase() === swatch} onPick={() => onColor(swatch)} />
         ))}
         <CustomColor value={color || "#243044"} onPick={onColor} />
       </div>
-      <label className="mt-3 block text-xs text-faint">
-        See-through
-        <input type="range" min={30} max={100} value={fade} onChange={(event) => onFade(Number(event.target.value))} className="mt-1 w-full accent-[#e23d2b]" />
+      <label className="mt-3 flex items-center gap-3 text-xs text-muted">
+        <span className="shrink-0">See-through</span>
+        <input type="range" min={30} max={100} value={fade} onChange={(event) => onFade(Number(event.target.value))} className="min-w-0 flex-1 accent-ink" />
       </label>
-    </section>
+    </div>
   );
 }
 
@@ -279,7 +265,7 @@ function Swatch({ color, on, onPick }: { color: string; on: boolean; onPick: () 
       aria-label={color}
       aria-pressed={on}
       onClick={onPick}
-      className={"size-11 rounded-full border-2 " + (on ? "border-accent" : "border-transparent")}
+      className={"size-9 rounded-full border border-white/10 transition-shadow " + (on ? "ring-2 ring-ink ring-offset-2 ring-offset-surface" : "")}
       style={{ backgroundColor: color }}
     />
   );
@@ -287,8 +273,8 @@ function Swatch({ color, on, onPick }: { color: string; on: boolean; onPick: () 
 
 function CustomColor({ value, onPick }: { value: string; onPick: (color: string) => void }) {
   return (
-    <label className="relative grid size-11 cursor-pointer place-items-center overflow-hidden rounded-full border border-accent text-xs text-accent">
-      +
+    <label className="relative grid size-9 cursor-pointer place-items-center overflow-hidden rounded-full border border-dashed border-line text-muted">
+      <Plus className="size-4" aria-hidden="true" />
       <input type="color" aria-label="Custom color" value={value} onChange={(event) => onPick(event.target.value)} className="absolute inset-0 size-full cursor-pointer opacity-0" />
     </label>
   );
