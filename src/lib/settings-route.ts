@@ -12,7 +12,7 @@
  */
 import { useNavigate, useRouter, useRouterState, useSearch } from "@tanstack/react-router";
 
-export const SETTINGS_PAGES = ["menu", "account", "tracking", "map", "photos", "atlas"] as const;
+export const SETTINGS_PAGES = ["menu", "account", "tracking", "map", "photos", "atlas", "chats"] as const;
 export type SettingsPageId = (typeof SETTINGS_PAGES)[number];
 
 export function parseSettingsPage(value: unknown): SettingsPageId | undefined {

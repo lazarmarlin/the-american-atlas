@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, MessageCircle } from "lucide-react";
 import { BORDER_COLORS, useSettings } from "@/lib/atlas-settings";
 import { authEnabled, signOut } from "@/lib/auth/client";
 import { clearGhostLocal } from "@/lib/ghost-trail";
@@ -21,7 +21,14 @@ import { PhotoFinder } from "@/components/photos-panel";
 import type { RecordingTrip } from "@/lib/photo-file";
 import { AppVersion } from "@/components/update-prompt";
 import { isMarkerColor, isMarkerIcon, MARKER_COLORS, MARKER_ICONS, markerLabel } from "@/lib/you-marker";
+import { ChatLookScreen } from "@/components/chat-look";
+import { readLook, type ChatLook } from "@/lib/chat-look";
 import type { PhotoInfo } from "@/lib/photos";
+import { listGroups, type ChatGroup } from "@/lib/chat-groups";
+import { listFriends, type FriendRow } from "@/lib/friends";
+import { cachedFriends, cachedGroups } from "@/lib/chat-cache";
+import type { Thread } from "@/lib/messages";
+import { useBackClose } from "@/lib/sheet-back";
 
 export function SettingsPage({
   profile,
@@ -36,6 +43,7 @@ export function SettingsPage({
   trip,
   onPhotosSaved,
   onPhotoRemoved,
+  meId,
 }: {
   profile: Profile;
   email: string | null;
@@ -49,6 +57,7 @@ export function SettingsPage({
   trip: RecordingTrip;
   onPhotosSaved: (rows: PhotoInfo[]) => void;
   onPhotoRemoved?: (id: string) => void;
+  meId: string;
 }) {
   const icons = useSettings((s) => s.icons);
   const stateBorder = useSettings((s) => s.stateBorder);
@@ -152,7 +161,7 @@ export function SettingsPage({
       </button>
       <p className="mt-2 text-xs tracking-widest text-faint uppercase">{nativeApp ? "Android app" : "Field atlas"}</p>
       <h1 className="font-serif text-4xl leading-none">
-        {page === "account" ? "Account" : page === "tracking" ? "Tracking" : page === "map" ? "Map" : page === "photos" ? "Photos" : page === "atlas" ? "Atlas" : "Settings"}
+        {page === "account" ? "Account" : page === "tracking" ? "Tracking" : page === "map" ? "Map" : page === "photos" ? "Photos" : page === "atlas" ? "Atlas" : page === "chats" ? "Chats" : "Settings"}
       </h1>
 
       {page === "menu" ? (
@@ -163,6 +172,7 @@ export function SettingsPage({
               ["tracking", "Tracking", "Travel tracking, notifications, ghost trail, your marker, and fast add"],
               ["map", "Map", "Markers, borders, and overlays"],
               ["photos", "Photos", "Camera roll and the map"],
+              ["chats", "Chats", "Names, bubbles, wallpapers, and quiet"],
               ["atlas", "Atlas", nativeApp ? "Offline maps and the tour" : "Offline maps, offline atlas, and the tour"],
             ] as const
           ).map(([id, label, detail]) => (
@@ -178,6 +188,8 @@ export function SettingsPage({
           ))}
         </nav>
       ) : null}
+
+      {page === "chats" ? <ChatLooks meId={meId} /> : null}
 
       {page === "account" ? (
       <>
@@ -942,5 +954,101 @@ function NotificationsSection() {
       </button>
       {note ? <p className="mt-2 text-sm text-muted">{note}</p> : null}
     </section>
+  );
+}
+
+/** Pick a chat, then its bubble color and wallpaper. Both stay on this phone unless the wallpaper is shared. */
+function ChatLooks({ meId }: { meId: string }) {
+  const [friends, setFriends] = useState<FriendRow[] | null>(null);
+  const [groups, setGroups] = useState<ChatGroup[] | null>(null);
+  const [picked, setPicked] = useState<{ thread: Thread; name: string } | null>(null);
+  const [look, setLook] = useState<ChatLook | null>(null);
+  useBackClose(() => setPicked(null), Boolean(picked));
+
+  useEffect(() => {
+    if (!meId) return;
+    let dead = false;
+    void cachedFriends<FriendRow>(meId).then((saved) => {
+      if (!dead && saved?.length) setFriends((cur) => cur ?? saved);
+    });
+    void cachedGroups<ChatGroup>(meId).then((saved) => {
+      if (!dead && saved?.length) setGroups((cur) => cur ?? saved);
+    });
+    listFriends()
+      .then((rows) => {
+        if (!dead) setFriends(rows);
+      })
+      .catch(() => {
+        if (!dead) setFriends((cur) => cur ?? []);
+      });
+    listGroups()
+      .then((rows) => {
+        if (!dead) setGroups(rows);
+      })
+      .catch(() => {
+        if (!dead) setGroups((cur) => cur ?? []);
+      });
+    return () => {
+      dead = true;
+    };
+  }, [meId]);
+
+  if (!meId) return <p className="mt-6 text-sm text-muted">Sign in to change a chat.</p>;
+
+  if (picked && look) {
+    return (
+      <ChatLookScreen
+        meId={meId}
+        thread={picked.thread}
+        name={picked.name}
+        look={look}
+        onChange={setLook}
+        onClose={() => setPicked(null)}
+      />
+    );
+  }
+
+  const ready = friends !== null || groups !== null;
+  return (
+    <div className="mt-6">
+      <p className="text-sm text-muted">Pick a chat. Colors, the name, and quiet stay on this phone. A wallpaper or a shared color pair can show on theirs too.</p>
+      {!ready ? <p className="mt-4 text-sm text-muted">Loading…</p> : null}
+      <ul className="mt-3 grid gap-2">
+        {(groups ?? []).map((group) => (
+          <li key={group.id}>
+            <button
+              type="button"
+              onClick={() => {
+                const thread: Thread = { kind: "group", id: group.id };
+                setLook(readLook(meId, thread));
+                setPicked({ thread, name: group.name });
+              }}
+              className="flex h-14 w-full items-center gap-3 rounded-lg border border-line px-3 text-left text-accent"
+            >
+              <MessageCircle className="size-4 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate">{group.name}</span>
+              <span className="text-xs text-faint">trip chat</span>
+            </button>
+          </li>
+        ))}
+        {(friends ?? []).map((friend) => (
+          <li key={friend.id}>
+            <button
+              type="button"
+              onClick={() => {
+                const thread: Thread = { kind: "friend", id: friend.id };
+                setLook(readLook(meId, thread));
+                setPicked({ thread, name: friend.name });
+              }}
+              className="flex h-14 w-full items-center gap-3 rounded-lg border border-line px-3 text-left text-accent"
+            >
+              <MessageCircle className="size-4 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate">{friend.name}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {ready && !friends?.length && !groups?.length ? <p className="mt-4 text-sm text-muted">Add a friend first, from the Friends tab.</p> : null}
+    </div>
   );
 }

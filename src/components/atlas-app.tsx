@@ -51,6 +51,7 @@ import { choosePhotoPlace, loadParkShapes, matchPark } from "@/lib/park-photo";
 import { UpdatePrompt } from "@/components/update-prompt";
 import { RecapPanel } from "@/components/recap-panel";
 import { loadCounties } from "@/lib/atlas-model";
+import { nickOf, useLookVersion } from "@/lib/chat-look";
 import { countyContaining, countyToMark, type CountyRec } from "@/lib/counties";
 import { deviceId, flushDriveLog, localDay, logDrive, switchDriveLog } from "@/lib/drive-log";
 import { acceptFriend, listFriends } from "@/lib/friends";
@@ -2068,10 +2069,13 @@ function AtlasShell() {
     };
   }, [friendCode, navigate, setTab]);
 
+  const lookVersion = useLookVersion();
   const shownPins = useMemo(() => {
-    if (!friendFix) return livePins;
-    return livePins.map((pin) => (pin.id === friendFix.id ? { ...pin, lat: friendFix.lat, lon: friendFix.lon } : pin));
-  }, [livePins, friendFix]);
+    const pins = !friendFix ? livePins : livePins.map((pin) => (pin.id === friendFix.id ? { ...pin, lat: friendFix.lat, lon: friendFix.lon } : pin));
+    const me = user?.id;
+    if (!me) return pins;
+    return pins.map((pin) => ({ ...pin, name: nickOf(me, "friend", pin.id, pin.name) }));
+  }, [livePins, friendFix, user?.id, lookVersion]);
 
   if (settingsOpen) {
     return (
@@ -2097,6 +2101,7 @@ function AtlasShell() {
         trip={recordingTrip}
         onPhotosSaved={(rows) => setPhotos((prev) => [...rows, ...prev])}
         onPhotoRemoved={(id) => setPhotos((prev) => prev.filter((photo) => photo.id !== id))}
+        meId={user?.id ?? ""}
       />
     );
   }

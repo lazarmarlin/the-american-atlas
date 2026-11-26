@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useChat } from "@/lib/chat-store";
 import { deleteMessage, listThread, loadThreadPhoto, messageBoard, searchChats, sendToThread, setThreadPin, toggleReaction, type BoardItem, type ChatDay, type ChatHere, type ChatHit, type ChatMessage, type ChatPlace, type ChatTrail, type Thread } from "@/lib/messages";
@@ -14,7 +14,11 @@ import { useSettings } from "@/lib/atlas-settings";
 import { trailCard } from "@/lib/trail-card";
 import { Copy, Download, Map as MapIcon, MapPinPlus, Maximize2, Pin, Reply, Trash2, Undo2, Users, X, Clock } from "lucide-react";
 import { TripSketch, tripDates } from "@/components/trip-recap";
+import { Images, ImageIcon, Settings } from "lucide-react";
 import { WallpaperScreen, wallpaperFor } from "@/components/chat-wallpaper";
+import { ChatLookScreen, applyShared } from "@/components/chat-look";
+import { LOOK_DEFAULT, nickOf, readLook, useLookVersion, wallVeil, withAlpha, type ChatLook } from "@/lib/chat-look";
+import { loadTheme } from "@/lib/chat-theme";
 import { SharedInChat } from "@/components/chat-shared";
 
 const PHOTO_LINK = /^https?:\/\/(?:photos\.app\.goo\.gl|photos\.google\.com|goo\.gl\/photos)\/\S+$/i;
@@ -120,6 +124,7 @@ export function ChatThread({
   onOpenHere,
   you = null,
   wallpaper = null,
+  look = LOOK_DEFAULT,
   focusId,
   fill = false,
 }: {
@@ -134,6 +139,8 @@ export function ChatThread({
   you?: Fix | null;
   /** A picture behind the messages. */
   wallpaper?: string | null;
+  /** Colors, text size, and wallpaper strength for this phone. */
+  look?: ChatLook;
   /** Scroll this message into view once, from a search. */
   focusId?: string | null;
   /** Fill a full-screen chat: messages take the space, the box sits at the bottom. */
@@ -561,15 +568,20 @@ export function ChatThread({
     press.current = null;
   }
 
+  const veil = wallVeil(look.dim);
+  const textClass = look.text === "lg" ? "text-lg" : look.text === "sm" ? "text-[13px]" : "text-[15px]";
+  const ground = look.plain
+    ? { backgroundColor: look.plain }
+    : wallpaper
+      ? {
+          backgroundImage: `linear-gradient(rgba(10,10,10,${veil.top}), rgba(10,10,10,${veil.bottom})), url(${wallpaper})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }
+      : undefined;
+
   return (
-    <div
-      className={fill ? "relative flex min-h-0 flex-1 flex-col" : "relative mt-4"}
-      style={
-        wallpaper
-          ? { backgroundImage: `linear-gradient(rgba(10,10,10,0.5), rgba(10,10,10,0.72)), url(${wallpaper})`, backgroundSize: "cover", backgroundPosition: "center" }
-          : undefined
-      }
-    >
+    <div className={fill ? "relative flex min-h-0 flex-1 flex-col" : "relative mt-4"} style={ground}>
       {fill ? null : (
         <p className="px-2 text-sm text-muted">
           {group ? "Everyone in this chat sees what you send." : "Text, a photo, a place, or a Google Photos link."} Hold a message for options.
@@ -613,7 +625,7 @@ export function ChatThread({
           return (
             <div key={row.id} id={`chat-${row.id}`} className={"flex flex-col " + (mine ? "items-end" : "items-start")}>
               {stamp ? <p className="my-1 w-full text-center text-[11px] text-faint">{stampText(row.at)}</p> : null}
-              {group && !mine ? <span className="mb-0.5 px-1 text-xs text-faint">{row.fromName}</span> : null}
+              {group && !mine ? <span className="mb-0.5 px-1 text-xs text-faint">{nickOf(meId, "friend", row.fromId, row.fromName)}</span> : null}
               <div
                 onPointerDown={(event) => holdStart(row, event)}
                 onPointerMove={holdMove}
@@ -626,7 +638,8 @@ export function ChatThread({
                   holdEnd();
                   setMenu(row);
                 }}
-                className={"max-w-[78%] rounded-2xl px-3 py-1.5 text-[15px] leading-snug select-none " + (row.kind === "text" ? "" : "w-64 ") + (mine ? "rounded-br-md bg-elevated" : "rounded-bl-md border border-line")}
+                className={"max-w-[78%] rounded-2xl px-3 py-1.5 leading-snug select-none " + textClass + (row.kind === "text" ? "" : " w-64") + (mine ? " rounded-br-md bg-elevated" : " rounded-bl-md border border-line")}
+                style={bubblePaint(mine, look)}
               >
                 {row.reply ? (
                   <p className="mb-1 truncate border-l-2 border-line pl-2 text-xs text-faint">
@@ -864,7 +877,7 @@ export function ChatThread({
           onFocus={() => window.setTimeout(() => scroller.current?.scrollTo({ top: scroller.current.scrollHeight }), 300)}
           placeholder="Message"
           enterKeyHint="send"
-          className="h-11 min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 text-base text-ink outline-none placeholder:text-faint"
+          className={"h-11 min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 text-ink outline-none placeholder:text-faint " + textClass}
         />
         <button
           type="submit"
@@ -1247,6 +1260,140 @@ function useVisibleArea() {
   return area;
 }
 
+function bubblePaint(mine: boolean, look: ChatLook): CSSProperties | undefined {
+  const color = mine ? look.mine : look.their;
+  const fade = mine ? look.mineFade : look.theirFade;
+  if (!color && fade >= 100) return undefined;
+  const base = color || (mine ? "#262a22" : "#1c1f18");
+  const painted = withAlpha(base, fade);
+  return { backgroundColor: painted, borderColor: painted };
+}
+
+const BUBBLE_COLORS = ["#243044", "#1c3d36", "#1e3a5f", "#3a2748", "#4a2430", "#3d3218", "#16383a", "#3a2a22"];
+
+function bubbleKey(meId: string, thread: Thread) {
+  return `atlas.bubble.${meId}.${thread.kind}.${thread.id}`;
+}
+
+export function readBubble(meId: string, thread: Thread) {
+  try {
+    const value = localStorage.getItem(bubbleKey(meId, thread)) ?? "";
+    return /^#[0-9a-fA-F]{6}$/.test(value) ? value : "";
+  } catch {
+    return "";
+  }
+}
+
+function writeBubble(meId: string, thread: Thread, color: string) {
+  try {
+    const key = bubbleKey(meId, thread);
+    if (color) localStorage.setItem(key, color);
+    else localStorage.removeItem(key);
+  } catch {
+    /* this phone keeps the default */
+  }
+}
+
+/** Their bubble color, on this phone only. The swatches, without a screen of their own. */
+export function TheirBubbles({
+  meId,
+  thread,
+  name,
+  color,
+  onChange,
+}: {
+  meId: string;
+  thread: Thread;
+  name: string;
+  color: string;
+  onChange: (color: string) => void;
+}) {
+  const pick = (next: string) => {
+    const color = /^#[0-9a-fA-F]{6}$/.test(next) ? next : "";
+    writeBubble(meId, thread, color);
+    onChange(color);
+  };
+  return (
+    <div>
+      <p className="font-serif text-2xl leading-tight">Their bubbles</p>
+      <p className="mt-1 text-sm text-muted">Only on this phone. {name} still sees the usual bubbles.</p>
+      <div className="mt-4 flex justify-start">
+        <div
+          className="max-w-[70%] rounded-2xl rounded-bl-md border border-line px-3 py-2 text-[15px]"
+          style={color ? { backgroundColor: color, borderColor: color } : undefined}
+        >
+          Like this
+        </div>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          aria-label="Default"
+          aria-pressed={!color}
+          onClick={() => pick("")}
+          className={"h-11 rounded-full border px-3 text-sm " + (!color ? "border-ink bg-elevated" : "border-line")}
+        >
+          Default
+        </button>
+        {BUBBLE_COLORS.map((swatch) => (
+          <button
+            key={swatch}
+            type="button"
+            aria-label={swatch}
+            aria-pressed={color.toLowerCase() === swatch}
+            onClick={() => pick(swatch)}
+            className={"size-11 rounded-full border-2 " + (color.toLowerCase() === swatch ? "border-ink" : "border-transparent")}
+            style={{ backgroundColor: swatch }}
+          />
+        ))}
+        <label className="relative grid size-11 cursor-pointer place-items-center overflow-hidden rounded-full border border-line text-xs text-muted">
+          +
+          <input
+            type="color"
+            aria-label="Custom color"
+            value={color || "#243044"}
+            onChange={(event) => pick(event.target.value)}
+            className="absolute inset-0 size-full cursor-pointer opacity-0"
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+/** Their bubble color, on this phone only. */
+function BubbleSettings({
+  meId,
+  thread,
+  name,
+  color,
+  onClose,
+  onChange,
+}: {
+  meId: string;
+  thread: Thread;
+  name: string;
+  color: string;
+  onClose: () => void;
+  onChange: (color: string) => void;
+}) {
+  useBackClose(onClose);
+  return createPortal(
+    <div role="dialog" aria-label="Chat settings" className="screen-top fixed inset-0 z-[70] flex flex-col bg-bg">
+      <header className="flex shrink-0 items-center gap-2 border-b border-line px-2 py-2">
+        <button type="button" onClick={onClose} className="h-11 px-2 text-sm text-muted">
+          ‹ Chat
+        </button>
+        <p className="min-w-0 flex-1 truncate text-right font-serif text-lg">Settings</p>
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <TheirBubbles meId={meId} thread={thread} name={name} color={color} onChange={onChange} />
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export type ChatAction = { label: string; onClick: () => void; danger?: boolean };
 
 /**
@@ -1272,7 +1419,9 @@ export function ChatScreen({
   const [more, setMore] = useState(false);
   const [wallOpen, setWallOpen] = useState(false);
   const [sharedOpen, setSharedOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [wallpaper, setWallpaper] = useState<string | null>(null);
+  const [look, setLook] = useState<ChatLook>(LOOK_DEFAULT);
   useBackClose(onClose);
   const threadKey = `${chat.thread.kind}:${chat.thread.id}`;
   useEffect(() => {
@@ -1280,6 +1429,21 @@ export function ChatScreen({
     void wallpaperFor(chat.meId, chat.thread).then((image) => {
       if (!dead) setWallpaper(image);
     });
+    return () => {
+      dead = true;
+    };
+  }, [chat.meId, chat.thread, threadKey]);
+  useEffect(() => {
+    let dead = false;
+    const local = readLook(chat.meId, chat.thread);
+    setLook(local);
+    const own = Boolean(local.mine || local.their || local.mineFade < 100 || local.theirFade < 100);
+    if (own && !local.shared) return;
+    void loadTheme({ data: { thread: chat.thread } })
+      .then((theme) => {
+        if (!dead && theme) setLook(applyShared(local, theme, chat.meId));
+      })
+      .catch(() => undefined);
     return () => {
       dead = true;
     };
@@ -1303,15 +1467,15 @@ export function ChatScreen({
           ‹
         </button>
         <div className="min-w-0 flex-1">
-          <p className="truncate font-serif text-xl leading-tight">{title}</p>
+          <p className="truncate font-serif text-xl leading-tight">{nickOf(chat.meId, chat.thread.kind, chat.thread.id, title)}</p>
           {subtitle ? <p className="truncate text-xs text-muted">{subtitle}</p> : null}
         </div>
-        <button type="button" onClick={() => setMore(true)} aria-label="More" className="grid h-11 w-11 place-items-center rounded-full text-lg text-muted">
+        <button type="button" onClick={() => setMore(true)} aria-label="More" className="grid h-11 w-11 place-items-center rounded-full text-[1.7rem] leading-none tracking-widest text-ink">
           ···
         </button>
       </header>
       {note ? <p className="shrink-0 border-b border-line px-3 py-2 text-sm text-muted">{note}</p> : null}
-      <ChatThread {...chat} wallpaper={wallpaper} fill />
+      <ChatThread {...chat} wallpaper={wallpaper} look={look} fill />
       {more ? (
         <Sheet label={title} onClose={() => setMore(false)}>
           <div className="grid gap-2">
@@ -1321,8 +1485,9 @@ export function ChatScreen({
                 setMore(false);
                 setSharedOpen(true);
               }}
-              className="h-11 w-full rounded-lg border border-line text-sm"
+              className="flex h-12 w-full items-center gap-3 rounded-lg border border-line px-3 text-sm text-accent"
             >
+              <Images className="size-4" aria-hidden="true" />
               Shared in this chat
             </button>
             <button
@@ -1331,9 +1496,21 @@ export function ChatScreen({
                 setMore(false);
                 setWallOpen(true);
               }}
-              className="h-11 w-full rounded-lg border border-line text-sm"
+              className="flex h-12 w-full items-center gap-3 rounded-lg border border-line px-3 text-sm text-accent"
             >
+              <ImageIcon className="size-4" aria-hidden="true" />
               Wallpaper
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMore(false);
+                setSettingsOpen(true);
+              }}
+              className="flex h-12 w-full items-center gap-3 rounded-lg border border-line px-3 text-sm text-accent"
+            >
+              <Settings className="size-4" aria-hidden="true" />
+              Settings
             </button>
             {actions.map((action) => (
               <button
@@ -1350,6 +1527,16 @@ export function ChatScreen({
             ))}
           </div>
         </Sheet>
+      ) : null}
+      {settingsOpen ? (
+        <ChatLookScreen
+          meId={chat.meId}
+          thread={chat.thread}
+          name={title}
+          look={look}
+          onClose={() => setSettingsOpen(false)}
+          onChange={setLook}
+        />
       ) : null}
       {sharedOpen ? (
         <SharedInChat
@@ -1407,6 +1594,7 @@ export function MessageBoard({
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<ChatHit[] | null>(null);
   const unread = useChat((state) => state.summary);
+  useLookVersion();
   useBackClose(onClose);
   // Reload on the way back from a chat, so its preview and new-message count are current.
   const reopened = useRef(false);
@@ -1451,7 +1639,7 @@ export function MessageBoard({
   if (open) {
     return (
       <ChatScreen
-        title={open.title}
+        title={nickOf(meId, open.thread.kind, open.thread.id, open.title)}
         onClose={() => setOpen(null)}
         thread={open.thread}
         meId={meId}
@@ -1520,7 +1708,7 @@ export function MessageBoard({
                     }}
                     className="w-full rounded-lg border border-line px-3 py-2 text-left"
                   >
-                    <span className="block truncate text-sm">{hit.title}</span>
+                    <span className="block truncate text-sm">{nickOf(meId, hit.thread.kind, hit.thread.id, hit.title)}</span>
                     <span className="block truncate text-xs text-faint">{hit.preview}</span>
                   </button>
                 </li>
@@ -1548,7 +1736,7 @@ export function MessageBoard({
                   <BoardAvatar row={row} />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline gap-2">
-                      <span className={"min-w-0 flex-1 truncate text-[15px] " + (n ? "font-semibold" : "font-medium")}>{row.title}</span>
+                      <span className={"min-w-0 flex-1 truncate text-[15px] " + (n ? "font-semibold" : "font-medium")}>{nickOf(meId, row.thread.kind, row.thread.id, row.title)}</span>
                       {row.at ? <span className={"shrink-0 text-[11px] " + (n ? "text-accent" : "text-faint")}>{agoText(row.at)}</span> : null}
                     </span>
                     <span className="mt-0.5 flex items-center gap-2">

@@ -59,6 +59,13 @@ public class MessageWatchPlugin extends Plugin {
             return;
         }
         MessageWatch.configure(getContext(), url, token, strings(call.getArray("seen")));
+        MessageWatch.setQuiet(getContext(), strings(call.getArray("quiet")));
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void setQuiet(PluginCall call) {
+        MessageWatch.setQuiet(getContext(), strings(call.getArray("quiet")));
         call.resolve();
     }
 

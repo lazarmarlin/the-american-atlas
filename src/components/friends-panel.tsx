@@ -17,6 +17,7 @@ import { formatMiles, trailLines, type GhostLines } from "@/lib/ghost-trail";
 import type { PackedPoint } from "@/lib/ghost-sync";
 import { apiOrigin, nativeApp } from "@/lib/native";
 import { friendPhotos, loadFriendPhoto, type PhotoInfo } from "@/lib/photos";
+import { nickOf, useLookVersion } from "@/lib/chat-look";
 import { cacheFriendPage, cacheFriends, cacheGroups, cachedFriendPage, cachedFriends, cachedGroups } from "@/lib/chat-cache";
 import { ChatScreen, Sheet, type ChatPhoto, type ChatPlaceOption } from "@/components/friend-chat";
 import { useChat } from "@/lib/chat-store";
@@ -127,6 +128,7 @@ export function FriendsPanel({
   const [bigShot, setBigShot] = useState<{ id: string; image: string | null; thumb: string } | null>(null);
   const [part, setPart] = useState<"badges" | "photos" | "trails">("badges");
   const [chatOpen, setChatOpen] = useState(false);
+  useLookVersion();
   const unread = useChat((state) => state.summary);
   const [groups, setGroups] = useState<ChatGroup[] | null>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
@@ -491,7 +493,7 @@ export function FriendsPanel({
 
             {chatOpen && openId ? (
               <ChatScreen
-                title={page.name}
+                title={nickOf(meId, "friend", page.id, page.name)}
                 subtitle={liveNow.some((row) => row.id === page.id) ? "Sharing a live trail" : undefined}
                 onClose={() => setChatOpen(false)}
                 thread={{ kind: "friend", id: openId }}
@@ -688,7 +690,7 @@ export function FriendsPanel({
               <button type="button" onClick={() => onOpen(friend.id)} className="flex w-full items-center gap-3 rounded-lg border border-line px-3 py-2 text-left">
                 <Face name={friend.name} photo={friend.photo} />
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm">{friend.name}</span>
+                  <span className="block text-sm">{nickOf(meId, "friend", friend.id, friend.name)}</span>
                   <span className="block text-xs text-faint">
                     {liveNow.some((row) => row.id === friend.id) ? "Live trail · " : ""}
                     {friend.trails} {friend.trails === 1 ? "shared trail" : "shared trails"}
@@ -716,8 +718,8 @@ export function FriendsPanel({
                 <li key={g.id}>
                   <button type="button" onClick={() => setGroupId(g.id)} className="flex w-full items-center gap-3 rounded-lg border border-line px-3 py-2 text-left">
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm">{g.name}</span>
-                      <span className="block truncate text-xs text-faint">{g.members.map((m) => m.name).join(", ")}</span>
+                      <span className="block truncate text-sm">{nickOf(meId, "group", g.id, g.name)}</span>
+                      <span className="block truncate text-xs text-faint">{g.members.map((m) => nickOf(meId, "friend", m.id, m.name)).join(", ")}</span>
                     </span>
                     {unread.groups[g.id] ? <Count n={unread.groups[g.id] ?? 0} label="new messages" /> : null}
                   </button>
@@ -761,8 +763,8 @@ export function FriendsPanel({
 
       {openGroup ? (
         <ChatScreen
-          title={openGroup.name}
-          subtitle={openGroup.members.map((m) => m.name).join(", ")}
+          title={nickOf(meId, "group", openGroup.id, openGroup.name)}
+          subtitle={openGroup.members.map((m) => nickOf(meId, "friend", m.id, m.name)).join(", ")}
           note={groupNote ?? sharedNote(travelers, meId)}
           onClose={() => {
             setGroupId(null);

@@ -4,6 +4,7 @@
  * phone notification unless you're looking at that conversation.
  */
 import { create } from "zustand";
+import { isQuiet } from "@/lib/chat-look";
 import { notifyMessage } from "@/lib/live-notify";
 import { startOutbox } from "@/lib/chat-outbox";
 import { showThroughWatch, startMessageWatch } from "@/lib/message-watch";
@@ -39,6 +40,7 @@ function saveSeen(ids: Set<string>) {
 }
 
 let lastLikes = -1;
+let accountId = "";
 
 export const useChat = create<ChatState>((set, get) => ({
   summary: EMPTY,
@@ -64,7 +66,7 @@ export const useChat = create<ChatState>((set, get) => ({
     }
     set({ summary });
     const seen = seenIds();
-    const fresh = summary.latest.filter((m) => !seen.has(m.id) && keyOf(m.thread) !== open);
+    const fresh = summary.latest.filter((m) => !seen.has(m.id) && keyOf(m.thread) !== open && !isQuiet(accountId, m.thread));
     for (const m of summary.latest) seen.add(m.id);
     saveSeen(seen);
     // The Android app notifies natively, sharing one "already notified" list
@@ -83,6 +85,7 @@ export const useChat = create<ChatState>((set, get) => ({
 let timer = 0;
 /** Start checking (once, after sign-in). Returns a stop function. */
 export function startChatChecks(userId?: string) {
+  accountId = userId ?? "";
   window.clearInterval(timer);
   // Messages written with no signal go out from here, even with the chat closed.
   const stopOutbox = userId ? startOutbox(userId) : () => {};

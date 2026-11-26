@@ -7,12 +7,14 @@
  * so a message is never notified twice.
  */
 import { registerPlugin } from "@capacitor/core";
+import { quietList } from "@/lib/chat-look";
 import { apiOrigin, nativeApp } from "@/lib/native";
 
 type Item = { id: string; title: string; body: string; thread?: string };
 const Watch = registerPlugin<{
   addListener(event: "openThread", cb: (data: { thread: string }) => void): Promise<{ remove: () => Promise<void> }>;
-  configure(options: { url: string; token: string; seen: string[] }): Promise<void>;
+  configure(options: { url: string; token: string; seen: string[]; quiet?: string[] }): Promise<void>;
+  setQuiet(options: { quiet: string[] }): Promise<void>;
   show(options: { items: Item[]; seen: string[]; likes: number }): Promise<void>;
   stop(): Promise<void>;
 }>("MessageWatch");
@@ -27,7 +29,7 @@ export async function startMessageWatch(userId: string, seen: string[]) {
     const delivery = await nativeDelivery(userId, deviceId());
     const token = (delivery.headers?.Authorization ?? "").replace(/^Bearer\s+/i, "");
     if (!token) return;
-    await Watch.configure({ url: `${apiOrigin}/api/notify`, token, seen });
+    await Watch.configure({ url: `${apiOrigin}/api/notify`, token, seen, quiet: quietList(userId) });
     ready = true;
   } catch {
     ready = false;
@@ -46,6 +48,11 @@ export async function showThroughWatch(items: Item[], seen: string[], likes: num
   } catch {
     return false;
   }
+}
+
+export async function setQuietThreads(quiet: string[]) {
+  if (!nativeApp || !ready) return;
+  await Watch.setQuiet({ quiet }).catch(() => undefined);
 }
 
 export async function stopMessageWatch() {

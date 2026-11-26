@@ -75,6 +75,11 @@ final class MessageWatch {
         start(app);
     }
 
+    /** Chats that should not buzz ("friend:<id>", "group:<id>"). */
+    static synchronized void setQuiet(Context ctx, List<String> quiet) {
+        prefs(ctx.getApplicationContext()).edit().putString("quiet", String.join("\n", quiet)).apply();
+    }
+
     static synchronized void stop(Context ctx) {
         Context app = ctx.getApplicationContext();
         prefs(app).edit().remove("token").apply();
@@ -165,7 +170,9 @@ final class MessageWatch {
         for (String[] item : items) if (!item[0].isEmpty() && !ids.contains(item[0])) fresh.add(item);
         for (int i = Math.min(fresh.size(), 3) - 1; i >= 0; i--) {
             String[] item = fresh.get(i);
-            post(app, "m:" + item[0], item[1], item[2], item.length > 3 ? item[3] : "");
+            String thread = item.length > 3 ? item[3] : "";
+            if (quietIds(p).contains(thread)) continue;
+            post(app, "m:" + item[0], item[1], item[2], thread);
         }
         for (String[] item : items) ids.add(item[0]);
         ids.addAll(seen);
@@ -213,6 +220,13 @@ final class MessageWatch {
         } catch (SecurityException ignored) {
             // Notifications turned off.
         }
+    }
+
+    private static LinkedHashSet<String> quietIds(SharedPreferences p) {
+        String raw = p.getString("quiet", "");
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        if (!raw.isEmpty()) ids.addAll(Arrays.asList(raw.split("\n")));
+        return ids;
     }
 
     private static LinkedHashSet<String> seenIds(SharedPreferences p) {
