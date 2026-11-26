@@ -32,6 +32,9 @@
 
         </activity>
 
+        <!-- The every-minute message check while tracking (MessageAlarm.java). -->
+        <receiver android:name=".MessageAlarm" android:exported="false" />
+
         <!-- Home-screen widget (AtlasWidget.java). -->
         <receiver
             android:name=".AtlasWidget"

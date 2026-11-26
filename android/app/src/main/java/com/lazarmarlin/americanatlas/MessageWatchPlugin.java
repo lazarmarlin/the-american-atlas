@@ -48,6 +48,8 @@ public class MessageWatchPlugin extends Plugin {
     @Override
     protected void handleOnPause() {
         MessageWatch.foreground = false;
+        // Tracking turned on while the app was open: keep the minute checks going.
+        MessageWatch.scheduleNext(getContext());
     }
 
     @PluginMethod

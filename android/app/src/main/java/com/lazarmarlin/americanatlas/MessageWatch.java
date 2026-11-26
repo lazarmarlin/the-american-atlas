@@ -1,6 +1,7 @@
 package com.lazarmarlin.americanatlas;
 
 import android.Manifest;
+import android.app.AlarmManager;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -9,8 +10,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
-import android.os.Handler;
-import android.os.HandlerThread;
+import android.os.SystemClock;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
@@ -36,9 +36,9 @@ import org.json.JSONObject;
  *
  * The web code's own check pauses once the app is in the background, so on
  * its own it only notified while the app was open. This checks /api/notify
- * every minute while the app's process is alive (the location service keeps
- * it alive while tracking), and every 15 minutes through WorkManager when it
- * isn't. While the app is on screen the web code notifies instead (it knows
+ * every minute while tracking is on (an alarm, MessageAlarm, so it still runs
+ * while the phone sleeps between location fixes), and every 15 minutes
+ * through WorkManager otherwise. While the app is on screen the web code notifies instead (it knows
  * which chat is open), through show(), so both share one list of messages
  * already notified and nothing shows twice.
  */
@@ -52,8 +52,8 @@ final class MessageWatch {
     /** The app is on screen (set by MessageWatchPlugin). */
     static volatile boolean foreground = false;
 
-    private static Handler handler;
-    private static Runnable loop;
+    /** The location plugin's own settings (LocationStore in @capgo/background-geolocation). */
+    private static final String TRACKING_PREFS = "CapgoBackgroundGeolocationWatcher";
 
     private MessageWatch() {}
 
@@ -84,7 +84,26 @@ final class MessageWatch {
         Context app = ctx.getApplicationContext();
         prefs(app).edit().remove("token").apply();
         WorkManager.getInstance(app).cancelUniqueWork(WORK);
-        if (handler != null && loop != null) handler.removeCallbacks(loop);
+        AlarmManager alarms = app.getSystemService(AlarmManager.class);
+        if (alarms != null) alarms.cancel(MessageAlarm.intent(app));
+    }
+
+    /** Tracking is on (the location service is running and posting fixes). */
+    static boolean tracking(Context ctx) {
+        SharedPreferences p = ctx.getApplicationContext().getSharedPreferences(TRACKING_PREFS, Context.MODE_PRIVATE);
+        return p.getBoolean("enabled", false) && p.getString("url", null) != null;
+    }
+
+    /**
+     * The next minute's check. Only while tracking or on screen: otherwise the
+     * 15-minute WorkManager check is enough, and an alarm would wake the phone.
+     */
+    static void scheduleNext(Context ctx) {
+        Context app = ctx.getApplicationContext();
+        if (!configured(app) || !(foreground || tracking(app))) return;
+        AlarmManager alarms = app.getSystemService(AlarmManager.class);
+        if (alarms == null) return;
+        alarms.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + EVERY_MS, MessageAlarm.intent(app));
     }
 
     /** Make sure both checks are running (safe to call often). */
@@ -96,20 +115,7 @@ final class MessageWatch {
             .setConstraints(online)
             .build();
         WorkManager.getInstance(app).enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.KEEP, work);
-        if (handler == null) {
-            HandlerThread thread = new HandlerThread("atlas-messages");
-            thread.start();
-            handler = new Handler(thread.getLooper());
-        }
-        if (loop != null) handler.removeCallbacks(loop);
-        loop = new Runnable() {
-            @Override
-            public void run() {
-                if (!foreground) check(app);
-                if (configured(app)) handler.postDelayed(this, EVERY_MS);
-            }
-        };
-        handler.postDelayed(loop, EVERY_MS);
+        scheduleNext(app);
     }
 
     /** Ask the server what's new and notify anything not notified yet. */
