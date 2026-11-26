@@ -260,8 +260,6 @@ function AtlasShell() {
   const [profile, setProfile] = useState<Profile>({ name: "", photo: "", markerIcon: "", markerColor: "" });
   const [offline, setOffline] = useState(false);
   const [pendingSync, setPendingSync] = useState(0);
-  /** Battery at 20% or less: tracking takes fewer fixes until it's charging or above 30%. */
-  const [lowPower, setLowPower] = useState(false);
   const [passedNote, setPassedNote] = useState<string | null>(null);
   const [addedFlash, setAddedFlash] = useState<Mark | null>(null);
   const [pops, setPops] = useState<BadgeView[]>([]);
@@ -280,6 +278,8 @@ function AtlasShell() {
   // Location runs for tracking, or just to share it with picked friends.
   const sharingOnly = !trackTravel && shareOnly && liveViewers.length > 0;
   const locating = trackTravel || sharingOnly;
+  /** Battery at 20% or less: tracking takes fewer fixes until it's charging or above 30%. */
+  const [lowPower, setLowPower] = useState(false);
   const setTrackTravel = useSettings((s) => s.setTrackTravel);
   const fastAdd = useSettings((s) => s.fastAdd);
   const showParks = useSettings((s) => s.showParks);
