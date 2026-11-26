@@ -691,7 +691,7 @@ function AtlasShell() {
   // Unread messages and thumbs-up, checked while signed in.
   useEffect(() => {
     if (!user?.id) return;
-    return startChatChecks();
+    return startChatChecks(user.id);
   }, [user?.id]);
   // The home-screen widget (Android): today's new places, this month's points, tracking.
   useEffect(() => {

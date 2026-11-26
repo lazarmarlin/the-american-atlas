@@ -10,6 +10,7 @@ import com.getcapacitor.WebViewListener;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(MessageWatchPlugin.class);
         registerPlugin(ApkUpdaterPlugin.class);
         registerPlugin(PhotoLibraryPlugin.class);
         registerPlugin(PowerPlugin.class);

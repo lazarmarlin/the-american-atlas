@@ -289,7 +289,10 @@ export function SettingsPage({
             onClick={() => {
               setSigningOut(true);
               // Trails are on the account; take this account's copy off the device first.
-              void clearGhostLocal()
+              // And stop the phone's own message check, so this account's messages don't keep notifying.
+              void import("@/lib/message-watch")
+                .then(({ stopMessageWatch }) => stopMessageWatch())
+                .then(() => clearGhostLocal())
                 .then(() => signOut())
                 .catch(() => setSigningOut(false));
             }}
