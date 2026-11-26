@@ -433,6 +433,10 @@ export function FriendsPanel({
                   setChatOpen(false);
                   onOpenPlace(place, { kind: "friend", id: openId });
                 }}
+                onOpenTrail={(lines) => {
+                  setChatOpen(false);
+                  onShow(lines);
+                }}
               />
             ) : null}
 
@@ -755,6 +759,10 @@ export function FriendsPanel({
             const from = { kind: "group" as const, id: openGroup.id };
             setGroupId(null);
             onOpenPlace(place, from);
+          }}
+          onOpenTrail={(lines) => {
+            setGroupId(null);
+            onShow(lines);
           }}
         />
       ) : null}

@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useChat } from "@/lib/chat-store";
-import { deleteMessage, listThread, loadThreadPhoto, messageBoard, sendToThread, type BoardItem, type ChatMessage, type ChatPlace, type Thread } from "@/lib/messages";
+import { deleteMessage, listThread, loadThreadPhoto, messageBoard, searchChats, sendToThread, setThreadPin, toggleReaction, type BoardItem, type ChatHit, type ChatMessage, type ChatPlace, type ChatTrail, type Thread } from "@/lib/messages";
 import { milesBetween } from "@/lib/nearby";
 import { readGps } from "@/lib/photo-file";
 import { categoryName } from "@/lib/place-kinds";
 import { pushBack } from "@/lib/sheet-back";
 import { cacheBoard, cachePhoto, cacheThread, cachedBoard, cachedPhoto, cachedThread } from "@/lib/chat-cache";
 import { savePhoto } from "@/lib/save-photo";
-import { Copy, Download, Map as MapIcon, MapPinPlus, Maximize2, Trash2, Undo2, Users, X } from "lucide-react";
+import { freshPoints, thinTrail, useGhost, type GhostPoint } from "@/lib/ghost-trail";
+import { useSettings } from "@/lib/atlas-settings";
+import { trailCard } from "@/lib/trail-card";
+import { Copy, Download, Map as MapIcon, MapPinPlus, Maximize2, Pin, Reply, Trash2, Undo2, Users, X } from "lucide-react";
 import { TripSketch, tripDates } from "@/components/trip-recap";
 
 const PHOTO_LINK = /^https?:\/\/(?:photos\.app\.goo\.gl|photos\.google\.com|goo\.gl\/photos)\/\S+$/i;
@@ -27,6 +30,21 @@ export type ChatPhoto = { thumb: string; image: string; lat: number | null; lon:
 function newId() {
   return `m-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
+
+function blurb(row: ChatMessage) {
+  if (row.kind === "photo") return "Photo";
+  if (row.kind === "link") return "Google Photos";
+  if (row.kind === "place") return row.place?.name || "A place";
+  if (row.kind === "trip") return row.trip?.name || "A trip";
+  if (row.kind === "trail") return row.trail?.name || "A trail";
+  return row.body;
+}
+
+const MARKS = [
+  ["up", "👍"],
+  ["heart", "❤️"],
+  ["pin", "📌"],
+] as const;
 
 function shrinkChatPhoto(file: File, edge: number, quality: number) {
   return new Promise<string>((resolve, reject) => {
@@ -93,6 +111,8 @@ export function ChatThread({
   places,
   onAddToMap,
   onOpenPlace,
+  onOpenTrail,
+  focusId,
   fill = false,
 }: {
   thread: Thread;
@@ -100,6 +120,9 @@ export function ChatThread({
   places: ChatPlaceOption[];
   onAddToMap: (photo: ChatPhoto, place: ChatPlaceOption) => Promise<void>;
   onOpenPlace?: (place: ChatPlace) => void;
+  onOpenTrail?: (lines: [number, number][][]) => void;
+  /** Scroll this message into view once, from a search. */
+  focusId?: string | null;
   /** Fill a full-screen chat: messages take the space, the box sits at the bottom. */
   fill?: boolean;
 }) {
@@ -114,6 +137,8 @@ export function ChatThread({
   useEffect(() => setSavedNote(null), [viewing?.id]);
   const [attach, setAttach] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [trailsOpen, setTrailsOpen] = useState(false);
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [query, setQuery] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
   const photoInput = useRef<HTMLInputElement>(null);
@@ -168,8 +193,13 @@ export function ChatThread({
 
   useEffect(() => {
     const node = scroller.current;
-    if (node) node.scrollTop = node.scrollHeight;
-  }, [rows?.length]);
+    if (!node || focusId) return;
+    node.scrollTop = node.scrollHeight;
+  }, [rows?.length, focusId]);
+  useEffect(() => {
+    if (!focusId || !rows?.some((row) => row.id === focusId)) return;
+    document.getElementById(`chat-${focusId}`)?.scrollIntoView({ block: "center" });
+  }, [focusId, rows]);
   // The keyboard opening shrinks the screen: keep the newest message in view.
   useEffect(() => {
     const vv = window.visualViewport;
@@ -184,16 +214,17 @@ export function ChatThread({
 
   // Back closes whatever is on top: the photo, a picker, the menu.
   useEffect(() => {
-    if (!viewing && !picking && !menu && !attach && !sharing) return;
+    if (!viewing && !picking && !menu && !attach && !sharing && !trailsOpen) return;
     return pushBack(() => {
       if (viewing) setViewing(null);
       else if (picking) setPicking(null);
       else if (sharing) setSharing(false);
+      else if (trailsOpen) setTrailsOpen(false);
       else if (attach) setAttach(false);
       else setMenu(null);
       return true;
     });
-  }, [viewing, picking, menu, attach, sharing]);
+  }, [viewing, picking, menu, attach, sharing, trailsOpen]);
 
   function optimistic(row: Omit<ChatMessage, "fromId" | "fromName" | "at">) {
     const full: ChatMessage = { ...row, fromId: meId, fromName: "You", at: Date.now() };
@@ -207,12 +238,24 @@ export function ChatThread({
     if (!body || busy) return;
     const kind = PHOTO_LINK.test(body) ? "link" : "text";
     const id = newId();
+    const quoting = replyTo;
     setBusy(true);
     setNote(null);
     setDraft("");
-    optimistic({ id, kind, body, thumb: "", lat: null, lon: null, takenAt: null, place: null });
+    setReplyTo(null);
+    optimistic({
+      id,
+      kind,
+      body,
+      thumb: "",
+      lat: null,
+      lon: null,
+      takenAt: null,
+      place: null,
+      reply: quoting ? { id: quoting.id, name: quoting.fromId === meId ? "You" : quoting.fromName, text: blurb(quoting) } : null,
+    });
     try {
-      await sendToThread({ data: { thread, id, kind, body } });
+      await sendToThread({ data: { thread, id, kind, body, replyTo: quoting?.id } });
     } catch (err) {
       drop(id);
       setDraft(body);
@@ -271,6 +314,75 @@ export function ChatThread({
     } catch (err) {
       drop(id);
       setNote(err instanceof Error ? err.message : "Couldn't share that place.");
+    }
+  }
+
+  async function sendTrail(name: string, points: GhostPoint[], day: string | null) {
+    setTrailsOpen(false);
+    setAttach(false);
+    const packed = points.map((point) => [point.lat, point.lon, point.brk ? 1 : 0]);
+    let card: ChatTrail;
+    try {
+      card = trailCard(name, packed, day);
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "That trail is too short to share.");
+      return;
+    }
+    const id = newId();
+    const quoting = replyTo;
+    setReplyTo(null);
+    optimistic({
+      id,
+      kind: "trail",
+      body: "",
+      thumb: "",
+      lat: null,
+      lon: null,
+      takenAt: null,
+      place: null,
+      trail: card,
+      reply: quoting ? { id: quoting.id, name: quoting.fromId === meId ? "You" : quoting.fromName, text: blurb(quoting) } : null,
+    });
+    try {
+      await sendToThread({ data: { thread, id, kind: "trail", trail: { name, points: packed, day }, replyTo: quoting?.id } });
+    } catch (err) {
+      drop(id);
+      setNote(err instanceof Error ? err.message : "Couldn't share that trail.");
+    }
+  }
+
+  async function react(message: ChatMessage, mark: "up" | "heart" | "pin") {
+    setMenu(null);
+    setRows((prev) =>
+      (prev ?? []).map((row) => {
+        if (row.id !== message.id) return row;
+        const current = row.reactions ?? { up: 0, heart: 0, pin: 0, mine: [] };
+        const on = current.mine.includes(mark);
+        return {
+          ...row,
+          reactions: {
+            ...current,
+            [mark]: Math.max(0, current[mark] + (on ? -1 : 1)),
+            mine: on ? current.mine.filter((item) => item !== mark) : [...current.mine, mark],
+          },
+        };
+      }),
+    );
+    try {
+      await toggleReaction({ data: { thread, id: message.id, mark } });
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Couldn't react.");
+    }
+  }
+
+  async function pinMessage(message: ChatMessage) {
+    const on = !message.pinned;
+    setMenu(null);
+    setRows((prev) => (prev ?? []).map((row) => ({ ...row, pinned: on && row.id === message.id })));
+    try {
+      await setThreadPin({ data: { thread, id: on ? message.id : "" } });
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Couldn't pin that.");
     }
   }
 
@@ -349,6 +461,28 @@ export function ChatThread({
           {group ? "Everyone in this chat sees what you send." : "Text, a photo, a place, or a Google Photos link."} Hold a message for options.
         </p>
       )}
+      {rows?.find((row) => row.pinned) ? (
+        <button
+          type="button"
+          onClick={() => document.getElementById(`chat-${rows.find((row) => row.pinned)?.id}`)?.scrollIntoView({ block: "center" })}
+          className="mx-3 mt-2 flex h-11 items-center gap-2 rounded-lg border border-line px-3 text-left text-sm"
+        >
+          <Pin className="size-4 shrink-0 text-faint" />
+          <span className="min-w-0 flex-1 truncate">{blurb(rows.find((row) => row.pinned) as ChatMessage)}</span>
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(event) => {
+              event.stopPropagation();
+              const pinned = rows.find((row) => row.pinned);
+              if (pinned) void pinMessage(pinned);
+            }}
+            className="shrink-0 text-xs text-faint"
+          >
+            Unpin
+          </span>
+        </button>
+      ) : null}
       <div ref={scroller} className={"flex flex-col gap-2 overflow-y-auto px-3 " + (fill ? "min-h-0 flex-1 py-3" : "mt-2 max-h-[46dvh]")}>
         {rows === null ? <p className="text-sm text-muted">Loading…</p> : null}
         {rows && rows.length === 0 ? (
@@ -363,7 +497,7 @@ export function ChatThread({
           // A date and time line when the day changes or after a 30-minute gap.
           const stamp = !prev || dayOf(prev.at) !== dayOf(row.at) || row.at - prev.at > 30 * 60 * 1000;
           return (
-            <div key={row.id} className={"flex flex-col " + (mine ? "items-end" : "items-start")}>
+            <div key={row.id} id={`chat-${row.id}`} className={"flex flex-col " + (mine ? "items-end" : "items-start")}>
               {stamp ? <p className="my-1 w-full text-center text-[11px] text-faint">{stampText(row.at)}</p> : null}
               {group && !mine ? <span className="mb-0.5 px-1 text-xs text-faint">{row.fromName}</span> : null}
               <div
@@ -380,6 +514,12 @@ export function ChatThread({
                 }}
                 className={"max-w-[78%] rounded-2xl px-3 py-1.5 text-[15px] leading-snug select-none " + (row.kind === "text" ? "" : "w-64 ") + (mine ? "rounded-br-md bg-elevated" : "rounded-bl-md border border-line")}
               >
+                {row.reply ? (
+                  <p className="mb-1 truncate border-l-2 border-line pl-2 text-xs text-faint">
+                    {row.reply.name ? `${row.reply.name}: ` : ""}
+                    {row.reply.text}
+                  </p>
+                ) : null}
                 {row.kind === "photo" && row.thumb ? (
                   <button type="button" onClick={() => view(row)} className="block w-full" aria-label="See the photo">
                     <ChatImage thread={thread} meId={meId} id={row.id} thumb={row.thumb} />
@@ -423,8 +563,41 @@ export function ChatThread({
                     </span>
                   </div>
                 ) : null}
+                {row.kind === "trail" && row.trail ? (
+                  <div className="py-1">
+                    <span className="block text-xs tracking-widest text-faint uppercase">{mine ? "My trail" : `${row.fromName}'s trail`}</span>
+                    <span className="mt-0.5 block font-serif text-lg leading-tight">{row.trail.name}</span>
+                    <div className="mt-1.5">
+                      <TripSketch lines={row.trail.lines} dots={[]} height={110} />
+                    </div>
+                    <span className="mt-1.5 block text-xs text-muted">
+                      {row.trail.miles.toLocaleString()} mi{row.trail.day ? ` · ${shortDate(row.trail.day)}` : ""}
+                    </span>
+                    {onOpenTrail ? (
+                      <button type="button" onClick={() => onOpenTrail(row.trail?.lines ?? [])} className="my-1.5 h-10 w-full rounded-lg border border-line text-sm">
+                        On the map
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
                 {row.kind === "text" ? <p className="break-words">{linkParts(row.body)}</p> : null}
               </div>
+              {row.reactions && (row.reactions.up || row.reactions.heart || row.reactions.pin) ? (
+                <div className="mt-0.5 flex gap-1 px-1">
+                  {MARKS.map(([mark, glyph]) =>
+                    row.reactions?.[mark] ? (
+                      <button
+                        key={mark}
+                        type="button"
+                        onClick={() => void react(row, mark)}
+                        className={"h-7 rounded-full border px-2 text-xs " + (row.reactions.mine.includes(mark) ? "border-ink bg-elevated" : "border-line")}
+                      >
+                        {glyph} {row.reactions[mark]}
+                      </button>
+                    ) : null,
+                  )}
+                </div>
+              ) : null}
               {lastMine ? (
                 <span className="mt-0.5 px-1 text-[11px] text-faint">
                   {row.read ? `Read${row.readAt ? ` ${timeText(row.readAt)}` : ""}` : `Sent ${timeText(row.at)}`}
@@ -435,6 +608,17 @@ export function ChatThread({
         })}
       </div>
       {note ? <p className="mt-2 px-3 text-sm text-muted">{note}</p> : null}
+      {replyTo ? (
+        <div className="mx-3 mt-2 flex items-center gap-2 rounded-lg border border-line px-3 py-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-faint">Reply to {replyTo.fromId === meId ? "yourself" : replyTo.fromName}</p>
+            <p className="truncate text-sm">{blurb(replyTo)}</p>
+          </div>
+          <button type="button" onClick={() => setReplyTo(null)} aria-label="Cancel reply" className="grid h-11 w-11 place-items-center text-muted">
+            <X className="size-4" />
+          </button>
+        </div>
+      ) : null}
       <form
         className={"flex items-end gap-2 px-3 " + (fill ? "border-t border-line bg-surface pt-2 safe-bottom" : "mt-2")}
         onSubmit={(event) => {
@@ -502,6 +686,16 @@ export function ChatThread({
           >
             A place you've been
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setAttach(false);
+              setTrailsOpen(true);
+            }}
+            className="mt-2 h-11 w-full rounded-lg border border-line text-sm"
+          >
+            A ghost trail
+          </button>
         </Sheet>
       ) : null}
 
@@ -522,6 +716,13 @@ export function ChatThread({
         </Sheet>
       ) : null}
 
+      {trailsOpen ? (
+        <TrailSheet
+          onClose={() => setTrailsOpen(false)}
+          onPick={(name, points, day) => void sendTrail(name, points, day)}
+        />
+      ) : null}
+
       {menu ? (
         <Sheet label="Message" heldOpen={menuHeld.current} onClose={() => setMenu(null)} bare>
           {/* The message itself, so it's clear which one this is about. */}
@@ -532,11 +733,31 @@ export function ChatThread({
                 {menu.fromId === meId ? "You" : menu.fromName} · {stampText(menu.at)}
               </p>
               <p className="truncate text-sm">
-                {menu.kind === "photo" ? "Photo" : menu.kind === "place" ? menu.place?.name : menu.kind === "trip" ? menu.trip?.name : menu.body}
+                {menu.kind === "photo" ? "Photo" : menu.kind === "place" ? menu.place?.name : menu.kind === "trip" ? menu.trip?.name : menu.kind === "trail" ? menu.trail?.name : menu.body}
               </p>
             </div>
           </div>
           <div className="overflow-hidden rounded-xl border border-line">
+            <div className="flex border-b border-line">
+              {MARKS.map(([mark, glyph]) => (
+                <button key={mark} type="button" onClick={() => void react(menu, mark)} className="h-12 flex-1 text-lg">
+                  {glyph}
+                </button>
+              ))}
+            </div>
+            <MenuRow
+              icon={<Reply className="size-[18px]" />}
+              label="Reply"
+              onClick={() => {
+                setReplyTo(menu);
+                setMenu(null);
+              }}
+            />
+            <MenuRow
+              icon={<Pin className="size-[18px]" />}
+              label={menu.pinned ? "Unpin" : "Pin to the top"}
+              onClick={() => void pinMessage(menu)}
+            />
             {menu.kind === "photo" ? (
               <>
                 <MenuRow icon={<Maximize2 className="size-[18px]" />} label="See full size" onClick={() => view(menu)} />
@@ -869,6 +1090,7 @@ export function MessageBoard({
   places,
   onAddToMap,
   onOpenPlace,
+  onOpenTrail,
   onClose,
   initial = null,
 }: {
@@ -876,6 +1098,7 @@ export function MessageBoard({
   places: ChatPlaceOption[];
   onAddToMap: (photo: ChatPhoto, place: ChatPlaceOption) => Promise<void>;
   onOpenPlace?: (place: ChatPlace, from?: Thread) => void;
+  onOpenTrail?: (lines: [number, number][][]) => void;
   onClose: () => void;
   /** Open straight into this chat (back from a place it sent). */
   initial?: Thread | null;
@@ -883,6 +1106,9 @@ export function MessageBoard({
   const [rows, setRows] = useState<BoardItem[] | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [open, setOpen] = useState<BoardItem | null>(null);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState<ChatHit[] | null>(null);
   const unread = useChat((state) => state.summary);
   useEffect(
     () =>
@@ -940,7 +1166,9 @@ export function MessageBoard({
         thread={open.thread}
         meId={meId}
         places={places}
+        focusId={focusId}
         onAddToMap={onAddToMap}
+        onOpenTrail={onOpenTrail}
         onOpenPlace={
           onOpenPlace
             ? (place) => {
@@ -961,8 +1189,55 @@ export function MessageBoard({
         </button>
         <p className="font-serif text-xl leading-tight">Messages</p>
       </header>
+      <form
+        className="px-3 pt-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const text = q.trim();
+          if (text.length < 2) {
+            setHits(null);
+            return;
+          }
+          searchChats({ data: { q: text } })
+            .then(setHits)
+            .catch((err) => setNote(err instanceof Error ? err.message : "Couldn't search."));
+        }}
+      >
+        <input
+          value={q}
+          onChange={(event) => {
+            setQ(event.target.value);
+            if (event.target.value.trim().length < 2) setHits(null);
+          }}
+          placeholder="Search messages and places"
+          className="h-11 w-full rounded-lg border border-line bg-bg px-3 text-base text-ink outline-none placeholder:text-faint"
+        />
+      </form>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        {note ? <p className="text-sm text-accent">{note}</p> : null}
+        {note ? <p className="mb-2 text-sm text-accent">{note}</p> : null}
+        {hits ? (
+          hits.length ? (
+            <ul className="mb-3 grid gap-1">
+              {hits.map((hit) => (
+                <li key={hit.messageId}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusId(hit.messageId);
+                      setOpen({ thread: hit.thread, title: hit.title, preview: hit.preview, at: hit.at, mine: false });
+                    }}
+                    className="w-full rounded-lg border border-line px-3 py-2 text-left"
+                  >
+                    <span className="block truncate text-sm">{hit.title}</span>
+                    <span className="block truncate text-xs text-faint">{hit.preview}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mb-3 text-sm text-muted">Nothing in your chats matches that.</p>
+          )
+        ) : null}
         {rows === null && !note ? <p className="text-sm text-muted">Loading…</p> : null}
         {rows && rows.length === 0 ? <p className="text-sm text-muted">No friends yet. A chat shows up here once you add one.</p> : null}
         <ul className="grid gap-1">
@@ -1035,6 +1310,42 @@ function stampText(ms: number) {
 }
 
 /** One action in the message menu: an icon, a label, a divider between rows. */
+function TrailSheet({
+  onClose,
+  onPick,
+}: {
+  onClose: () => void;
+  onPick: (name: string, points: GhostPoint[], day: string | null) => void;
+}) {
+  const saved = useGhost((state) => state.saved);
+  const live = useGhost((state) => state.live);
+  const hours = useSettings((state) => state.ghostHours);
+  const today = thinTrail(freshPoints(live, hours), 40);
+  const day = (t: number) => new Date(t).toLocaleDateString("en-CA");
+  return (
+    <Sheet label="Share a trail" onClose={onClose}>
+      <p className="text-xs text-muted">The ends are left off, so it doesn't point at where you started or stopped.</p>
+      <ul className="mt-2">
+        {today.length >= 2 ? (
+          <li>
+            <button type="button" onClick={() => onPick("Today's drive", today, day(today[0]?.t ?? Date.now()))} className="flex h-11 w-full items-center text-left text-sm">
+              Today's drive
+            </button>
+          </li>
+        ) : null}
+        {saved.map((trail) => (
+          <li key={trail.id}>
+            <button type="button" onClick={() => onPick(trail.name, trail.points, day(trail.startedAt))} className="flex h-11 w-full items-center text-left text-sm">
+              <span className="min-w-0 flex-1 truncate">{trail.name}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {!saved.length && today.length < 2 ? <p className="mt-2 text-sm text-muted">No saved trail, and today's drive is too short.</p> : null}
+    </Sheet>
+  );
+}
+
 function MenuRow({ icon, label, onClick, danger = false }: { icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean }) {
   return (
     <button

@@ -2216,6 +2216,17 @@ function AtlasShell() {
               setMailOpen(false);
               setMailThread(null);
             }}
+            onOpenTrail={(lines) => {
+              setMailOpen(false);
+              setMailThread(null);
+              trailShown.current = true;
+              setFriendLive(null);
+              setFriendLines(lines);
+              setFriendLook((n) => n + 1);
+              setSheetInstant(true);
+              setSheet(8);
+              window.setTimeout(() => setSheetInstant(false), 80);
+            }}
             onOpenPlace={(place, from) => {
               setMailOpen(false);
               setMailThread(null);
