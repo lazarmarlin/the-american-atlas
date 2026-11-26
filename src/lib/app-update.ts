@@ -14,6 +14,11 @@ const CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
 
 type UpdaterPlugin = {
   canInstall(): Promise<{ allowed: boolean }>;
+  /** Newer apps: download now, install later (installReady). */
+  download(options: { url: string }): Promise<{ bytes: number }>;
+  ready(): Promise<{ ready: boolean }>;
+  installReady(): Promise<void>;
+  lastError(): Promise<{ message: string }>;
   openInstallSettings(): Promise<void>;
   install(options: { url: string }): Promise<void>;
   addListener(
@@ -32,6 +37,10 @@ type State = {
   /** The prompt was put off until the next launch. */
   later: boolean;
   status: "idle" | "checking" | "downloading" | "installing" | "permission" | "error";
+  /** The update is downloaded and installs on its own (see AutoUpdate). */
+  ready: boolean;
+  /** Downloading quietly in the background (no prompt). */
+  background: boolean;
   percent: number;
   message: string | null;
   checkedAt: number;
@@ -42,6 +51,8 @@ export const useUpdate = create<State>(() => ({
   available: null,
   later: false,
   status: "idle",
+  ready: false,
+  background: false,
   percent: 0,
   message: null,
   checkedAt: 0,
@@ -79,6 +90,7 @@ export async function checkForUpdate(force = false) {
     const latest = Number.parseInt(String(release.tag_name ?? "").replace(/^build-/, ""), 10);
     const asset = release.assets?.find((a) => a.name.endsWith(".apk"));
     const newer = Number.isFinite(latest) && asset && latest > build;
+    if (newer) void downloadQuietly({ build: latest, url: asset.browser_download_url, notes: release.body ?? "", size: asset.size });
     useUpdate.setState({
       status: "idle",
       available: newer
@@ -149,4 +161,62 @@ export async function resumeAfterPermission() {
 
 export function sizeText(bytes: number) {
   return bytes > 0 ? `${(bytes / 1_048_576).toFixed(1)} MB` : "";
+}
+
+const READY_KEY = "atlas.update-ready";
+
+/**
+ * Self-updating: a newer build downloads in the background as soon as it's
+ * found, then installs the next time the app is open and you're not driving
+ * (AutoUpdate in update-prompt.tsx). Older app builds without the native
+ * download fall back to the Update button.
+ */
+async function downloadQuietly(update: UpdateInfo) {
+  const state = useUpdate.getState();
+  if (state.background || state.status === "downloading") return;
+  try {
+    if (localStorage.getItem(READY_KEY) === String(update.build) && (await Updater.ready()).ready) {
+      useUpdate.setState({ ready: true });
+      return;
+    }
+  } catch {
+    // An older app: no background download.
+    return;
+  }
+  useUpdate.setState({ background: true, percent: 0 });
+  const sub = await Updater.addListener("progress", ({ percent }) => {
+    if (percent >= 0) useUpdate.setState({ percent });
+  }).catch(() => null);
+  try {
+    await Updater.download({ url: update.url });
+    localStorage.setItem(READY_KEY, String(update.build));
+    useUpdate.setState({ ready: true, background: false });
+  } catch {
+    // Next check tries again.
+    useUpdate.setState({ background: false });
+  } finally {
+    void sub?.remove();
+  }
+}
+
+/** Install the downloaded update now (the app closes and reopens). */
+export async function installReadyUpdate() {
+  try {
+    await Updater.installReady();
+    useUpdate.setState({ status: "installing", message: null });
+  } catch (err) {
+    const text = err instanceof Error ? err.message : "";
+    if (text === "needs-permission") useUpdate.setState({ status: "permission", message: null });
+    else if (/not implemented|No update downloaded/i.test(text)) useUpdate.setState({ ready: false });
+    else useUpdate.setState({ status: "error", message: text || "The update didn't install." });
+  }
+}
+
+/** A failed install from last time, to show once. */
+export async function lastInstallError() {
+  try {
+    return (await Updater.lastError()).message || null;
+  } catch {
+    return null;
+  }
 }

@@ -1,8 +1,11 @@
 import { useEffect } from "react";
+import { useState } from "react";
 import {
   allowInstalls,
   checkForUpdate,
+  installReadyUpdate,
   installUpdate,
+  lastInstallError,
   resumeAfterPermission,
   sizeText,
   useUpdate,
@@ -33,8 +36,44 @@ function DownloadBar({ percent, size }: { percent: number; size: number }) {
     </div>
   );
 }
-export function UpdatePrompt() {
-  const { available, later, status, percent, message } = useUpdate();
+export function UpdatePrompt({ hold = false }: { hold?: boolean }) {
+  const { available, later, status, percent, message, ready, background } = useUpdate();
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [visible, setVisible] = useState(() => typeof document === "undefined" || document.visibilityState === "visible");
+  useEffect(() => {
+    const onShow = () => setVisible(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", onShow);
+    return () => document.removeEventListener("visibilitychange", onShow);
+  }, []);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!nativeApp) return;
+    void lastInstallError().then((text) => text && setFailed(text));
+  }, []);
+
+  // Downloaded: install on its own, after a few seconds' notice, while the app
+  // is open and you're not driving (installing closes the app for a moment).
+  useEffect(() => {
+    // Never from the background: installing closes the app, and with it tracking.
+    if (!ready || later || hold || !visible || status === "permission" || status === "installing") {
+      setCountdown(null);
+      return;
+    }
+    setCountdown(5);
+    const timer = window.setInterval(() => {
+      setCountdown((n) => {
+        if (n == null) return n;
+        if (n <= 1) {
+          window.clearInterval(timer);
+          if (document.visibilityState === "visible") void installReadyUpdate();
+          return 0;
+        }
+        return n - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [ready, later, hold, visible, status]);
 
   useEffect(() => {
     if (!nativeApp) return;
@@ -47,6 +86,48 @@ export function UpdatePrompt() {
     document.addEventListener("visibilitychange", onShow);
     return () => document.removeEventListener("visibilitychange", onShow);
   }, []);
+
+  if (nativeApp && failed && !ready) {
+    return (
+      <div className="pointer-events-none absolute inset-x-0 top-safe z-30 flex justify-center px-4 pt-3">
+        <div role="status" className="pointer-events-auto flex w-full max-w-sm items-center gap-3 rounded-card border border-line bg-surface px-4 py-3 shadow-lg">
+          <p className="min-w-0 flex-1 text-sm">The last update didn't install: {failed}</p>
+          <button type="button" onClick={() => setFailed(null)} className="h-9 shrink-0 rounded-lg border border-line px-3 text-sm">
+            OK
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // The self-update notice.
+  if (nativeApp && ready && available && !later && status !== "permission") {
+    return (
+      <div className="pointer-events-none absolute inset-x-0 top-safe z-30 flex justify-center px-4 pt-3">
+        <div role="status" className="pointer-events-auto w-full max-w-sm rounded-card border border-line bg-surface px-4 py-3 shadow-lg">
+          <p className="text-xs tracking-widest text-faint uppercase">Updating</p>
+          <p className="mt-1 text-sm">
+            Build {available.build}
+            {status === "installing" ? " · installing, the app will reopen" : countdown != null ? ` in ${countdown}…` : hold ? " · after you're done driving" : ""}
+          </p>
+          {message ? <p className="mt-1 text-sm text-muted">{message}</p> : null}
+          {status !== "installing" ? (
+            <div className="mt-2 flex gap-2">
+              <button type="button" onClick={() => void installReadyUpdate()} className="h-10 flex-1 rounded-lg border border-ink bg-elevated text-sm">
+                Update now
+              </button>
+              <button type="button" onClick={() => useUpdate.setState({ later: true })} className="h-10 flex-1 rounded-lg border border-line text-sm">
+                Not now
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  // Still downloading in the background: nothing to show yet.
+  if (background) return null;
 
   if (!nativeApp || !available || later) return null;
 

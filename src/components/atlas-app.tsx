@@ -2159,7 +2159,7 @@ function AtlasShell() {
       className={"app-shell bg-bg text-ink" + (sheetInstant ? " sheet-drag" : "") + (cardOnly ? " sheet-card" : "") + (driving ? " drive-mode" : "")}
       style={cardOnly ? undefined : { ["--sheet" as string]: sheet <= 12 ? "var(--sheet-peek)" : `${sheet}dvh` }}
     >
-      {popped ? null : <UpdatePrompt />}
+      {popped ? null : <UpdatePrompt hold={driving} />}
       {viewing ? (
         <PhotoViewer
           photos={viewing.list}
