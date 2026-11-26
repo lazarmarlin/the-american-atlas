@@ -1564,8 +1564,17 @@ export function AtlasMap({
     const top = Math.max(28, Math.min(insetRef.current + 10, height - bottom - 110));
     return { top, bottom, left: 18, right: 18 };
   }, []);
-  // Opening: fit it that way once the overlays are measured, until you move the map yourself.
+  // Opening: fit it that way once the overlays are measured, but only while the
+  // atlas is opening: not after you've moved the map, and not once anything else
+  // has (a place opened from a chat, a spot, a state), or it would snap back out.
   const touched = useRef(false);
+  const readyAt = useRef(0);
+  useEffect(() => {
+    if (ready && !readyAt.current) readyAt.current = Date.now();
+  }, [ready]);
+  useEffect(() => {
+    if (spotlight || fitTo || selected || stateAbbr) touched.current = true;
+  }, [spotlight, fitTo, selected, stateAbbr]);
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
@@ -1580,6 +1589,7 @@ export function AtlasMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || !topInset || touched.current || viewRef.current.stateAbbr || selectedRef.current) return;
+    if (Date.now() - readyAt.current > 4000) return;
     map.fitBounds(USA, { padding: usaPadding(), duration: 0 });
   }, [topInset, ready, usaPadding]);
 
