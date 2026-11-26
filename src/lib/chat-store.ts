@@ -5,6 +5,7 @@
  */
 import { create } from "zustand";
 import { notifyMessage } from "@/lib/live-notify";
+import { startOutbox } from "@/lib/chat-outbox";
 import { showThroughWatch, startMessageWatch } from "@/lib/message-watch";
 import { unreadSummary, type Thread, type UnreadSummary } from "@/lib/messages";
 
@@ -83,6 +84,8 @@ let timer = 0;
 /** Start checking (once, after sign-in). Returns a stop function. */
 export function startChatChecks(userId?: string) {
   window.clearInterval(timer);
+  // Messages written with no signal go out from here, even with the chat closed.
+  const stopOutbox = userId ? startOutbox(userId) : () => {};
   // Native check first, so the first refresh can already notify through it.
   void (userId ? startMessageWatch(userId, [...seenIds()]) : Promise.resolve()).finally(() => void useChat.getState().refresh());
   const tick = () => void useChat.getState().refresh();
@@ -94,5 +97,6 @@ export function startChatChecks(userId?: string) {
   return () => {
     window.clearInterval(timer);
     document.removeEventListener("visibilitychange", onShow);
+    stopOutbox();
   };
 }

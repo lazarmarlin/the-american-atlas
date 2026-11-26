@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useChat } from "@/lib/chat-store";
-import { deleteMessage, listThread, loadThreadPhoto, messageBoard, searchChats, sendToThread, setThreadPin, toggleReaction, type BoardItem, type ChatHit, type ChatMessage, type ChatPlace, type ChatTrail, type Thread } from "@/lib/messages";
+import { deleteMessage, listThread, loadThreadPhoto, messageBoard, searchChats, setThreadPin, toggleReaction, type BoardItem, type ChatHit, type ChatMessage, type ChatPlace, type ChatTrail, type Thread } from "@/lib/messages";
 import { milesBetween } from "@/lib/nearby";
 import { readGps } from "@/lib/photo-file";
 import { categoryName } from "@/lib/place-kinds";
 import { pushBack, useBackClose } from "@/lib/sheet-back";
+import { dropFromOutbox, isConnectionError, onOutboxSent, retryFromOutbox, sendOrQueue, useOutbox } from "@/lib/chat-outbox";
 import { cacheBoard, cachePhoto, cacheThread, cachedBoard, cachedPhoto, cachedThread } from "@/lib/chat-cache";
 import { savePhoto } from "@/lib/save-photo";
 import { freshPoints, thinTrail, useGhost, type GhostPoint } from "@/lib/ghost-trail";
 import { useSettings } from "@/lib/atlas-settings";
 import { trailCard } from "@/lib/trail-card";
-import { Copy, Download, Map as MapIcon, MapPinPlus, Maximize2, Pin, Reply, Trash2, Undo2, Users, X } from "lucide-react";
+import { Copy, Download, Map as MapIcon, MapPinPlus, Maximize2, Pin, Reply, Trash2, Undo2, Users, X, Clock } from "lucide-react";
 import { TripSketch, tripDates } from "@/components/trip-recap";
 
 const PHOTO_LINK = /^https?:\/\/(?:photos\.app\.goo\.gl|photos\.google\.com|goo\.gl\/photos)\/\S+$/i;
@@ -192,7 +193,11 @@ export function ChatThread({
           if (dead) return;
           // No signal: keep showing the saved messages, and say so.
           offline = true;
-          setNote(shown ? "No connection. Showing saved messages." : err instanceof Error ? err.message : "Couldn't load the chat.");
+          if (isConnectionError(err)) {
+            // Nothing saved for this chat yet: open it empty, so messages waiting to go out still show.
+            setRows((cur) => cur ?? []);
+            setNote(shown ? "No connection. Showing saved messages." : "No connection.");
+          } else setNote(err instanceof Error ? err.message : "Couldn't load the chat.");
         })
         .finally(() => {
           inFlight = false;
@@ -270,8 +275,37 @@ export function ChatThread({
     const full: ChatMessage = { ...row, fromId: meId, fromName: "You", at: Date.now() };
     sending.current.add(full.id);
     setRows((prev) => [...(prev ?? []), full]);
-    return full.id;
+    return full;
   }
+  /**
+   * Send it, or keep it in the outbox until there's signal (it stays on
+   * screen marked "Sending…"). Only a message the server refuses is taken
+   * back; then `refused` gets the reason.
+   */
+  async function deliver(message: ChatMessage, data: Parameters<typeof sendOrQueue>[1], refused: (reason: string) => void) {
+    const result = await sendOrQueue(thread, data, message);
+    if (result === "sent") sent(message.id);
+    else if (result !== "queued") {
+      drop(message.id);
+      refused(result.error);
+    }
+  }
+  // Messages still waiting to go out: shown in the chat (also after the app was closed).
+  const waiting = useOutbox((state) => state.entries);
+  const loaded = rows !== null;
+  const waitingHere = useMemo(() => new Map(waiting.filter((e) => e.thread.kind === thread.kind && e.thread.id === thread.id).map((e) => [e.id, e])), [waiting, thread.kind, thread.id]);
+  useEffect(() => {
+    if (!waitingHere.size) return;
+    setRows((cur) => {
+      if (cur === null) return cur;
+      const have = new Set(cur.map((row) => row.id));
+      const add = [...waitingHere.values()].filter((e) => !have.has(e.id)).map((e) => e.message);
+      for (const e of waitingHere.values()) sending.current.add(e.id);
+      return add.length ? [...cur, ...add].sort((a, b) => a.at - b.at) : cur;
+    });
+  }, [waitingHere, loaded]);
+  // One went out from the outbox: show it from the server.
+  useEffect(() => onOutboxSent(() => pullNow.current()), []);
   const drop = (id: string) => {
     sending.current.delete(id);
     setRows((prev) => (prev ?? []).filter((row) => row.id !== id));
@@ -292,7 +326,7 @@ export function ChatThread({
     setNote(null);
     setDraft("");
     setReplyTo(null);
-    optimistic({
+    const message = optimistic({
       id,
       kind,
       body,
@@ -304,12 +338,10 @@ export function ChatThread({
       reply: quoting ? { id: quoting.id, name: quoting.fromId === meId ? "You" : quoting.fromName, text: blurb(quoting) } : null,
     });
     try {
-      await sendToThread({ data: { thread, id, kind, body, replyTo: quoting?.id } });
-      sent(id);
-    } catch (err) {
-      drop(id);
-      setDraft(body);
-      setNote(err instanceof Error ? err.message : "Couldn't send that.");
+      await deliver(message, { thread, id, kind, body, replyTo: quoting?.id }, (reason) => {
+        setDraft(body);
+        setNote(reason);
+      });
     } finally {
       setBusy(false);
     }
@@ -329,14 +361,8 @@ export function ChatThread({
       if (thumb.length > 115000) thumb = await shrinkChatPhoto(file, 400, 0.65);
       const id = newId();
       const extra = { lat: gps?.lat ?? null, lon: gps?.lon ?? null, takenAt: gps?.takenAt ?? file.lastModified ?? null };
-      optimistic({ id, kind: "photo", body: "", thumb, place: null, ...extra });
-      try {
-        await sendToThread({ data: { thread, id, kind: "photo", body: "", thumb, image, ...extra } });
-        sent(id);
-      } catch (err) {
-        drop(id);
-        throw err;
-      }
+      const message = optimistic({ id, kind: "photo", body: "", thumb, place: null, ...extra });
+      await deliver(message, { thread, id, kind: "photo", body: "", thumb, image, ...extra }, setNote);
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Couldn't send that photo.");
     } finally {
@@ -361,14 +387,8 @@ export function ChatThread({
       // Picked from your own places; the server checks it's on your map.
       visited: true,
     };
-    optimistic({ id, kind: "place", body: "", thumb: "", lat: place.lat, lon: place.lon, takenAt: null, place: card });
-    try {
-      await sendToThread({ data: { thread, id, kind: "place", place: card } });
-      sent(id);
-    } catch (err) {
-      drop(id);
-      setNote(err instanceof Error ? err.message : "Couldn't share that place.");
-    }
+    const message = optimistic({ id, kind: "place", body: "", thumb: "", lat: place.lat, lon: place.lon, takenAt: null, place: card });
+    await deliver(message, { thread, id, kind: "place", place: card }, setNote);
   }
 
   async function sendTrail(name: string, points: GhostPoint[], day: string | null) {
@@ -385,7 +405,7 @@ export function ChatThread({
     const id = newId();
     const quoting = replyTo;
     setReplyTo(null);
-    optimistic({
+    const message = optimistic({
       id,
       kind: "trail",
       body: "",
@@ -397,13 +417,7 @@ export function ChatThread({
       trail: card,
       reply: quoting ? { id: quoting.id, name: quoting.fromId === meId ? "You" : quoting.fromName, text: blurb(quoting) } : null,
     });
-    try {
-      await sendToThread({ data: { thread, id, kind: "trail", trail: { name, points: packed, day }, replyTo: quoting?.id } });
-      sent(id);
-    } catch (err) {
-      drop(id);
-      setNote(err instanceof Error ? err.message : "Couldn't share that trail.");
-    }
+    await deliver(message, { thread, id, kind: "trail", trail: { name, points: packed, day }, replyTo: quoting?.id }, setNote);
   }
 
   async function react(message: ChatMessage, mark: "up" | "heart" | "pin") {
@@ -653,7 +667,29 @@ export function ChatThread({
                   )}
                 </div>
               ) : null}
-              {lastMine ? (
+              {waitingHere.get(row.id)?.state === "failed" ? (
+                <span className="mt-0.5 flex items-center gap-2 px-1 text-[11px]">
+                  <span className="text-accent">Not sent{waitingHere.get(row.id)?.error ? `: ${waitingHere.get(row.id)?.error}` : ""}</span>
+                  <button type="button" onClick={() => retryFromOutbox(row.id)} className="text-ink underline">
+                    Retry
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      dropFromOutbox(row.id);
+                      drop(row.id);
+                    }}
+                    className="text-muted underline"
+                  >
+                    Delete
+                  </button>
+                </span>
+              ) : waitingHere.has(row.id) ? (
+                <span className="mt-0.5 flex items-center gap-1 px-1 text-[11px] text-faint">
+                  <Clock className="size-3" aria-hidden />
+                  Sending…
+                </span>
+              ) : lastMine ? (
                 <span className="mt-0.5 px-1 text-[11px] text-faint">
                   {row.read ? `Read${row.readAt ? ` ${timeText(row.readAt)}` : ""}` : `Sent ${timeText(row.at)}`}
                 </span>

@@ -77,3 +77,12 @@ export function cachedPhoto(me: string, id: string) {
 export function cachePhoto(me: string, id: string, image: string) {
   return write(`${me}:photo:${id}`, image);
 }
+
+/** Messages waiting to go out (see chat-outbox.ts). */
+export function cachedOutbox<T>(me: string) {
+  return read<T[]>(`${me}:outbox`);
+}
+
+export function cacheOutbox(me: string, rows: unknown[]) {
+  return write(`${me}:outbox`, rows);
+}
