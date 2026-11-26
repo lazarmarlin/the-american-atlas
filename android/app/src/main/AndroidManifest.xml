@@ -34,6 +34,13 @@
 
         <!-- The every-minute message check while tracking (MessageAlarm.java). -->
         <receiver android:name=".MessageAlarm" android:exported="false" />
+        <!-- Self-updates: the installer's answer, and the app reopening after. -->
+        <receiver android:name=".UpdateStatusReceiver" android:exported="false" />
+        <receiver android:name=".UpdateDoneReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Home-screen widget (AtlasWidget.java). -->
         <receiver

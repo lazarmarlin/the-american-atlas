@@ -1,6 +1,9 @@
 package com.lazarmarlin.americanatlas;
 
 import android.app.Activity;
+import android.app.PendingIntent;
+import android.content.pm.PackageInstaller;
+import java.io.FileInputStream;
 import android.content.ClipData;
 import android.content.Intent;
 import android.net.Uri;
@@ -31,6 +34,12 @@ import java.net.URL;
 public class ApkUpdaterPlugin extends Plugin {
 
     private static final String ALLOWED_PREFIX = "https://github.com/lazarmarlin/the-american-atlas/releases/download/";
+
+    @Override
+    public void load() {
+        // Opened again after an update: the "tap to open" notification has done its job.
+        androidx.core.app.NotificationManagerCompat.from(getContext()).cancel(7301);
+    }
 
     @PluginMethod
     public void canInstall(PluginCall call) {
@@ -94,6 +103,108 @@ public class ApkUpdaterPlugin extends Plugin {
                 call.setKeepAlive(false);
             }
         }).start();
+    }
+
+    /**
+     * Download an update in the background and keep it, without installing.
+     * Resolves once the file is complete (progress events meanwhile).
+     */
+    @PluginMethod
+    public void download(PluginCall call) {
+        String url = call.getString("url", "");
+        if (url == null || !url.startsWith(ALLOWED_PREFIX) || !url.endsWith(".apk")) {
+            call.reject("That isn't an Atlas update.");
+            return;
+        }
+        call.setKeepAlive(true);
+        new Thread(() -> {
+            try {
+                File apk = readyFile();
+                File dir = apk.getParentFile();
+                if (dir == null || (!dir.exists() && !dir.mkdirs())) throw new Exception("Couldn't make room for the update.");
+                File part = new File(dir, "american-atlas.apk.part");
+                download(url, part);
+                if (apk.exists() && !apk.delete()) throw new Exception("Couldn't replace the last download.");
+                if (!part.renameTo(apk)) throw new Exception("Couldn't save the update.");
+                JSObject out = new JSObject();
+                out.put("bytes", apk.length());
+                call.resolve(out);
+            } catch (Exception e) {
+                call.reject(e.getMessage() == null ? "The download didn't finish." : e.getMessage());
+            } finally {
+                call.setKeepAlive(false);
+            }
+        }).start();
+    }
+
+    /** Whether a downloaded update is waiting to be installed. */
+    @PluginMethod
+    public void ready(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("ready", readyFile().exists());
+        call.resolve(out);
+    }
+
+    /**
+     * Install the downloaded update through Android's package installer.
+     * Android 12+ lets an app that installed itself update itself without
+     * asking again; otherwise (and the first time) Android shows its one-tap
+     * update screen. The app closes while it installs and reopens after
+     * (UpdateDoneReceiver).
+     */
+    @PluginMethod
+    public void installReady(PluginCall call) {
+        File apk = readyFile();
+        if (!apk.exists()) {
+            call.reject("No update downloaded.");
+            return;
+        }
+        if (!allowed()) {
+            call.reject("needs-permission");
+            return;
+        }
+        new Thread(() -> {
+            PackageInstaller.Session session = null;
+            try {
+                PackageInstaller installer = getContext().getPackageManager().getPackageInstaller();
+                PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+                params.setAppPackageName(getContext().getPackageName());
+                if (Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
+                if (Build.VERSION.SDK_INT >= 34) params.setRequestUpdateOwnership(true);
+                int id = installer.createSession(params);
+                session = installer.openSession(id);
+                try (InputStream in = new FileInputStream(apk); OutputStream out = session.openWrite("base.apk", 0, apk.length())) {
+                    byte[] buf = new byte[64 * 1024];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                    session.fsync(out);
+                }
+                Intent status = new Intent(getContext(), UpdateStatusReceiver.class);
+                int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
+                PendingIntent sender = PendingIntent.getBroadcast(getContext(), id, status, flags);
+                session.commit(sender.getIntentSender());
+                session.close();
+                session = null;
+                call.resolve();
+            } catch (Exception e) {
+                if (session != null) session.abandon();
+                call.reject(e.getMessage() == null ? "The update didn't start." : e.getMessage());
+            }
+        }).start();
+    }
+
+    /** Why the last install didn't go through, if it didn't (then cleared). */
+    @PluginMethod
+    public void lastError(PluginCall call) {
+        android.content.SharedPreferences prefs = getContext().getSharedPreferences(UpdateStatusReceiver.PREFS, android.content.Context.MODE_PRIVATE);
+        JSObject out = new JSObject();
+        out.put("message", prefs.getString("error", ""));
+        prefs.edit().remove("error").apply();
+        call.resolve(out);
+    }
+
+    private File readyFile() {
+        return new File(new File(getContext().getCacheDir(), "updates"), "american-atlas-ready.apk");
     }
 
     private boolean allowed() {
