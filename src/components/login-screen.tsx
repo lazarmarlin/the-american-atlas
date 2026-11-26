@@ -66,7 +66,7 @@ export function LoginScreen() {
         <h1 className="mt-2 font-serif text-4xl leading-none">The American Atlas</h1>
         <p className="mt-3 text-sm text-muted">
           {friend
-            ? "Sign in to add them as a friend. Then you can see the badges they've earned and the ghost trails they've saved."
+            ? "Sign in to add them as a friend."
             : "Sign in so the places you add stay with your account."}
         </p>
 

@@ -182,7 +182,7 @@ export function GhostPanel({
           </div>
           {asking ? (
             <div className="mt-3 rounded-lg border border-line bg-bg px-3 py-3">
-              <p className="text-sm">Keep this trail on the atlas? It stays after the live one fades.</p>
+              <p className="text-sm">Save this trail?</p>
               <label className="mt-2 block text-xs text-muted">
                 Name
                 <input
@@ -208,8 +208,7 @@ export function GhostPanel({
 
         <h3 className="mt-5 font-serif text-xl">Previous trails</h3>
         <p className="mt-1 text-xs text-muted">
-          Saved trails are private until you share one. Friends see a shared trail without its first and last half
-          kilometer, and only the day it was made.
+          Private until you share one. Shared trails hide the start and end.
         </p>
         {saved.length ? (
           <ul className="mt-2 grid gap-2">
@@ -345,8 +344,7 @@ function LiveFriends() {
     <div className="mt-5">
       <h3 className="font-serif text-xl">Live with friends</h3>
       <p className="mt-1 text-xs text-muted">
-        Pick up to {MAX_LIVE_FRIENDS}. They see your marker and trail while tracking is on, or while you share your
-        location without tracking. They get a notification when you start. It drops off a few minutes after you stop.
+        Pick up to {MAX_LIVE_FRIENDS}. They see you while you're sharing.
       </p>
       <p className="mt-2 text-sm">
         {live ? (
@@ -382,7 +380,7 @@ function LiveFriends() {
       {live && !unrestricted ? (
         <div className="mt-2 rounded-lg border border-line px-3 py-2">
           <p className="text-xs text-muted">
-            Android may pause your location with the screen off, and friends would lose you after a few minutes.
+            Android may pause your location with the screen off.
           </p>
           <button
             type="button"

@@ -9,8 +9,9 @@
 import { registerPlugin } from "@capacitor/core";
 import { apiOrigin, nativeApp } from "@/lib/native";
 
-type Item = { id: string; title: string; body: string };
+type Item = { id: string; title: string; body: string; thread?: string };
 const Watch = registerPlugin<{
+  addListener(event: "openThread", cb: (data: { thread: string }) => void): Promise<{ remove: () => Promise<void> }>;
   configure(options: { url: string; token: string; seen: string[] }): Promise<void>;
   show(options: { items: Item[]; seen: string[]; likes: number }): Promise<void>;
   stop(): Promise<void>;
@@ -51,4 +52,24 @@ export async function stopMessageWatch() {
   if (!nativeApp) return;
   ready = false;
   await Watch.stop().catch(() => {});
+}
+
+/**
+ * Tapping a message notification opens its chat: `onOpen` gets
+ * "friend:<id>", "group:<id>" or "likes". Returns a stop function.
+ */
+export function onNotificationOpen(onOpen: (thread: string) => void) {
+  if (!nativeApp) return () => {};
+  let handle: { remove: () => Promise<void> } | null = null;
+  let dead = false;
+  Watch.addListener("openThread", ({ thread }) => onOpen(thread))
+    .then((h) => {
+      if (dead) void h.remove();
+      else handle = h;
+    })
+    .catch(() => {});
+  return () => {
+    dead = true;
+    void handle?.remove();
+  };
 }

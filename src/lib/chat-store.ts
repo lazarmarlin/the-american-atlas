@@ -69,7 +69,7 @@ export const useChat = create<ChatState>((set, get) => ({
     saveSeen(seen);
     // The Android app notifies natively, sharing one "already notified" list
     // with its own background check (so a message never shows twice).
-    const items = fresh.map((m) => ({ id: m.id, title: m.from, body: m.preview }));
+    const items = fresh.map((m) => ({ id: m.id, title: m.from, body: m.preview, thread: `${m.thread.kind}:${m.thread.id}` }));
     if (await showThroughWatch(items, summary.latest.map((m) => m.id), summary.likes)) {
       lastLikes = summary.likes;
       return;
