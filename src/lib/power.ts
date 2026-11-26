@@ -8,7 +8,30 @@ const Power = registerPlugin<{
   notifications(): Promise<{ enabled: boolean; channelsOff: string[] }>;
   openNotificationSettings(): Promise<void>;
   driveScreen(options: { on: boolean }): Promise<void>;
+  battery(): Promise<{ level: number; charging: boolean }>;
 }>("Power");
+
+/** Battery level (0–100) and charging, or null off the phone / on an older app. */
+export async function batteryInfo(): Promise<{ level: number; charging: boolean } | null> {
+  if (!nativeApp) return null;
+  try {
+    const info = await Power.battery();
+    return info.level >= 0 ? info : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Tracking eases off at 20% or less (not charging) and goes back to normal
+ * once charging or above 30%, so it doesn't flip back and forth around one number.
+ */
+export function lowPowerNext(current: boolean, info: { level: number; charging: boolean } | null) {
+  if (!info || info.charging) return false;
+  if (info.level <= 20) return true;
+  if (info.level >= 30) return false;
+  return current;
+}
 
 /** Whether Android lets the app run with the screen off. Always true off the phone. */
 export async function batteryUnrestricted() {
