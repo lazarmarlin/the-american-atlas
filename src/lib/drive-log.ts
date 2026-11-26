@@ -179,3 +179,8 @@ export async function flushDriveLog() {
     scheduleFlush(300_000);
   }
 }
+
+/** Miles tracked today on this phone. */
+export function todayMiles() {
+  return log.totals[localDay(Date.now())] ?? 0;
+}

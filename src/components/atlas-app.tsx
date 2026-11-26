@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Award, Car, ChartColumn, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleParking, CirclePlus, Compass, GripVertical, Images, Locate, LocateFixed, Mail, MapPinned, Navigation, Route as RouteIcon, Search, Settings, Users, X } from "lucide-react";
+import { Award, Car, ChartColumn, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleParking, CirclePlus, Compass, GripVertical, Images, Locate, LocateFixed, Mail, MapPinned, Navigation, Navigation2, Route as RouteIcon, Search, Settings, Users, Volume2, VolumeX, X } from "lucide-react";
 import { useCurrentUser, useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
   loadMeta,
@@ -31,6 +31,12 @@ import { onNotificationOpen } from "@/lib/message-watch";
 import { SendPlaceSheet, SendToSheet } from "@/components/chat-send";
 import { MessageBoard } from "@/components/friend-chat";
 import { StopsLog, type GroupSpot } from "@/components/stops-log";
+import { comingUp, type Ahead } from "@/lib/coming-up";
+import { useDrive } from "@/lib/drive-settings";
+import { bearing, heading, noteMotion, speedMph, turnBetween, zoomForSpeed } from "@/lib/motion";
+import { announce, pointsText } from "@/lib/voice";
+import { STATE_NAMES } from "@/lib/state-names";
+
 import { nameHere, setHereStates } from "@/lib/here";
 import { flushStops, forgetPendingStop, keepStop, noteStopFixes, pendingStops } from "@/lib/stop-detect";
 import { listStops, removeStop, type GpsStop } from "@/lib/stops";
@@ -54,7 +60,7 @@ import { RecapPanel } from "@/components/recap-panel";
 import { loadCounties } from "@/lib/atlas-model";
 import { nickOf, useLookVersion } from "@/lib/chat-look";
 import { countyContaining, countyToMark, type CountyRec } from "@/lib/counties";
-import { deviceId, flushDriveLog, localDay, logDrive, switchDriveLog } from "@/lib/drive-log";
+import { deviceId, flushDriveLog, localDay, logDrive, switchDriveLog, todayMiles } from "@/lib/drive-log";
 import { acceptFriend, listFriends } from "@/lib/friends";
 import { useSettingsRoute } from "@/lib/settings-route";
 import { Tour } from "@/components/tour";
@@ -205,6 +211,23 @@ function sameSettings(a: AccountSettings, b: AccountSettings) {
 
 /** Places that are areas or lines, not spots; a trip's line skips them. */
 const AREA_KINDS = new Set(["county", "route", "state", "reservation", "drive", "forest", "seashore"]);
+
+/** Say what tracking just added: a new state first, then new counties, then (Everything) the rest. */
+function speakAdded(added: Mark[], statesBefore: Set<string>) {
+  const newStates = [...new Set(added.map((mark) => mark.state).filter((st) => st && !statesBefore.has(st)))];
+  for (const st of newStates) announce(`Welcome to ${STATE_NAMES[st] ?? st}. A new state!`, "highlights", true);
+  const counties = added.filter((mark) => mark.category === "county");
+  for (const county of counties) {
+    const pts = pointsText(county.points);
+    announce(`Entering ${county.name}${STATE_NAMES[county.state] ? `, ${STATE_NAMES[county.state]}` : ""}. New county${pts ? `, ${pts}` : ""}.`, "highlights", true);
+  }
+  const rest = added.filter((mark) => mark.category !== "county");
+  if (!rest.length) return;
+  const total = rest.reduce((sum, mark) => sum + (mark.points || 0), 0);
+  const names = rest.slice(0, 3).map((mark) => mark.name);
+  const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
+  announce(`Added ${rest.length > 3 ? `${rest.length} places, including ${list}` : list}${total ? `. ${pointsText(total)}` : ""}.`, "all");
+}
 
 /**
  * Whether a place's point says which county you were in. Not for roads,
@@ -934,7 +957,7 @@ function AtlasShell() {
   useEffect(() => {
     if (!driving) return;
     return pushBack(() => {
-      setDriving(false);
+      endDrive();
       return true;
     });
   }, [driving]);
@@ -955,17 +978,84 @@ function AtlasShell() {
     };
   }, [driving]);
 
+  // Speed, heading and map zoom from the last minute of fixes (src/lib/motion.ts).
+  const { autoDrive, headingUp, voice } = useDrive();
+  const [driveBearing, setDriveBearing] = useState<number | null>(null);
+  const [driveZoom, setDriveZoom] = useState<number>(15);
+  /** Bumped as fixes come in, so speed-based things update between tracker repaints. */
+  const [motionTick, setMotionTick] = useState(0);
   useEffect(() => {
-    if (!driving || !tracker) return;
-    const t = tracker.t ?? Date.now();
-    const prev = speedSample.current;
-    speedSample.current = { lat: tracker.lat, lon: tracker.lon, t };
-    if (!prev) return;
-    const hours = (t - prev.t) / 3_600_000;
-    if (hours < 0.00015 || hours > 0.05) return;
-    const speed = milesBetween(prev.lat, prev.lon, tracker.lat, tracker.lon) / hours;
-    if (speed >= 0 && speed < 130) setMph(Math.round(speed));
-  }, [driving, tracker]);
+    if (!tracker) return;
+    const speed = speedMph();
+    if (driving) {
+      if (speed != null && speed < 130) setMph(Math.round(speed));
+      setDriveZoom((cur) => zoomForSpeed(speed, cur));
+      const going = heading();
+      // Only turn the map for a clear change in direction, and not while (nearly) stopped.
+      if (going != null && (speed ?? 0) >= 5) setDriveBearing((cur) => (cur == null || turnBetween(cur, going) >= 8 ? Math.round(going) : cur));
+    }
+  }, [driving, tracker, motionTick]);
+
+  // Drive mode on by itself: tracking, the app on screen, and 15 mph or more
+  // for a minute. Off again after 5 minutes parked (only if it turned itself
+  // on). Done while moving keeps it off until you've stopped for a while.
+  const autoEntered = useRef(false);
+  const autoSnoozed = useRef(false);
+  useEffect(() => {
+    if (!autoDrive || !trackTravel || !tracker) return;
+    const moving = speedMph(60_000, true);
+    const parked = speedMph(5 * 60_000, true);
+    if (autoSnoozed.current && parked != null && parked < 3) autoSnoozed.current = false;
+    if (!driving && !autoSnoozed.current && document.visibilityState === "visible" && moving != null && moving >= 15) {
+      autoEntered.current = true;
+      setDriving(true);
+    } else if (driving && autoEntered.current && parked != null && parked < 3) {
+      autoEntered.current = false;
+      setDriving(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tracker, motionTick, autoDrive, trackTravel]);
+  function endDrive() {
+    // Turned off by hand while still moving: don't turn straight back on.
+    if ((speedMph() ?? 0) >= 5) autoSnoozed.current = true;
+    autoEntered.current = false;
+    setDriving(false);
+  }
+
+  // Coming up ahead: unvisited places in the direction you're going (Drive
+  // mode, or the voice set to Everything). At most every half mile or minute.
+  const [ahead, setAhead] = useState<Ahead[]>([]);
+  const aheadAt = useRef<{ lat: number; lon: number; t: number } | null>(null);
+  const aheadSaid = useRef(new Set<string>());
+  const aheadAsk = useRef(0);
+  useEffect(() => {
+    const fix = tracker;
+    const atlas = metaRef.current;
+    if (!fix || !atlas || !trackTravel || !(driving || voice === "all")) {
+      if (!driving) setAhead([]);
+      return;
+    }
+    const going = heading();
+    if (going == null || (speedMph() ?? 0) < 10) return;
+    const prev = aheadAt.current;
+    if (prev && Date.now() - prev.t < 60_000 && milesBetween(prev.lat, prev.lon, fix.lat, fix.lon) < 0.5) {
+      // Between refreshes: count the miles down, and give a heads-up close by.
+      setAhead((cur) => cur.map((place) => ({ ...place, miles: Math.round(milesBetween(fix.lat, fix.lon, place.lat ?? fix.lat, place.lon ?? fix.lon) * 10) / 10 })));
+      return;
+    }
+    aheadAt.current = { lat: fix.lat, lon: fix.lon, t: Date.now() };
+    // Newest look wins (a slow first look can't land over a later one).
+    const ask = ++aheadAsk.current;
+    void comingUp(fix, going, atlas.states, new Set(marksRef.current.map((mark) => mark.id))).then((rows) => {
+      if (ask === aheadAsk.current) setAhead(rows);
+    });
+  }, [tracker, motionTick, driving, voice, trackTravel]);
+  useEffect(() => {
+    const next = ahead[0];
+    if (!next || next.miles > 2 || aheadSaid.current.has(next.id)) return;
+    aheadSaid.current.add(next.id);
+    announce(`Coming up: ${next.name}, in ${next.miles < 1 ? "less than a mile" : `${Math.round(next.miles)} miles`}.`, "all");
+  }, [ahead]);
 
   const [sendPlace, setSendPlace] = useState<Mark | null>(null);
   const [fitTo, setFitTo] = useState<{ tick: number; points: [number, number][]; maxZoom: number } | null>(null);
@@ -1091,6 +1181,7 @@ function AtlasShell() {
       if (last && milesBetween(last.lat, last.lon, fix.lat, fix.lon) < 0.08) return;
       last = fix;
       const saved = new Set(marksRef.current.map((mark) => mark.id));
+      const statesBefore = new Set(marksRef.current.map((mark) => mark.state).filter(Boolean));
       const visited: Mark[] = [];
       const again: Mark[] = [];
       const found = await collectPassed(fix, atlas.states, saved, recordingRef.current ? visited : undefined, again);
@@ -1118,6 +1209,7 @@ function AtlasShell() {
           : `Visited ${reentered.length} places again`;
       setPassedNote(label);
       if (added.length) void notifyPlacesAdded(added);
+      if (added.length) speakAdded(added, statesBefore);
     }
 
     let waited = 0;
@@ -1208,6 +1300,7 @@ function AtlasShell() {
     // While the app reads back what the phone logged while it was closed,
     // new fixes wait, so the trail and the places stay in order.
     let catchingUp = false;
+    let lastMotionTick = 0;
     const held: Fix[] = [];
     function push(fixes: Fix[], forceDot = false) {
       if (catchingUp) {
@@ -1221,6 +1314,12 @@ function AtlasShell() {
       // the newest of them, whatever order they came in.
       if (latest) noteLiveFix(latest);
       checkBattery();
+      noteMotion(fixes);
+      // Speed and heading changed: driving bits look again (at most every 3 s).
+      if (Date.now() - lastMotionTick > 3000) {
+        lastMotionTick = Date.now();
+        setMotionTick((n) => n + 1);
+      }
       useGhost.getState().record(fixes);
       shareLive();
       if (!adding) return;
@@ -2228,7 +2327,8 @@ function AtlasShell() {
               photoPins={photoPins}
               you={you}
               dot={locating ? (tracker ?? you) : you}
-              followZoom={driving && !cardOnly ? 13 : undefined}
+              followZoom={driving && !cardOnly ? driveZoom : undefined}
+              followBearing={driving && !cardOnly && headingUp ? driveBearing : null}
               bigIcons={driving}
               onPress={() => {
                 if (driving) return;
@@ -2301,40 +2401,93 @@ function AtlasShell() {
           <div className="grid h-full place-items-center px-6 text-center text-muted">{error ?? "Unfolding the atlas…"}</div>
         )}
         {driving ? (
-          <div className="px-safe pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-            <div className="pointer-events-auto w-[min(70%,22rem)] rounded-card border border-line bg-surface/95 px-4 py-3 shadow-sm backdrop-blur-sm">
-              <p className="text-xs tracking-widest text-faint uppercase">Driving</p>
-              {sideways ? (
-                <p className="font-serif text-4xl leading-none">
+          <div className="px-safe pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
+            <div className="pointer-events-auto w-[min(78%,24rem)] overflow-hidden rounded-card border border-line bg-surface/95 shadow-sm backdrop-blur-sm">
+              {/* Glance strip: speed, then today's tally. */}
+              <div className="flex items-end gap-4 px-4 pt-3 pb-2">
+                <p className="font-serif text-5xl leading-none tabular-nums">
                   {mph == null ? "—" : mph}
-                  <span className="ml-1 font-sans text-lg text-muted">mph</span>
+                  <span className="ml-1 font-sans text-base text-muted">mph</span>
                 </p>
-              ) : (
-                <p className="mt-1 text-lg">Turn the phone sideways</p>
-              )}
+                <div className="ml-auto grid grid-cols-3 gap-3 text-right">
+                  {(() => {
+                    const today = localDay(Date.now());
+                    const added = marks.filter((mark) => mark.visits.some((visit) => visit.visitedOn === today));
+                    return (
+                      [
+                        [added.length, "places"],
+                        [added.reduce((sum, mark) => sum + (mark.points || 0), 0), "pts"],
+                        [Math.round(todayMiles()), "mi"],
+                      ] as const
+                    ).map(([n, label]) => (
+                      <span key={label} className="leading-none">
+                        <span className="block font-serif text-2xl tabular-nums">{n.toLocaleString()}</span>
+                        <span className="text-[10px] tracking-widest text-faint uppercase">{label}</span>
+                      </span>
+                    ));
+                  })()}
+                </div>
+              </div>
               {nextUp ? (
-                <p className="mt-1 truncate text-sm">
-                  Next {nextUp.name}
-                  <span className="text-muted">
-                    {" "}
-                    · {nextUp.miles < 1 ? "<1" : Math.round(nextUp.miles)} mi {nextUp.toward}
+                <div className="flex items-center gap-3 border-t border-line px-4 py-2.5">
+                  <Navigation2
+                    className="size-6 shrink-0 text-accent transition-transform duration-500"
+                    style={{
+                      transform: `rotate(${(tracker ? bearing(tracker, { lat: nextUp.lat, lon: nextUp.lon }) : 0) - (headingUp && driveBearing != null ? driveBearing : 0)}deg)`,
+                    }}
+                    aria-hidden
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[10px] tracking-widest text-faint uppercase">Next county</span>
+                    <span className="block truncate text-lg leading-tight">{nextUp.name}</span>
                   </span>
-                </p>
-              ) : (
-                <p className="mt-1 text-sm text-muted">Screen stays on</p>
-              )}
-              {passedNote ? <p className="mt-1 truncate text-sm text-muted">{passedNote}</p> : null}
-              <button
-                type="button"
-                onClick={() => setHereOpen(true)}
-                className="mt-2 h-11 w-full rounded-lg border border-ink bg-elevated text-sm"
-              >
-                I'm here
-              </button>
+                  <span className="shrink-0 font-serif text-2xl tabular-nums">
+                    {nextUp.miles < 1 ? "<1" : Math.round(nextUp.miles)}
+                    <span className="ml-0.5 font-sans text-xs text-muted">mi</span>
+                  </span>
+                </div>
+              ) : null}
+              {ahead.length ? (
+                <div className="border-t border-line px-4 py-2">
+                  <p className="text-[10px] tracking-widest text-faint uppercase">Coming up</p>
+                  <ul className="mt-1 grid gap-1">
+                    {ahead.map((place) => (
+                      <li key={place.id} className="flex items-baseline gap-2">
+                        <span className="min-w-0 flex-1 truncate text-[15px]">{place.name}</span>
+                        <span className="shrink-0 text-sm text-muted tabular-nums">{place.miles < 1 ? "<1" : Math.round(place.miles)} mi</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {passedNote ? <p className="truncate border-t border-line px-4 py-2 text-sm text-muted">{passedNote}</p> : null}
+              <div className="flex gap-2 border-t border-line p-2">
+                <button type="button" onClick={() => setHereOpen(true)} className="h-12 flex-1 rounded-lg border border-ink bg-elevated text-[15px]">
+                  I'm here
+                </button>
+                <button
+                  type="button"
+                  onClick={() => useDrive.getState().set({ voice: voice === "off" ? "highlights" : "off" })}
+                  aria-label={voice === "off" ? "Turn on spoken announcements" : "Turn off spoken announcements"}
+                  aria-pressed={voice !== "off"}
+                  className={"grid size-12 shrink-0 place-items-center rounded-lg border " + (voice !== "off" ? "border-ink bg-elevated text-ink" : "border-line text-muted")}
+                >
+                  {voice !== "off" ? <Volume2 className="size-5" /> : <VolumeX className="size-5" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => useDrive.getState().set({ headingUp: !headingUp })}
+                  aria-label={headingUp ? "North up" : "Face the way you're going"}
+                  aria-pressed={headingUp}
+                  className={"grid size-12 shrink-0 place-items-center rounded-lg border " + (headingUp ? "border-ink bg-elevated text-ink" : "border-line text-muted")}
+                >
+                  <Compass className="size-5" style={{ transform: `rotate(${headingUp && driveBearing != null ? -driveBearing : 0}deg)` }} />
+                </button>
+              </div>
             </div>
             <button
               type="button"
-              onClick={() => setDriving(false)}
+              onClick={endDrive}
               className="pointer-events-auto h-14 shrink-0 rounded-full border border-line bg-surface/95 px-5 text-base shadow-sm backdrop-blur-sm"
             >
               Done

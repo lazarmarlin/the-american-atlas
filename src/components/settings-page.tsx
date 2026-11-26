@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, MessageCircle } from "lucide-react";
+import { useDrive } from "@/lib/drive-settings";
+import { speak } from "@/lib/voice";
 import { BORDER_COLORS, useSettings } from "@/lib/atlas-settings";
 import { authEnabled, signOut } from "@/lib/auth/client";
 import { clearGhostLocal } from "@/lib/ghost-trail";
@@ -373,6 +375,8 @@ export function SettingsPage({
         <p className="mt-2 text-xs text-faint">This device only.</p>
         {trackNote ? <p className="mt-2 text-sm text-muted">{trackNote}</p> : null}
       </section>
+
+      <DrivingSettings />
 
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Ghost trail</h2>
@@ -1052,5 +1056,61 @@ function ChatLooks({ meId }: { meId: string }) {
       </ul>
       {ready && !friends?.length && !groups?.length ? <p className="mt-4 text-sm text-muted">Add a friend first, from the Friends tab.</p> : null}
     </div>
+  );
+}
+
+/** Settings › Tracking › Driving: spoken announcements, Drive mode on by itself, heading-up map. */
+function DrivingSettings() {
+  const { voice, autoDrive, headingUp, set } = useDrive();
+  const switchRow = (label: string, hint: string, on: boolean, toggle: () => void) => (
+    <button type="button" role="switch" aria-checked={on} onClick={toggle} className="flex min-h-12 w-full items-center gap-3 py-1 text-left">
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm">{label}</span>
+        <span className="block text-xs text-faint">{hint}</span>
+      </span>
+      <span className={"flex h-7 w-12 shrink-0 items-center rounded-full p-0.5 transition-colors " + (on ? "bg-ink" : "bg-line")}>
+        <span className={"size-6 rounded-full shadow-sm transition-transform " + (on ? "translate-x-5 bg-bg" : "translate-x-0 bg-muted")} />
+      </span>
+    </button>
+  );
+  return (
+    <section className="mt-8">
+      <h2 className="font-serif text-2xl">Driving</h2>
+      <div className="mt-3 rounded-card border border-line bg-surface/60 p-3">
+        <p className="text-sm">Spoken announcements</p>
+        <div className="mt-2 grid grid-cols-3 gap-1 rounded-xl bg-bg/60 p-1" role="radiogroup" aria-label="Spoken announcements">
+          {(
+            [
+              ["off", "Off"],
+              ["highlights", "Highlights"],
+              ["all", "Everything"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={voice === id}
+              onClick={() => set({ voice: id })}
+              className={"h-10 rounded-lg text-sm transition-colors " + (voice === id ? "bg-elevated text-ink shadow-sm" : "text-faint active:bg-elevated/50")}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-xs text-faint">
+          {voice === "all" ? "New states, counties and places, and what's coming up." : voice === "highlights" ? "New states and counties." : "Quiet."}
+        </p>
+        {voice !== "off" ? (
+          <button type="button" onClick={() => speak("Entering Morton County, Kansas. New county, 20 points.")} className="mt-2 h-10 rounded-lg border border-line px-3 text-sm">
+            Test the voice
+          </button>
+        ) : null}
+        <div className="my-3 border-t border-line" />
+        {switchRow("Drive mode turns on by itself", "When you're driving with the app open. Off again once you've parked.", autoDrive, () => set({ autoDrive: !autoDrive }))}
+        <div className="my-2 border-t border-line" />
+        {switchRow("Map faces the way you're going", "In Drive mode. Zooms out at highway speed.", headingUp, () => set({ headingUp: !headingUp }))}
+      </div>
+    </section>
   );
 }
