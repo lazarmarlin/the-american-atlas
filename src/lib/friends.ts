@@ -41,6 +41,8 @@ export type FriendPage = {
   trails: FriendTrailInfo[];
   /** Their latest check-ins, newest first (for a thumbs-up). */
   recent: { target: string; name: string; category: string; state: string; points: number; visitedOn: string }[];
+  /** Every place on their map, to compare with yours ("you've both been to…"). */
+  places: { id: string; name: string; category: string; state: string }[];
 };
 
 const CODE_RE = /^[a-z0-9]{8}$/;
@@ -360,6 +362,7 @@ export const loadFriend = createServerFn({ method: "POST" })
       ...friend,
       badges,
       recent,
+      places: rows.map((row) => ({ id: row.id, name: row.name, category: row.category, state: row.state })),
       trails: trails
         .map((trail) => {
           const savedAt = toMs(trail.saved_at);

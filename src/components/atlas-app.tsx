@@ -66,6 +66,7 @@ import { pushBack } from "@/lib/sheet-back";
 import { isMarkerColor, isMarkerIcon } from "@/lib/you-marker";
 import { useOfflinePack } from "@/lib/offline-pack";
 import { nativeApp } from "@/lib/native";
+import { COUNTY_COUNTS } from "@/lib/county-counts";
 import { askNotifyOnce, notifyFriendLive } from "@/lib/live-notify";
 import { notifyPlacesAdded } from "@/lib/place-notifications";
 import { countyToMark } from "@/lib/counties";
@@ -112,6 +113,30 @@ const TAB_ICONS: Record<(typeof TABS)[number][0], typeof Users> = {
   recap: ChartColumn,
   friends: Users,
 };
+
+/** A small ring that fills as you add a state's counties (gold when they're all done). */
+function CountyRing({ done, total }: { done: number; total: number }) {
+  const share = total ? Math.min(1, done / total) : 0;
+  const r = 9;
+  const c = 2 * Math.PI * r;
+  return (
+    <svg viewBox="0 0 24 24" className="size-6 shrink-0 -rotate-90" aria-hidden>
+      <circle cx="12" cy="12" r={r} fill="none" stroke="currentColor" strokeWidth="3" className="text-line" />
+      {share > 0 ? (
+        <circle
+          cx="12"
+          cy="12"
+          r={r}
+          fill="none"
+          strokeWidth="3"
+          strokeLinecap="round"
+          stroke={share >= 1 ? "#e2b15a" : "#7dcea0"}
+          strokeDasharray={`${Math.max(1.5, share * c)} ${c}`}
+        />
+      ) : null}
+    </svg>
+  );
+}
 
 function Shield({ sys, label }: { sys: System | "place"; label: string }) {
   const short = label.length > 4 ? label.slice(0, 4) : label;
@@ -2682,6 +2707,10 @@ function AtlasShell() {
               }}
               savedIds={savedIds}
               covered={new Set(marks.map((mark) => mark.state).filter(Boolean))}
+              countyDone={marks.reduce<Record<string, number>>((acc, mark) => {
+                if (mark.category === "county" && mark.state) acc[mark.state] = (acc[mark.state] ?? 0) + 1;
+                return acc;
+              }, {})}
               selected={selected}
               onState={chooseState}
               onCategory={setCategory}
@@ -2986,10 +3015,16 @@ function Yours({
   return (
     <div>
       {stateAbbr ? (
-        <button type="button" onClick={onBack} className="mb-2 flex h-11 items-center gap-1 px-2 text-sm text-muted">
-          <ChevronLeft className="size-4" aria-hidden="true" />
-          {stateName}
-        </button>
+        <div className="mb-2 flex items-center gap-2 pr-2">
+          <button type="button" onClick={onBack} className="flex h-11 min-w-0 flex-1 items-center gap-1 px-2 text-sm text-muted">
+            <ChevronLeft className="size-4 shrink-0" aria-hidden="true" />
+            <span className="truncate">{stateName}</span>
+          </button>
+          <CountyRing done={marks.filter((m) => m.category === "county").length} total={COUNTY_COUNTS[stateAbbr] ?? 0} />
+          <span className="shrink-0 text-xs text-muted">
+            {marks.filter((m) => m.category === "county").length}/{COUNTY_COUNTS[stateAbbr] ?? "?"} counties
+          </span>
+        </div>
       ) : null}
       {/* Places: one row per place. Stops: every visit, by day, week, month or state. */}
       <div className="mb-2 flex items-center gap-1 px-1" role="tablist" aria-label="Show">
@@ -3040,6 +3075,7 @@ function AddList({
   rows,
   savedIds,
   covered,
+  countyDone,
   selected,
   onState,
   onCategory,
@@ -3058,6 +3094,8 @@ function AddList({
   rows: RoadRec[] | CatalogPlace[];
   savedIds: Set<string>;
   covered: Set<string>;
+  /** Counties added, per state. */
+  countyDone: Record<string, number>;
   selected: string | null;
   onState: (abbr: string | null) => void;
   onCategory: (category: string | null) => void;
@@ -3099,8 +3137,14 @@ function AddList({
                 onClick={() => onState(state.abbr)}
                 className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-elevated"
               >
+                <CountyRing done={countyDone[state.abbr] ?? 0} total={COUNTY_COUNTS[state.abbr] ?? 0} />
                 <span className="w-8 font-serif text-lg">{state.abbr}</span>
-                <span className="text-sm">{state.name}</span>
+                <span className="min-w-0 flex-1 truncate text-sm">{state.name}</span>
+                {countyDone[state.abbr] ? (
+                  <span className="shrink-0 text-[11px] text-faint">
+                    {countyDone[state.abbr]}/{COUNTY_COUNTS[state.abbr] ?? "?"} counties
+                  </span>
+                ) : null}
               </button>
               {added ? (
                 <span className="mr-2 flex items-center gap-1 text-xs text-muted">

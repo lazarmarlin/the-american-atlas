@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { STATE_NAMES } from "@/lib/state-names";
-import { Send, Share2 } from "lucide-react";
+import { Play, Send, Share2 } from "lucide-react";
+import { YearReview } from "@/components/year-review";
 import { SendImageSheet } from "@/components/chat-send";
 import { flushDriveLog } from "@/lib/drive-log";
 import { formatMiles } from "@/lib/ghost-trail";
@@ -119,6 +120,9 @@ export function RecapPanel({ name, marks = [], onOpenPlace }: { name: string; ma
   }, [period]);
 
   const [sending, setSending] = useState(false);
+  const [reviewYear, setReviewYear] = useState<number | null>(null);
+  const now = new Date();
+  const reviewSeason = now.getMonth() === 11 ? now.getFullYear() : now.getMonth() === 0 ? now.getFullYear() - 1 : null;
 
   async function share() {
     if (!recap) return;
@@ -149,6 +153,36 @@ export function RecapPanel({ name, marks = [], onOpenPlace }: { name: string; ma
       <div className="mt-3">
         <LookBack marks={marks} onOpenPlace={(mark) => onOpenPlace?.(mark)} />
       </div>
+      {/* December and January: your year (last year's, in January), front and center. */}
+      {reviewSeason ? (
+        <button
+          type="button"
+          onClick={() => setReviewYear(reviewSeason)}
+          className="mt-3 flex w-full items-center gap-3 overflow-hidden rounded-card border border-accent/40 bg-gradient-to-r from-accent/20 to-transparent px-4 py-3 text-left"
+        >
+          <Play className="size-5 shrink-0 text-accent" aria-hidden />
+          <span className="min-w-0 flex-1">
+            <span className="block font-serif text-xl leading-tight">Your {reviewSeason}</span>
+            <span className="block text-xs text-muted">Your year on the road, one screen at a time</span>
+          </span>
+        </button>
+      ) : null}
+      {reviewYear ? (
+        <YearReview
+          year={reviewYear}
+          name={name}
+          marks={marks}
+          makeCard={(r) => drawCard(r, String(reviewYear), name)}
+          onShare={async (r) => {
+            try {
+              await shareImage(await drawCard(r, String(reviewYear), name), `atlas-${reviewYear}.png`, `My ${reviewYear} on The American Atlas`);
+            } catch {
+              /* cancelled */
+            }
+          }}
+          onClose={() => setReviewYear(null)}
+        />
+      ) : null}
       <div className="mt-3 flex flex-wrap gap-2">
         {PERIODS.map(([id, label]) => (
           <button
@@ -230,6 +264,16 @@ export function RecapPanel({ name, marks = [], onOpenPlace }: { name: string; ma
               {busy ? "Making it…" : "Share card"}
             </button>
           </div>
+          {period === "year" && !empty ? (
+            <button
+              type="button"
+              onClick={() => setReviewYear(new Date().getFullYear())}
+              className="mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-accent/50 text-sm"
+            >
+              <Play className="size-4 text-accent" aria-hidden />
+              Play your {new Date().getFullYear()}
+            </button>
+          ) : null}
           {sending ? (
             <SendImageSheet
               label={`Send your ${range.title}`}
