@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronLeft, MessageCircle } from "lucide-react";
+import { ChevronLeft, ChevronRight, MessageCircle } from "lucide-react";
 import { BORDER_COLORS, useSettings } from "@/lib/atlas-settings";
 import { authEnabled, signOut } from "@/lib/auth/client";
 import { clearGhostLocal } from "@/lib/ghost-trail";
@@ -1011,7 +1011,7 @@ function ChatLooks({ meId }: { meId: string }) {
   const ready = friends !== null || groups !== null;
   return (
     <div className="mt-6">
-      <p className="text-sm text-muted">Pick a chat. Colors, the name, and quiet stay on this phone. A wallpaper or a shared color pair can show on theirs too.</p>
+      <p className="text-sm text-muted">Pick a chat.</p>
       {!ready ? <p className="mt-4 text-sm text-muted">Loading…</p> : null}
       <ul className="mt-3 grid gap-2">
         {(groups ?? []).map((group) => (
@@ -1023,11 +1023,12 @@ function ChatLooks({ meId }: { meId: string }) {
                 setLook(readLook(meId, thread));
                 setPicked({ thread, name: group.name });
               }}
-              className="flex h-14 w-full items-center gap-3 rounded-lg border border-line px-3 text-left text-accent"
+              className="flex h-14 w-full items-center gap-3 rounded-lg border border-line px-3 text-left active:bg-elevated"
             >
-              <MessageCircle className="size-4 shrink-0" aria-hidden="true" />
+              <MessageCircle className="size-[18px] shrink-0 text-muted" aria-hidden="true" />
               <span className="min-w-0 flex-1 truncate">{group.name}</span>
               <span className="text-xs text-faint">trip chat</span>
+              <ChevronRight className="size-4 shrink-0 text-faint" aria-hidden="true" />
             </button>
           </li>
         ))}
@@ -1040,10 +1041,11 @@ function ChatLooks({ meId }: { meId: string }) {
                 setLook(readLook(meId, thread));
                 setPicked({ thread, name: friend.name });
               }}
-              className="flex h-14 w-full items-center gap-3 rounded-lg border border-line px-3 text-left text-accent"
+              className="flex h-14 w-full items-center gap-3 rounded-lg border border-line px-3 text-left active:bg-elevated"
             >
-              <MessageCircle className="size-4 shrink-0" aria-hidden="true" />
+              <MessageCircle className="size-[18px] shrink-0 text-muted" aria-hidden="true" />
               <span className="min-w-0 flex-1 truncate">{friend.name}</span>
+              <ChevronRight className="size-4 shrink-0 text-faint" aria-hidden="true" />
             </button>
           </li>
         ))}
