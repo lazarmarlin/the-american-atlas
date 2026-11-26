@@ -6,7 +6,7 @@ import { deletePhoto, loadPhoto, savePhoto, setPhotoAudience, type PhotoAudience
 import { listFriends } from "@/lib/friends";
 import { canScanLibrary, forgetAdded, lastScanAt, loadLibraryPhoto, rememberAdded, scanAllowed, scanLibrary, skipSuggested } from "@/lib/photo-scan";
 import { nativeApp } from "@/lib/native";
-import { deleteLocalPhoto, getLocalPhoto, listLocalPhotos, markUploaded, saveLocalPhoto, setLocalShared, type LocalPhoto } from "@/lib/photo-local";
+import { deleteLocalPhoto, getLocalPhoto, listLocalPhotos, photoImage, markUploaded, saveLocalPhoto, setLocalShared, type LocalPhoto } from "@/lib/photo-local";
 import { pushBack, useBackClose } from "@/lib/sheet-back";
 
 /** A phone photo as a JPEG data URL under `limit` characters, trying lower quality if needed. */
@@ -83,13 +83,13 @@ function PlacePick({
       </button>
       {open ? (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 px-3 pb-6"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 px-3 pt-[max(1rem,env(safe-area-inset-top))] pb-6"
           onClick={() => setOpen(false)}
         >
           <div
             role="dialog"
             aria-label="Pick a place"
-            className="w-full max-w-sm rounded-card border border-line bg-surface p-3"
+            className="max-h-full w-full max-w-sm overflow-y-auto rounded-card border border-line bg-surface p-3"
             onClick={(event) => event.stopPropagation()}
           >
             <p className="text-xs tracking-widest text-faint uppercase">Place</p>
@@ -978,8 +978,7 @@ export function PhotosPanel({
           return;
         }
       }
-      const row = await loadPhoto({ data: photo.id });
-      setFull(row.image);
+      setFull(await photoImage(photo.id, () => loadPhoto({ data: photo.id }).then((row) => row.image)));
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Couldn't open that photo.");
     }
@@ -1250,8 +1249,8 @@ export function PhotosPanel({
       ) : null}
       {photos.length === 0 ? <p className="mt-4 px-2 text-sm text-muted">No photos yet.</p> : null}
       {menu ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 px-3 pb-6" onClick={() => setMenu(null)}>
-          <div className="w-full max-w-sm rounded-card border border-line bg-surface p-3" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 px-3 pt-[max(1rem,env(safe-area-inset-top))] pb-6" onClick={() => setMenu(null)}>
+          <div className="max-h-full w-full max-w-sm overflow-y-auto rounded-card border border-line bg-surface p-3" onClick={(e) => e.stopPropagation()}>
             <p className="text-sm font-medium">{names.get(menu.poiId) || "Photo"}</p>
             {nativeApp && local.some((p) => p.id === menu.id && !p.uploaded) ? (
               <button type="button" onClick={() => void uploadOne(menu)} className="mt-2 h-11 w-full rounded-lg border border-ink text-sm">Upload</button>
@@ -1325,8 +1324,7 @@ export function PhotoViewer({
     setNote(null);
     void (async () => {
       try {
-        const local = nativeApp ? await getLocalPhoto(photo.id) : null;
-        const image = local?.image ?? (await loadPhoto({ data: photo.id })).image;
+        const image = await photoImage(photo.id, () => loadPhoto({ data: photo.id }).then((row) => row.image));
         if (live) setFull(image);
       } catch (err) {
         if (live) setNote(err instanceof Error ? err.message : "Couldn't open that photo.");

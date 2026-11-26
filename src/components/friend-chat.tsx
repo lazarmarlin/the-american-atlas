@@ -1202,7 +1202,7 @@ export function Sheet({
   };
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 px-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 px-3 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]"
       onClick={onClose}
       onClickCapture={swallow}
       onPointerUpCapture={swallow}
@@ -1210,7 +1210,7 @@ export function Sheet({
       <div
         role="dialog"
         aria-label={label}
-        className={"w-full max-w-sm border border-line bg-surface p-3 " + (bare ? "rounded-2xl shadow-2xl" : "rounded-card")}
+        className={"max-h-full w-full max-w-sm overflow-y-auto border border-line bg-surface p-3 " + (bare ? "rounded-2xl shadow-2xl" : "rounded-card")}
         onClick={(event) => event.stopPropagation()}
       >
         {bare ? null : <p className="mb-2 text-xs tracking-widest text-faint uppercase">{label}</p>}

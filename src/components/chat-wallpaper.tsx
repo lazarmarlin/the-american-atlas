@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { cacheWall, cachedWall } from "@/lib/chat-cache";
 import type { Thread } from "@/lib/messages";
+import { allPhotos, photoImage } from "@/lib/photo-local";
 import { listPhotos, loadPhoto, type PhotoInfo } from "@/lib/photos";
 import { useBackClose } from "@/lib/sheet-back";
 import { loadWallpaper, saveWallpaper, type Wallpaper } from "@/lib/wallpaper";
@@ -157,9 +158,9 @@ export function WallpaperScreen({
     setBusy(true);
     setNote(null);
     try {
-      const loaded = await loadPhoto({ data: photo.id });
+      const image = await photoImage(photo.id, () => loadPhoto({ data: photo.id }).then((row) => row.image));
       setFilter("none");
-      setSource(loaded.image);
+      setSource(image);
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Couldn't open that photo");
     } finally {
@@ -247,11 +248,8 @@ export function WallpaperScreen({
             type="button"
             onClick={() => {
               setPicking(true);
-              if (!photos) {
-                listPhotos()
-                  .then(setPhotos)
-                  .catch(() => setPhotos([]));
-              }
+              // Photos on this phone and on your account, the phone's first (no signal needed).
+              if (!photos) void allPhotos(() => listPhotos(), setPhotos).catch(() => setPhotos((cur) => cur ?? []));
             }}
             className="h-11 flex-1 rounded-lg border border-line text-sm"
           >
@@ -284,7 +282,7 @@ export function WallpaperScreen({
         </div>
       </div>
       {picking ? (
-        <div className="fixed inset-0 z-[80] flex flex-col bg-bg" role="dialog" aria-label="Choose a photo">
+        <div className="screen-top fixed inset-0 z-[80] flex flex-col bg-bg" role="dialog" aria-label="Choose a photo">
           <header className="flex items-center gap-2 border-b border-line px-2 py-2">
             <button type="button" onClick={() => setPicking(false)} className="h-11 px-2 text-sm text-muted">
               ‹ Wallpaper
