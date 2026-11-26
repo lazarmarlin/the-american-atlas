@@ -1,0 +1,315 @@
+diff --git a/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/BackgroundGeolocationService.java b/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/BackgroundGeolocationService.java
+index ca20b4d..459e61c 100644
+--- a/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/BackgroundGeolocationService.java
++++ b/node_modules/@capgo/background-geolocation/android/src/main/java/com/capgo/capacitor_background_geolocation/BackgroundGeolocationService.java
+@@ -10,6 +10,10 @@ import android.content.pm.ServiceInfo;
+ import android.content.res.AssetFileDescriptor;
+ import android.content.res.AssetManager;
+ import android.graphics.Color;
++import android.hardware.Sensor;
++import android.hardware.SensorManager;
++import android.hardware.TriggerEvent;
++import android.hardware.TriggerEventListener;
+ import android.location.LocationListener;
+ import android.location.LocationManager;
+ import android.media.MediaPlayer;
+@@ -63,6 +67,32 @@ public class BackgroundGeolocationService extends Service {
+     private int locationLogMaxEntries;
+     private PowerManager.WakeLock wakeLock;
+ 
++    // --- Parked mode (American Atlas patch) ---
++    // GPS is asked for raw fixes and the distance filter is applied here, so the
++    // service can tell "standing still" from "GPS went quiet". After PARK_AFTER_MS
++    // within PARK_RADIUS_M, GPS is switched off; a significant-motion trigger (or a
++    // cheap network fix far from the spot) switches it back on. While parked, the
++    // last GPS spot is re-sent every HEARTBEAT_MS so live sharing and stops keep
++    // seeing you there. Only with a distance filter (the caller asked to skip
++    // updates while still), so the plugin's plain behavior is unchanged otherwise.
++    private static final float PARK_RADIUS_M = 60f;
++    private static final long PARK_AFTER_MS = 3 * 60_000L;
++    private static final float UNPARK_MIN_M = 250f;
++    private static final float UNPARK_MAX_ACCURACY_M = 500f;
++    private static final long PARKED_CHECK_MS = 60_000L;
++    // Under the 3 minutes after which friends stop seeing a live trail.
++    private static final long HEARTBEAT_MS = 90_000L;
++    // Each fix keeps the CPU up this long (enough to log it and POST it) instead of
++    // holding it awake for as long as tracking runs.
++    private static final long AWAKE_PER_FIX_MS = 30_000L;
++    private boolean parked = false;
++    private android.location.Location anchor;
++    private long anchorAtMs = 0L;
++    private android.location.Location lastForwarded;
++    private long lastForwardAtMs = 0L;
++    private LocationListener parkedListener;
++    private TriggerEventListener motionTrigger;
++
+     // How long a GPS fix is considered "fresh" before we allow a NETWORK_PROVIDER fix through.
+     private static final long NETWORK_FALLBACK_GRACE_MS = 20000L;
+ 
+@@ -106,6 +136,7 @@ public class BackgroundGeolocationService extends Service {
+             client.removeUpdates(locationCallback);
+         }
+         releaseMediaPlayer();
++        leaveParked();
+         releaseWakeLock();
+         stopWatchdog();
+         stopSelf();
+@@ -165,6 +196,7 @@ public class BackgroundGeolocationService extends Service {
+         }
+         super.onDestroy();
+         releaseMediaPlayer();
++        leaveParked();
+         releaseWakeLock();
+         stopWatchdog();
+         if (postExecutor != null) {
+@@ -188,18 +220,18 @@ public class BackgroundGeolocationService extends Service {
+         mediaPlayer = null;
+     }
+ 
+-    // No timeout: tracking runs for as long as the caller keeps a background watcher
+-    // registered, and the lock is always released in stop() and onDestroy().
+-    @SuppressLint("WakelockTimeout")
++    // Keeps the CPU up for a short while (a new fix to log and POST, or setup).
++    // Location callbacks wake the phone on their own, so a lock held for as long
++    // as tracking runs only stopped it from ever sleeping in between.
+     private void acquireWakeLock() {
+-        if (wakeLock != null && wakeLock.isHeld()) {
+-            return;
+-        }
+         try {
+-            PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
+-            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BackgroundGeolocation::LocationWakeLock");
+-            wakeLock.acquire();
+-            Logger.info("Wake lock acquired");
++            if (wakeLock == null) {
++                PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
++                wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BackgroundGeolocation::LocationWakeLock");
++                wakeLock.setReferenceCounted(false);
++            }
++            // Not reference-counted: each call just pushes the timeout out again.
++            wakeLock.acquire(AWAKE_PER_FIX_MS);
+         } catch (Exception e) {
+             Logger.error("Error acquiring wake lock", e);
+         }
+@@ -244,7 +276,10 @@ public class BackgroundGeolocationService extends Service {
+         if (watchdogRunnable == null) {
+             watchdogRunnable = this::restartLocationUpdates;
+         }
+-        watchdogHandler.postDelayed(watchdogRunnable, 60000);
++        if (parked) {
++            return;
++        }
++        watchdogHandler.postDelayed(watchdogRunnable, Math.max(60000L, 3 * locationIntervalMs()));
+     }
+ 
+     private void stopWatchdog() {
+@@ -268,7 +303,26 @@ public class BackgroundGeolocationService extends Service {
+                 return;
+             }
+         }
++        acquireWakeLock();
+         startWatchdog();
++        if (currentDistanceFilter > 0 && LocationManager.GPS_PROVIDER.equals(location.getProvider())) {
++            noteStill(location);
++        }
++        // The distance filter (LocationManager used to apply it, but then a parked
++        // phone sent nothing at all and the watchdog kept restarting GPS).
++        // A still phone still checks in now and then (see onParkedFix).
++        boolean due = SystemClock.elapsedRealtime() - lastForwardAtMs >= HEARTBEAT_MS;
++        if (currentDistanceFilter <= 0 || lastForwarded == null || due || lastForwarded.distanceTo(location) >= currentDistanceFilter) {
++            forwardLocation(location);
++        }
++        if (shouldPark()) {
++            enterParked();
++        }
++    }
++
++    private void forwardLocation(android.location.Location location) {
++        lastForwarded = location;
++        lastForwardAtMs = SystemClock.elapsedRealtime();
+         if (locationLogEnabled) {
+             boolean locationLogSqlite = LocationStore.getLocationLogSqlite(getApplicationContext());
+             if (!locationLogSqlite || nativePostUrl == null) {
+@@ -356,9 +410,154 @@ public class BackgroundGeolocationService extends Service {
+         return currentMinIntervalMs > 0 ? currentMinIntervalMs : 1000L;
+     }
+ 
++    // Standing still? Remembers where GPS settled and since when.
++    private void noteStill(android.location.Location fix) {
++        float slack = PARK_RADIUS_M;
++        if (fix.hasAccuracy()) {
++            slack = Math.min(100f, Math.max(PARK_RADIUS_M, fix.getAccuracy()));
++        }
++        if (anchor == null || anchor.distanceTo(fix) > slack) {
++            anchor = fix;
++            anchorAtMs = SystemClock.elapsedRealtime();
++        }
++    }
++
++    private boolean shouldPark() {
++        return (
++            !parked &&
++            currentDistanceFilter > 0 &&
++            anchor != null &&
++            SystemClock.elapsedRealtime() - anchorAtMs >= PARK_AFTER_MS
++        );
++    }
++
++    private SensorManager sensors() {
++        return (SensorManager) getSystemService(Context.SENSOR_SERVICE);
++    }
++
++    private Sensor motionSensor() {
++        SensorManager sm = sensors();
++        return sm == null ? null : sm.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION);
++    }
++
++    private boolean networkLocationOn() {
++        try {
++            return client != null && client.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
++        } catch (Exception e) {
++            return false;
++        }
++    }
++
++    // GPS off; wait for the phone to move. Needs something that can notice that:
++    // the significant-motion sensor (near-zero power, wakes on walking or driving)
++    // and/or network location (Wi-Fi and cell towers, about once a minute).
++    private void enterParked() {
++        if (client == null || locationCallback == null) {
++            return;
++        }
++        Sensor motion = motionSensor();
++        boolean network = networkLocationOn();
++        if (motion != null) {
++            final TriggerEventListener trigger = new TriggerEventListener() {
++                @Override
++                public void onTrigger(TriggerEvent event) {
++                    // One-shot: Android disarms it after it fires.
++                    watchdogHandler.post(() -> {
++                        if (motionTrigger == this) {
++                            motionTrigger = null;
++                            unpark("motion");
++                        }
++                    });
++                }
++            };
++            if (sensors().requestTriggerSensor(trigger, motion)) {
++                motionTrigger = trigger;
++            }
++        }
++        if (motionTrigger == null && !network) {
++            // Nothing would notice you leaving: keep GPS on.
++            anchorAtMs = SystemClock.elapsedRealtime();
++            return;
++        }
++        parked = true;
++        stopWatchdog();
++        client.removeUpdates(locationCallback);
++        LocationListenerCompat listener = this::onParkedFix;
++        parkedListener = listener;
++        try {
++            if (network) {
++                client.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, PARKED_CHECK_MS, 0f, parkedListener, Looper.getMainLooper());
++            }
++            // Free: fixes other apps asked for.
++            client.requestLocationUpdates(LocationManager.PASSIVE_PROVIDER, PARKED_CHECK_MS, 0f, parkedListener, Looper.getMainLooper());
++        } catch (SecurityException | IllegalArgumentException ignore) {
++            // Permission revoked or provider missing: the motion trigger still works.
++        }
++        Logger.info("Parked: GPS off until the phone moves");
++    }
++
++    private void onParkedFix(android.location.Location fix) {
++        if (!parked) {
++            return;
++        }
++        acquireWakeLock();
++        boolean usable = fix.hasAccuracy() && fix.getAccuracy() <= UNPARK_MAX_ACCURACY_M;
++        if (usable && anchor != null && anchor.distanceTo(fix) > Math.max(UNPARK_MIN_M, 2 * fix.getAccuracy())) {
++            unpark("a fix away from the spot");
++            return;
++        }
++        // Still here: re-send the last spot now and then, so live sharing doesn't
++        // time out (friends stop seeing a trail after 3 minutes) and the stop's
++        // end time keeps up. Same place, new time; never a network position.
++        if (SystemClock.elapsedRealtime() - lastForwardAtMs < HEARTBEAT_MS) {
++            return;
++        }
++        android.location.Location here = lastForwarded != null ? lastForwarded : anchor;
++        if (here == null) {
++            return;
++        }
++        android.location.Location beat = new android.location.Location(here);
++        beat.setTime(System.currentTimeMillis());
++        beat.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
++        beat.setSpeed(0f);
++        forwardLocation(beat);
++    }
++
++    private void unpark(String why) {
++        if (!parked) {
++            return;
++        }
++        Logger.info("Unparked (" + why + "): GPS back on");
++        leaveParked();
++        acquireWakeLock();
++        // A false alarm (the phone picked up, not driven off) parks again after
++        // PARK_AFTER_MS more at the same spot.
++        anchorAtMs = SystemClock.elapsedRealtime();
++        lastGpsFixAtMs = SystemClock.elapsedRealtime();
++        requestLocationUpdates();
++        startWatchdog();
++    }
++
++    // Drops parked mode's listeners without turning GPS back on (stop, teardown, restart).
++    private void leaveParked() {
++        parked = false;
++        if (client != null && parkedListener != null) {
++            client.removeUpdates(parkedListener);
++        }
++        parkedListener = null;
++        if (motionTrigger != null) {
++            SensorManager sm = sensors();
++            Sensor motion = motionSensor();
++            if (sm != null && motion != null) {
++                sm.cancelTriggerSensor(motionTrigger, motion);
++            }
++            motionTrigger = null;
++        }
++    }
++
+     private void requestLocationUpdates() {
+         try {
+-            client.requestLocationUpdates(LocationManager.GPS_PROVIDER, locationIntervalMs(), currentDistanceFilter, locationCallback);
++            client.requestLocationUpdates(LocationManager.GPS_PROVIDER, locationIntervalMs(), 0f, locationCallback);
+         } catch (SecurityException ignore) {
+             // According to Android Studio, this method can throw a Security Exception if
+             // permissions are not yet granted. Rather than check the permissions, which is fiddly,
+@@ -377,7 +576,7 @@ public class BackgroundGeolocationService extends Service {
+                 client.requestLocationUpdates(
+                     LocationManager.NETWORK_PROVIDER,
+                     locationIntervalMs(),
+-                    currentDistanceFilter,
++                    0f,
+                     locationCallback
+                 );
+             }
+@@ -468,6 +667,9 @@ public class BackgroundGeolocationService extends Service {
+                 client.removeUpdates(locationCallback);
+             }
+             locationCallback = createLocationListener(BackgroundGeolocationService.this);
++            leaveParked();
++            anchor = null;
++            lastForwarded = null;
+             requestLocationUpdates();
+             // Arm the watchdog here so rejected network fixes during the grace period cannot
+             // leave tracking without a restart path if GPS_PROVIDER goes silent.
+@@ -491,6 +693,7 @@ public class BackgroundGeolocationService extends Service {
+             ServiceCompat.stopForeground(BackgroundGeolocationService.this, ServiceCompat.STOP_FOREGROUND_REMOVE);
+             stopSelf();
+             releaseMediaPlayer();
++            leaveParked();
+             releaseWakeLock();
+             return callbackId;
+         }

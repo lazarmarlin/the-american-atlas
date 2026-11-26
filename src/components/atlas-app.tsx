@@ -1162,22 +1162,28 @@ function AtlasShell() {
     document.addEventListener("visibilitychange", batteryOnShow);
 
     let lastShare = 0;
+    let lastSharedT = 0;
     function shareLive(force = false) {
       if (!useLiveShare.getState().viewers.length) {
         if (lastShare) {
           lastShare = 0;
+          lastSharedT = 0;
           void clearLiveTrail({ data: { deviceId: deviceId() } }).catch(() => {});
         }
         return;
       }
       const now = Date.now();
       if (!force && now - lastShare < 12000) return;
-      const trail = thinTrail(freshPoints(useGhost.getState().live, useSettings.getState().ghostHours), 90);
       // One fix is enough for the marker. The line appears once there's a second point.
       const here = useGhost.getState().live.at(-1);
+      // Nothing new (parked): just keep the trail from timing out for friends
+      // (3 minutes), instead of re-sending the same points every 12 seconds.
+      if (!force && here?.t != null && here.t === lastSharedT && now - lastShare < 60_000) return;
+      const trail = thinTrail(freshPoints(useGhost.getState().live, useSettings.getState().ghostHours), 90);
       const points = trail.length >= 1 ? trail : here ? [here] : [];
       if (!points.length) return;
       lastShare = now;
+      lastSharedT = here?.t ?? 0;
       const packed = points.slice(-600).map((point) =>
         point.brk ? ([point.lat, point.lon, point.t, 1] as const) : ([point.lat, point.lon, point.t] as const),
       );
@@ -2028,10 +2034,23 @@ function AtlasShell() {
       return;
     }
     let dead = false;
+    let timer = 0;
+    // Every 10 s while their trail is changing; slowing to once a minute while
+    // it isn't (they're parked); none while the app is off screen.
+    let every = 10_000;
+    let lastTip = "";
+    const next = () => {
+      window.clearTimeout(timer);
+      if (!dead && document.visibilityState === "visible") timer = window.setTimeout(pull, every);
+    };
     const pull = () => {
+      if (document.visibilityState !== "visible") return;
       pullLiveTrail({ data: friendLive.id })
         .then((points) => {
           if (dead) return;
+          const tipNow = points.length ? String(points.at(-1)) : "";
+          every = tipNow && tipNow === lastTip ? Math.min(every * 2, 60_000) : 10_000;
+          lastTip = tipNow;
           const ghosts = points.map((point) =>
             point[3] === 1
               ? { lat: point[0], lon: point[1], t: point[2], brk: true }
@@ -2054,13 +2073,21 @@ function AtlasShell() {
         })
         .catch(() => {
           if (!dead) setFriendLines([]);
-        });
+        })
+        .finally(next);
+    };
+    // Back on screen: straight away, at the quick pace.
+    const onShow = () => {
+      if (document.visibilityState !== "visible") return;
+      every = 10_000;
+      pull();
     };
     pull();
-    const id = window.setInterval(pull, 10000);
+    document.addEventListener("visibilitychange", onShow);
     return () => {
       dead = true;
-      window.clearInterval(id);
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onShow);
     };
   }, [friendLive]);
 
