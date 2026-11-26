@@ -99,10 +99,33 @@ public class PowerPlugin extends Plugin {
         call.resolve();
     }
 
-    /** Keep the screen on, and lock the phone sideways, for the driving view. */
+    /** Online, and on a connection that doesn't count against a data plan (Wi-Fi), for saving maps ahead. */
+    @PluginMethod
+    public void network(PluginCall call) {
+        JSObject out = new JSObject();
+        boolean online = false;
+        boolean unmetered = false;
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getContext().getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
+            android.net.Network network = cm == null ? null : cm.getActiveNetwork();
+            android.net.NetworkCapabilities caps = network == null ? null : cm.getNetworkCapabilities(network);
+            if (caps != null) {
+                online = caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET);
+                unmetered = online && !cm.isActiveNetworkMetered();
+            }
+        } catch (Exception ignore) {
+            // Unknown: treated as offline, so nothing big downloads.
+        }
+        out.put("online", online);
+        out.put("unmetered", unmetered);
+        call.resolve(out);
+    }
+
+    /** Keep the screen on (unless awake is false), and lock the phone sideways, for the driving view. */
     @PluginMethod
     public void driveScreen(PluginCall call) {
         boolean on = Boolean.TRUE.equals(call.getBoolean("on", false));
+        boolean awake = on && !Boolean.FALSE.equals(call.getBoolean("awake", true));
         Activity activity = getActivity();
         if (activity == null) {
             call.resolve();
@@ -113,7 +136,7 @@ public class PowerPlugin extends Plugin {
                 call.resolve();
                 return;
             }
-            if (on) activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            if (awake) activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             else activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             activity.setRequestedOrientation(on ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE : ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
             call.resolve();

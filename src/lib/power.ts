@@ -7,9 +7,29 @@ const Power = registerPlugin<{
   requestUnrestricted(): Promise<void>;
   notifications(): Promise<{ enabled: boolean; channelsOff: string[] }>;
   openNotificationSettings(): Promise<void>;
-  driveScreen(options: { on: boolean }): Promise<void>;
+  driveScreen(options: { on: boolean; awake?: boolean }): Promise<void>;
   battery(): Promise<{ level: number; charging: boolean }>;
+  network(): Promise<{ online: boolean; unmetered: boolean }>;
 }>("Power");
+
+/**
+ * Whether it's fine to download a lot: on Wi-Fi (a connection that isn't
+ * metered), or any connection when `anyNetwork`. Unknown counts as no.
+ */
+export async function bigDownloadOk(anyNetwork: boolean): Promise<boolean> {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
+  if (nativeApp) {
+    try {
+      const net = await Power.network();
+      return net.online && (anyNetwork || net.unmetered);
+    } catch {
+      return false;
+    }
+  }
+  if (anyNetwork) return true;
+  const connection = (navigator as Navigator & { connection?: { type?: string } }).connection;
+  return connection?.type === "wifi" || connection?.type === "ethernet";
+}
 
 /** Battery level (0–100) and charging, or null off the phone / on an older app. */
 export async function batteryInfo(): Promise<{ level: number; charging: boolean } | null> {
@@ -64,6 +84,8 @@ export async function openNotificationSettings() {
 /** Landscape and the screen stays on, in the installed app and in the phone site. */
 let wakeLock: WakeLockSentinel | null = null;
 let watching = false;
+/** Screen kept on (Drive mode turned on by hand, or plugged in). */
+let awakeWanted = true;
 let openedFullscreen = false;
 
 async function holdScreen() {
@@ -107,16 +129,30 @@ async function turnSideways() {
 
 function onVisible() {
   if (!watching || document.visibilityState !== "visible") return;
-  void holdScreen();
+  if (awakeWanted) void holdScreen();
   void turnSideways();
 }
 
-export function startDriveScreen() {
+/** `awake`: keep the screen on (otherwise it goes off as usual, to save battery). */
+export function startDriveScreen(awake = true) {
   watching = true;
-  if (nativeApp) void Power.driveScreen({ on: true }).catch(() => undefined);
-  void holdScreen();
+  awakeWanted = awake;
+  if (nativeApp) void Power.driveScreen({ on: true, awake }).catch(() => undefined);
+  if (awake) void holdScreen();
   void turnSideways();
   document.addEventListener("visibilitychange", onVisible);
+}
+
+/** Drive mode already showing: keep the screen on, or let it go off as usual. */
+export function setDriveScreenAwake(awake: boolean) {
+  if (!watching || awakeWanted === awake) return;
+  awakeWanted = awake;
+  if (nativeApp) void Power.driveScreen({ on: true, awake }).catch(() => undefined);
+  if (awake) void holdScreen();
+  else {
+    void wakeLock?.release().catch(() => undefined);
+    wakeLock = null;
+  }
 }
 
 export async function stopDriveScreen() {

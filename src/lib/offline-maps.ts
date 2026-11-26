@@ -191,7 +191,8 @@ export async function offlineReadyStyle(): Promise<Style | string> {
 
 // ---------------------------------------------------------------- saving a state
 
-export type SavedRegion = { abbr: string; zoom: number; tiles: number; bytes: number; savedAt: number; keys?: string[] };
+/** `auto`: saved ahead by the app (not picked by hand), so it can make room for newer ones. */
+export type SavedRegion = { abbr: string; zoom: number; tiles: number; bytes: number; savedAt: number; keys?: string[]; auto?: boolean };
 
 function lon2x(lon: number, z: number) {
   return Math.floor(((lon + 180) / 360) * 2 ** z);
@@ -224,7 +225,8 @@ type OfflineMaps = {
   saving: { abbr: string; done: number; total: number } | null;
   error: string | null;
   load: () => Promise<void>;
-  save: (state: StateInfo) => Promise<void>;
+  /** `auto`: saved ahead by the app. Returns whether it saved. */
+  save: (state: StateInfo, auto?: boolean) => Promise<boolean>;
   cancel: () => void;
   remove: (abbr: string) => Promise<void>;
 };
@@ -239,15 +241,15 @@ export const useOfflineMaps = create<OfflineMaps>((set, getState) => ({
     const regions = await all<SavedRegion>("regions");
     set({ regions: regions.sort((a, b) => a.abbr.localeCompare(b.abbr)) });
   },
-  save: async (state) => {
-    if (getState().saving) return;
+  save: async (state, auto = false) => {
+    if (getState().saving) return false;
     set({ error: null });
     // The style first: it says where tiles come from, and saves fonts and icons' addresses.
     const style = await offlineReadyStyle();
     const template = typeof style === "string" ? null : Object.values(style.sources ?? {}).find((s) => s.type === "vector" && Array.isArray(s.tiles))?.tiles?.[0];
     if (!template) {
-      set({ error: "Couldn't reach the map server. Try again with a signal." });
-      return;
+      if (!auto) set({ error: "Couldn't reach the map server. Try again with a signal." });
+      return false;
     }
     const { zoom, list } = tilesFor(state);
     control = new AbortController();
@@ -282,16 +284,19 @@ export const useOfflineMaps = create<OfflineMaps>((set, getState) => ({
     control = null;
     if (signal.aborted) {
       set({ saving: null });
-      return;
+      return false;
     }
     if (failed > list.length * 0.1) {
-      set({ saving: null, error: `${failed} of ${list.length} pieces didn't download. Try again with a better signal.` });
-      return;
+      set({ saving: null, error: auto ? null : `${failed} of ${list.length} pieces didn't download. Try again with a better signal.` });
+      return false;
     }
-    const region: SavedRegion = { abbr: state.abbr, zoom, tiles: keys.length, bytes, savedAt: Date.now(), keys };
+    // Picked by hand once: it stays, even if it was saved ahead before.
+    const before = await get<SavedRegion>("regions", state.abbr);
+    const region: SavedRegion = { abbr: state.abbr, zoom, tiles: keys.length, bytes, savedAt: Date.now(), keys, auto: auto && (before?.auto ?? true) };
     await put("regions", state.abbr, region);
     set({ saving: null });
     await getState().load();
+    return true;
   },
   cancel: () => {
     control?.abort();

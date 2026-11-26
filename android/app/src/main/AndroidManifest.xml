@@ -69,6 +69,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Saving maps ahead only on Wi-Fi (or another connection that isn't metered). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Saving photos to the gallery on Android 9 and older (newer ones need no permission). -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <!-- Lets the app install its own updates (src/lib/app-update.ts). Android still asks first. -->

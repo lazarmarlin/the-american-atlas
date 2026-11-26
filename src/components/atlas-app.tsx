@@ -48,7 +48,7 @@ import { GhostPanel } from "@/components/ghost-panel";
 import { remindOnThisDay } from "@/lib/memories";
 import { FriendsPanel } from "@/components/friends-panel";
 import { nextCounty, type NextCounty } from "@/lib/next-county";
-import { batteryInfo, lowPowerNext, startDriveScreen, stopDriveScreen } from "@/lib/power";
+import { batteryInfo, lowPowerNext, setDriveScreenAwake, startDriveScreen, stopDriveScreen } from "@/lib/power";
 import { PhotosPanel, PhotoViewer } from "@/components/photos-panel";
 import { updateWidget } from "@/lib/widget";
 import { noteLiveFix } from "@/lib/live-dot";
@@ -61,6 +61,8 @@ import { loadCounties } from "@/lib/atlas-model";
 import { nickOf, useLookVersion } from "@/lib/chat-look";
 import { countyContaining, countyToMark, type CountyRec } from "@/lib/counties";
 import { deviceId, flushDriveLog, localDay, logDrive, switchDriveLog, todayMiles } from "@/lib/drive-log";
+import { clearTrackNote, noteTitle, onTrackNote, postNextFix, setTrackNote, stoppedFromNotification } from "@/lib/track-note";
+import { saveMapsAhead } from "@/lib/maps-ahead";
 import { acceptFriend, listFriends } from "@/lib/friends";
 import { useSettingsRoute } from "@/lib/settings-route";
 import { Tour } from "@/components/tour";
@@ -297,6 +299,7 @@ function AtlasShell() {
   /** The same for the friend's live-trail chip: name for a few seconds, then just a dot and first name. */
   const [liveWide, setLiveWide] = useState(true);
   const nextAt = useRef<{ lat: number; lon: number; t: number } | null>(null);
+  const nextAsk = useRef(0);
   const [near, setNear] = useState<NearMark[]>([]);
   const [nearNote, setNearNote] = useState<string | null>(null);
   const [nearBusy, setNearBusy] = useState(false);
@@ -378,6 +381,10 @@ function AtlasShell() {
   const locating = trackTravel || sharingOnly;
   /** Battery at 20% or less: tracking takes fewer fixes until it's charging or above 30%. */
   const [lowPower, setLowPower] = useState(false);
+  /** Plugged in (checked every few minutes while tracking). */
+  const [charging, setCharging] = useState(false);
+  /** Drive mode turned itself on (rather than by hand). */
+  const [driveAuto, setDriveAuto] = useState(false);
   const setTrackTravel = useSettings((s) => s.setTrackTravel);
   const fastAdd = useSettings((s) => s.fastAdd);
   const showParks = useSettings((s) => s.showParks);
@@ -914,6 +921,42 @@ function AtlasShell() {
     if (!user?.id) return;
     updateWidget(marks, trackTravel);
   }, [marks, trackTravel, user?.id]);
+  // The tracking notification: today's tally and the next county, kept current
+  // (only sent on when the words change, about once a mile at most).
+  useEffect(() => {
+    if (!nativeApp) return;
+    if (!locating) {
+      clearTrackNote();
+      return;
+    }
+    if (!trackTravel) {
+      setTrackNote("Sharing your location", "With the friends you picked.");
+      return;
+    }
+    const today = localDay(Date.now());
+    const added = marks.filter((mark) => mark.visits.some((visit) => visit.visitedOn === today));
+    const title = noteTitle(
+      added.length,
+      added.reduce((sum, mark) => sum + (mark.points || 0), 0),
+      todayMiles(),
+    );
+    const text = nextUp
+      ? `Next new county: ${nextUp.name}, ${nextUp.state} · ${nextUp.miles < 1 ? "under a mile" : `${Math.round(nextUp.miles)} mi ${nextUp.toward}`}`
+      : "Adding towns, counties, roads, and places as you go.";
+    setTrackNote(title, text);
+  }, [locating, trackTravel, marks, nextUp, tracker]);
+  // Its buttons: "Stop tracking" (the location service already stopped) and "I'm here".
+  useEffect(
+    () =>
+      onTrackNote({
+        stopped: () => {
+          setTrackTravel(false);
+          setShareOnly(false);
+        },
+        here: () => setHereOpen(true),
+      }),
+    [setTrackTravel, setShareOnly],
+  );
   // Tracking tells you what it added: make sure the phone lets it.
   useEffect(() => {
     if (user?.id && trackTravel) void askNotifyOnce();
@@ -927,7 +970,10 @@ function AtlasShell() {
   // The nearest county still to get, rechecked every half mile or minute of travel.
   useEffect(() => {
     if (!trackTravel || !tracker) {
-      if (!trackTravel) setNextUp(null);
+      if (!trackTravel) {
+        nextAsk.current++;
+        setNextUp(null);
+      }
       return;
     }
     const meta = metaRef.current;
@@ -936,23 +982,30 @@ function AtlasShell() {
     const moved = last ? Math.hypot((tracker.lon - last.lon) * 53, (tracker.lat - last.lat) * 69) : Infinity;
     if (last && moved < 0.5 && Date.now() - last.t < 60000) return;
     nextAt.current = { lat: tracker.lat, lon: tracker.lon, t: Date.now() };
-    let dead = false;
+    const ask = ++nextAsk.current;
     const saved = new Set(marksRef.current.map((mark) => mark.id));
     void nextCounty(tracker.lat, tracker.lon, meta.states, saved).then((hit) => {
-      if (!dead) setNextUp(hit);
+      // Newest look wins; a rerun before it lands (the next fix) doesn't drop it.
+      if (ask === nextAsk.current) setNextUp(hit);
     });
-    return () => {
-      dead = true;
-    };
   }, [tracker, trackTravel, marks.length]);
 
+  // The screen stays on in Drive mode, except when it turned itself on and the
+  // phone isn't plugged in (then it goes off as usual: the biggest battery use there is).
+  const driveAwake = !driveAuto || charging;
+  const driveAwakeRef = useRef(driveAwake);
+  driveAwakeRef.current = driveAwake;
   useEffect(() => {
     if (!driving) return;
-    startDriveScreen();
+    startDriveScreen(driveAwakeRef.current);
     return () => {
       void stopDriveScreen();
     };
   }, [driving]);
+  useEffect(() => {
+    if (driving) setDriveScreenAwake(driveAwake);
+    else setDriveAuto(false);
+  }, [driving, driveAwake]);
 
   useEffect(() => {
     if (!driving) return;
@@ -979,7 +1032,18 @@ function AtlasShell() {
   }, [driving]);
 
   // Speed, heading and map zoom from the last minute of fixes (src/lib/motion.ts).
-  const { autoDrive, headingUp, voice } = useDrive();
+  const { autoDrive, headingUp, voice, mapsAhead } = useDrive();
+  // Maps saved ahead (Settings › Offline maps): the state you're in, and the
+  // ones close by or the way you're going. Looks every 10 minutes at most.
+  const mapsAheadWas = useRef(mapsAhead);
+  useEffect(() => {
+    const changed = mapsAheadWas.current !== mapsAhead;
+    mapsAheadWas.current = mapsAhead;
+    const fix = tracker ?? you;
+    const atlas = metaRef.current;
+    if (!fix || !atlas || mapsAhead === "off" || document.visibilityState !== "visible") return;
+    void saveMapsAhead(fix, (speedMph() ?? 0) >= 10 ? heading() : null, atlas.states, mapsAhead, changed);
+  }, [tracker, you, mapsAhead]);
   const [driveBearing, setDriveBearing] = useState<number | null>(null);
   const [driveZoom, setDriveZoom] = useState<number>(15);
   /** Bumped as fixes come in, so speed-based things update between tracker repaints. */
@@ -1008,9 +1072,11 @@ function AtlasShell() {
     if (autoSnoozed.current && parked != null && parked < 3) autoSnoozed.current = false;
     if (!driving && !autoSnoozed.current && document.visibilityState === "visible" && moving != null && moving >= 15) {
       autoEntered.current = true;
+      setDriveAuto(true);
       setDriving(true);
     } else if (driving && autoEntered.current && parked != null && parked < 3) {
       autoEntered.current = false;
+      setDriveAuto(false);
       setDriving(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1019,6 +1085,7 @@ function AtlasShell() {
     // Turned off by hand while still moving: don't turn straight back on.
     if ((speedMph() ?? 0) >= 5) autoSnoozed.current = true;
     autoEntered.current = false;
+    setDriveAuto(false);
     setDriving(false);
   }
 
@@ -1243,7 +1310,9 @@ function AtlasShell() {
       if (!nativeApp || (!force && Date.now() - lastBattery < 3 * 60_000)) return;
       lastBattery = Date.now();
       void batteryInfo().then((info) => {
-        if (dead || document.visibilityState !== "visible") return;
+        if (dead) return;
+        setCharging(!!info?.charging);
+        if (document.visibilityState !== "visible") return;
         setLowPower((cur) => lowPowerNext(cur, info));
       });
     }
@@ -1315,8 +1384,10 @@ function AtlasShell() {
       if (latest) noteLiveFix(latest);
       checkBattery();
       noteMotion(fixes);
-      // Speed and heading changed: driving bits look again (at most every 3 s).
-      if (Date.now() - lastMotionTick > 3000) {
+      // Speed and heading changed: driving bits look again (at most every 3 s,
+      // and in the background only for spoken "coming up"s: no redraws for nothing).
+      const motionWanted = document.visibilityState === "visible" || useDrive.getState().voice === "all";
+      if (motionWanted && Date.now() - lastMotionTick > 3000) {
         lastMotionTick = Date.now();
         setMotionTick((n) => n + 1);
       }
@@ -1363,8 +1434,14 @@ function AtlasShell() {
       if (held.length) push(held.splice(0), true);
     }
     if (nativeApp) {
-      void Promise.all([import("@capgo/background-geolocation"), nativeDelivery(userIdRef.current, deviceId())]).then(([{ BackgroundGeolocation }, delivery]) => {
+      void Promise.all([import("@capgo/background-geolocation"), nativeDelivery(userIdRef.current, deviceId()), stoppedFromNotification()]).then(([{ BackgroundGeolocation }, delivery, stopped]) => {
         if (dead) return;
+        if (stopped) {
+          // "Stop tracking" on the notification while the app was closed.
+          setTrackTravel(false);
+          setShareOnly(false);
+          return;
+        }
         void BackgroundGeolocation.start(
           {
             // Posting natively (delivery.url) is what keeps the location service
@@ -1431,7 +1508,9 @@ function AtlasShell() {
     refreshDot();
     const beat = window.setInterval(() => shareLive(), 12000);
     const unsubLive = useLiveShare.subscribe((state, prev) => {
-      if (state.viewers.join() !== prev.viewers.join()) shareLive(true);
+      if (state.viewers.join() === prev.viewers.join()) return;
+      shareLive(true);
+      postNextFix();
     });
     window.addEventListener("focus", refreshDot);
     document.addEventListener("visibilitychange", refreshDot);

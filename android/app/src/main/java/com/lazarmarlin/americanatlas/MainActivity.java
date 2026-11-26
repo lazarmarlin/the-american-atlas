@@ -12,6 +12,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(MessageWatchPlugin.class);
         registerPlugin(SpeechPlugin.class);
+        registerPlugin(TrackNotePlugin.class);
         registerPlugin(ApkUpdaterPlugin.class);
         registerPlugin(PhotoLibraryPlugin.class);
         registerPlugin(PowerPlugin.class);
