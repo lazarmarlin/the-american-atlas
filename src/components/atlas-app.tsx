@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Car, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, GripVertical, Locate, Mail, Search, Settings } from "lucide-react";
+import { Award, Car, ChartColumn, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CirclePlus, Compass, GripVertical, Images, Locate, Mail, MapPinned, Navigation, Route as RouteIcon, Search, Settings, Users } from "lucide-react";
 import { useCurrentUser, useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
   loadMeta,
@@ -87,16 +87,29 @@ import {
 
 const AtlasMap = lazy(() => import("@/components/atlas-map").then((mod) => ({ default: mod.AtlasMap })));
 
+// Your places, then your journeys, then your progress, then friends. All
+// eight fit in one row (icon over a short label), so nothing scrolls sideways.
 const TABS = [
   ["yours", "Yours"],
-  ["add", "Add"],
   ["near", "Near"],
+  ["add", "Add"],
   ["trips", "Trips"],
+  ["photos", "Photos"],
   ["badges", "Badges"],
   ["recap", "Recap"],
   ["friends", "Friends"],
-  ["photos", "Photos"],
 ] as const;
+
+const TAB_ICONS: Record<(typeof TABS)[number][0], typeof Users> = {
+  yours: MapPinned,
+  near: Navigation,
+  add: CirclePlus,
+  trips: RouteIcon,
+  photos: Images,
+  badges: Award,
+  recap: ChartColumn,
+  friends: Users,
+};
 
 function Shield({ sys, label }: { sys: System | "place"; label: string }) {
   const short = label.length > 4 ? label.slice(0, 4) : label;
@@ -205,6 +218,15 @@ function AtlasShell() {
   const [tracker, setTracker] = useState<Fix | null>(null);
   /** While tracking: the closest county you haven't been to. */
   const [nextUp, setNextUp] = useState<NextCounty | null>(null);
+  /** The "Next county" chip shows its name for a few seconds, then shrinks to just the distance. */
+  const [nextWide, setNextWide] = useState(true);
+  useEffect(() => {
+    if (!nextUp?.name || !nextWide) return;
+    const timer = window.setTimeout(() => setNextWide(false), 10_000);
+    return () => window.clearTimeout(timer);
+  }, [nextUp?.name, nextWide]);
+  const nextName = nextUp?.name;
+  useEffect(() => setNextWide(true), [nextName]);
   const nextAt = useRef<{ lat: number; lon: number; t: number } | null>(null);
   const [near, setNear] = useState<NearMark[]>([]);
   const [nearNote, setNearNote] = useState<string | null>(null);
@@ -2047,10 +2069,16 @@ function AtlasShell() {
         ) : null}
         {!driving ? (
           <>
-        {nextUp && !(friendLive || friendLines.length) && !tripRoutes && !selected ? (
+        {/* Tucking the map buttons away hides this too; otherwise it shrinks to
+            the distance after a few seconds, and a tap shows the name again. */}
+        {nextUp && !toolsTucked && !(friendLive || friendLines.length) && !tripRoutes && !selected ? (
           <button
             type="button"
             onClick={() => {
+              if (!nextWide) {
+                setNextWide(true);
+                return;
+              }
               const mark = countyToMark(nextUp, nextUp.state);
               chooseState(nextUp.state);
               openFromMap(mark);
@@ -2059,10 +2087,18 @@ function AtlasShell() {
               window.setTimeout(() => setSheetInstant(false), 80);
             }}
             aria-label={`Nearest new county: ${nextUp.name}, ${Math.max(1, Math.round(nextUp.miles))} miles ${nextUp.toward}`}
-            className="flex h-10 max-w-[80%] items-center gap-1.5 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+            className={
+              "flex h-10 max-w-[80%] items-center gap-1.5 rounded-full border border-line bg-surface/95 text-sm shadow-sm backdrop-blur-sm transition-all duration-300 " +
+              (nextWide ? "px-3" : "px-2.5")
+            }
           >
-            <span className="shrink-0 text-xs text-faint">Next</span>
-            <span className="truncate">{nextUp.name}</span>
+            <Compass className="size-4 shrink-0 text-accent" aria-hidden />
+            {nextWide ? (
+              <>
+                <span className="shrink-0 text-xs text-faint">Next</span>
+                <span className="truncate">{nextUp.name}</span>
+              </>
+            ) : null}
             <span className="shrink-0 text-xs text-muted">
               {nextUp.miles < 1 ? "<1" : Math.round(nextUp.miles)} mi {nextUp.toward}
             </span>
@@ -2417,15 +2453,6 @@ function AtlasShell() {
               </div>
             ) : null}
           </div>
-          {stateAbbr ? (
-            <button
-              type="button"
-              onClick={() => chooseState(null)}
-              className="pointer-events-auto rounded-full border border-line bg-surface px-3 py-2 text-sm"
-            >
-              United States
-            </button>
-          ) : null}
         </div>
       </section>
 
@@ -2523,35 +2550,46 @@ function AtlasShell() {
               </div>
             </>
           ) : null}
-          <div className={"grid grid-cols-[1fr_auto] items-center gap-1 " + (headerOpen ? "mt-4" : "")}>
-            <div className="flex min-w-0 gap-1 overflow-x-auto">
-              {TABS.map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  aria-pressed={tab === id}
-                  onClick={() => {
-                    setTab(id);
-                    // With the menu lowered only the tabs show; a tab opens it so you see what you picked.
-                    if (sheet < 40) setSheet(50);
-                  }}
-                  className={"h-11 shrink-0 rounded-lg px-2.5 text-xs " + (tab === id ? "bg-elevated text-ink" : "text-faint")}
-                >
-                  {label}
-                  {id === "friends" && unreadTotal ? (
-                    <span aria-label={`${unreadTotal} new`} className="ml-1 inline-grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] font-medium text-accent-ink">
-                      {unreadTotal > 99 ? "99+" : unreadTotal}
-                    </span>
-                  ) : null}
-                </button>
-              ))}
+          <div className={"grid grid-cols-[1fr_auto] items-center gap-1.5 " + (headerOpen ? "mt-4" : "")}>
+            <div className="-mx-1 grid min-w-0 grid-cols-8 rounded-xl bg-bg/60 p-0.5">
+              {TABS.map(([id, label]) => {
+                const Icon = TAB_ICONS[id];
+                const on = tab === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => {
+                      setTab(id);
+                      // With the menu lowered only the tabs show; a tab opens it so you see what you picked.
+                      if (sheet < 40) setSheet(50);
+                    }}
+                    className={
+                      "relative flex h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-[10px] transition-colors " +
+                      (on ? "bg-elevated text-ink shadow-sm" : "text-faint active:bg-elevated/50")
+                    }
+                  >
+                    <Icon className={"size-[18px] " + (on ? "text-accent" : "")} strokeWidth={on ? 2.2 : 1.8} aria-hidden />
+                    <span className="max-w-full truncate text-[9.5px] leading-none tracking-[-0.02em]">{label}</span>
+                    {id === "friends" && unreadTotal ? (
+                      <span
+                        aria-label={`${unreadTotal} new`}
+                        className="absolute top-0.5 right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[9px] font-semibold text-accent-ink ring-2 ring-surface"
+                      >
+                        {unreadTotal > 99 ? "99+" : unreadTotal}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>
             <button
               type="button"
               aria-expanded={headerOpen}
               aria-label={headerOpen ? "Hide the header" : "Show the header"}
               onClick={() => setHeaderOpen((open) => !open)}
-              className="flex h-11 w-11 items-center justify-center rounded-lg border border-line text-ink"
+              className="flex h-12 w-7 items-center justify-center rounded-lg border border-line text-ink"
             >
               <ChevronDown className={"size-4 " + (headerOpen ? "rotate-180" : "")} />
             </button>

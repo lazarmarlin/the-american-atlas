@@ -18,6 +18,8 @@ export type ChatPlace = {
   lon: number | null;
   points: number;
   visitedOn: string | null;
+  /** The sender has it on their map ("I was here"); otherwise it's just a place they're sharing. */
+  visited: boolean;
 };
 
 export type ChatReaction = { up: number; heart: number; pin: number; mine: ("up" | "heart" | "pin")[] };
@@ -212,6 +214,8 @@ function readPlace(body: string): ChatPlace | null {
       lon: num(row.lon, 180),
       points: Number(row.points) || 0,
       visitedOn: typeof row.visitedOn === "string" ? row.visitedOn : null,
+      // Cards sent before this was recorded: a visit date meant they'd been there.
+      visited: typeof row.visited === "boolean" ? row.visited : typeof row.visitedOn === "string",
     };
   } catch {
     return null;
@@ -391,7 +395,7 @@ function parseSend(input: unknown) {
     if (!PLACE_RE.test(poiId) || !/^[A-Z]{2}$/.test(state)) throw new Error("Unknown place");
     const visitedOn = /^\d{4}-\d{2}-\d{2}$/.test(String(place.visitedOn ?? "")) ? String(place.visitedOn) : null;
     // Name, kind and points are filled in from the atlas by the handler.
-    const card: ChatPlace = { id: poiId, name: "", category: "", state, lat: num(place.lat, 90), lon: num(place.lon, 180), points: 0, visitedOn };
+    const card: ChatPlace = { id: poiId, name: "", category: "", state, lat: num(place.lat, 90), lon: num(place.lon, 180), points: 0, visitedOn, visited: false };
     return { ...base, body: JSON.stringify(card), lat: card.lat, lon: card.lon };
   }
   const body = String(row.body ?? "").trim().slice(0, 500);
@@ -411,7 +415,13 @@ export const sendToThread = createServerFn({ method: "POST" })
       const { canonicalPlace } = await import("@/lib/catalog.server");
       const real = await canonicalPlace(card.id, card.state);
       if (!real) throw new Error("Unknown place");
-      data = { ...data, body: JSON.stringify({ ...card, name: real.name, category: real.category, points: real.points }) };
+      // "I was here" only if it's on the sender's own map.
+      const onMap = await sql<{ ok: boolean }>`select true as ok from marks where user_id = ${context.userId} and poi_id = ${card.id} limit 1`;
+      const visited = Boolean(onMap[0]?.ok);
+      data = {
+        ...data,
+        body: JSON.stringify({ ...card, name: real.name, category: real.category, points: real.points, visited, visitedOn: visited ? card.visitedOn : null }),
+      };
     }
     if (data.replyTo) {
       const found =

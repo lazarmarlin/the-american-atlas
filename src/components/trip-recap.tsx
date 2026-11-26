@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { pushBack } from "@/lib/sheet-back";
+import { useBackClose } from "@/lib/sheet-back";
 import { listFriends, type FriendRow } from "@/lib/friends";
 import { listGroups, type ChatGroup } from "@/lib/chat-groups";
 import { sendToThread, type Thread } from "@/lib/messages";
@@ -200,14 +200,7 @@ export function TripRecap({
     // Built once per opening; places added afterwards show next time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trip.id]);
-  useEffect(
-    () =>
-      pushBack(() => {
-        onClose();
-        return true;
-      }),
-    [onClose],
-  );
+  useBackClose(onClose);
   return createPortal(
     <div role="dialog" aria-label={`${trip.name} recap`} className="screen-top fixed inset-0 z-40 flex flex-col bg-bg">
       <header className="flex shrink-0 items-center gap-2 border-b border-line bg-surface px-2 pb-2">
@@ -258,14 +251,7 @@ function SendTripSheet({ card, onClose }: { card: TripCard; onClose: () => void 
       setGroups(g);
     });
   }, []);
-  useEffect(
-    () =>
-      pushBack(() => {
-        onClose();
-        return true;
-      }),
-    [onClose],
-  );
+  useBackClose(onClose);
   async function send(thread: Thread, label: string) {
     setBusy(true);
     try {

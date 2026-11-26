@@ -7,7 +7,7 @@ import { listFriends } from "@/lib/friends";
 import { canScanLibrary, forgetAdded, lastScanAt, loadLibraryPhoto, rememberAdded, scanAllowed, scanLibrary } from "@/lib/photo-scan";
 import { nativeApp } from "@/lib/native";
 import { deleteLocalPhoto, getLocalPhoto, listLocalPhotos, markUploaded, saveLocalPhoto, setLocalShared, type LocalPhoto } from "@/lib/photo-local";
-import { pushBack } from "@/lib/sheet-back";
+import { pushBack, useBackClose } from "@/lib/sheet-back";
 
 /** A phone photo as a JPEG data URL under `limit` characters, trying lower quality if needed. */
 async function phonePhoto(uri: string, edge: number, limit: number) {
@@ -258,12 +258,7 @@ function PhotoReview({
   const body = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    return pushBack(() => {
-      onClose();
-      return true;
-    });
-  }, [onClose]);
+  useBackClose(onClose);
 
   useEffect(() => {
     if (!end.current || limit >= rows.length) return;
@@ -399,14 +394,7 @@ function ShareSheet({
   const [audience, setAudience] = useState<PhotoAudience>(photo.shared ? "all" : photo.sharedWith?.length ? "some" : "private");
   const [picked, setPicked] = useState<string[]>(photo.sharedWith ?? []);
   const [busy, setBusy] = useState(false);
-  useEffect(
-    () =>
-      pushBack(() => {
-        onClose();
-        return true;
-      }),
-    [onClose],
-  );
+  useBackClose(onClose);
   const list = [...friends.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   const option = (id: PhotoAudience, label: string, hint: string) => (
     <button
@@ -1239,14 +1227,7 @@ export function PhotoViewer({
   const [note, setNote] = useState<string | null>(null);
   const photo = photos[index];
 
-  useEffect(
-    () =>
-      pushBack(() => {
-        onClose();
-        return true;
-      }),
-    [onClose],
-  );
+  useBackClose(onClose);
 
   useEffect(() => {
     if (!photo) return;

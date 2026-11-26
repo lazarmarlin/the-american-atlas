@@ -5,7 +5,7 @@ import { deleteMessage, listThread, loadThreadPhoto, messageBoard, searchChats, 
 import { milesBetween } from "@/lib/nearby";
 import { readGps } from "@/lib/photo-file";
 import { categoryName } from "@/lib/place-kinds";
-import { pushBack } from "@/lib/sheet-back";
+import { pushBack, useBackClose } from "@/lib/sheet-back";
 import { cacheBoard, cachePhoto, cacheThread, cachedBoard, cachedPhoto, cachedThread } from "@/lib/chat-cache";
 import { savePhoto } from "@/lib/save-photo";
 import { freshPoints, thinTrail, useGhost, type GhostPoint } from "@/lib/ghost-trail";
@@ -358,6 +358,8 @@ export function ChatThread({
       lon: place.lon,
       points: 0,
       visitedOn: place.visitedOn ?? null,
+      // Picked from your own places; the server checks it's on your map.
+      visited: true,
     };
     optimistic({ id, kind: "place", body: "", thumb: "", lat: place.lat, lon: place.lon, takenAt: null, place: card });
     try {
@@ -587,7 +589,7 @@ export function ChatThread({
                 ) : null}
                 {row.kind === "place" && row.place ? (
                   <div>
-                    <span className="block text-xs tracking-widest text-faint uppercase">{mine ? "I was here" : `${row.fromName} was here`}</span>
+                    <span className="block text-xs tracking-widest text-faint uppercase">{row.place.visited ? (mine ? "I was here" : `${row.fromName} was here`) : mine ? "I shared a place" : `${row.fromName} shared a place`}</span>
                     <span className="mt-1 block font-serif text-lg leading-tight">{row.place.name}</span>
                     <span className="block text-xs text-muted">
                       {categoryName(row.place.category, row.place.name)} · {row.place.state}
@@ -1075,14 +1077,7 @@ export function ChatScreen({
 } & React.ComponentProps<typeof ChatThread>) {
   const area = useVisibleArea();
   const [more, setMore] = useState(false);
-  useEffect(
-    () =>
-      pushBack(() => {
-        onClose();
-        return true;
-      }),
-    [onClose],
-  );
+  useBackClose(onClose);
   useEffect(() => {
     if (!more) return;
     return pushBack(() => {
@@ -1163,14 +1158,7 @@ export function MessageBoard({
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<ChatHit[] | null>(null);
   const unread = useChat((state) => state.summary);
-  useEffect(
-    () =>
-      pushBack(() => {
-        onClose();
-        return true;
-      }),
-    [onClose],
-  );
+  useBackClose(onClose);
   // Reload on the way back from a chat, so its preview and new-message count are current.
   const reopened = useRef(false);
   useEffect(() => {
