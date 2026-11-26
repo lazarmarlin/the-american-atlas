@@ -5,6 +5,7 @@
  */
 import { create } from "zustand";
 import { notifyMessage } from "@/lib/live-notify";
+import { showThroughWatch, startMessageWatch } from "@/lib/message-watch";
 import { unreadSummary, type Thread, type UnreadSummary } from "@/lib/messages";
 
 const SEEN_KEY = "atlas-notified-messages";
@@ -63,9 +64,16 @@ export const useChat = create<ChatState>((set, get) => ({
     set({ summary });
     const seen = seenIds();
     const fresh = summary.latest.filter((m) => !seen.has(m.id) && keyOf(m.thread) !== open);
-    for (const m of fresh.slice(0, 3).reverse()) void notifyMessage(m.from, m.preview);
     for (const m of summary.latest) seen.add(m.id);
     saveSeen(seen);
+    // The Android app notifies natively, sharing one "already notified" list
+    // with its own background check (so a message never shows twice).
+    const items = fresh.map((m) => ({ id: m.id, title: m.from, body: m.preview }));
+    if (await showThroughWatch(items, summary.latest.map((m) => m.id), summary.likes)) {
+      lastLikes = summary.likes;
+      return;
+    }
+    for (const m of fresh.slice(0, 3).reverse()) void notifyMessage(m.from, m.preview);
     if (lastLikes >= 0 && summary.likes > lastLikes) void notifyMessage("New thumbs-up", "A friend liked one of your badges or check-ins.");
     lastLikes = summary.likes;
   },
@@ -73,9 +81,10 @@ export const useChat = create<ChatState>((set, get) => ({
 
 let timer = 0;
 /** Start checking (once, after sign-in). Returns a stop function. */
-export function startChatChecks() {
+export function startChatChecks(userId?: string) {
   window.clearInterval(timer);
-  void useChat.getState().refresh();
+  // Native check first, so the first refresh can already notify through it.
+  void (userId ? startMessageWatch(userId, [...seenIds()]) : Promise.resolve()).finally(() => void useChat.getState().refresh());
   const tick = () => void useChat.getState().refresh();
   timer = window.setInterval(tick, 45_000);
   const onShow = () => {

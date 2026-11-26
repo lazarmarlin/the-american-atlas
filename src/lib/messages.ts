@@ -641,61 +641,66 @@ const preview = (kind: string, body: string) =>
 /** What's new since you last looked: messages per friend and group, and likes. */
 export const unreadSummary = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .handler(async ({ context }): Promise<UnreadSummary> => {
-    const { getSql } = await import("@/lib/db");
-    const sql = await getSql();
-    const me = context.userId;
-    const direct = await sql<{ id: string; from_id: string; kind: string; body: string; created_at: unknown }>`
-      select m.id, m.from_id, m.kind, m.body, m.created_at
-      from messages m
-      left join message_reads r on r.user_id = ${me} and r.thread = m.from_id
-      where m.to_id = ${me}
-        and m.created_at > coalesce(r.read_at, to_timestamp(0))
-        and exists (select 1 from friendships f where f.user_id = ${me} and f.friend_id = m.from_id)
-        and not exists (select 1 from message_hidden h where h.user_id = ${me} and h.message_id = m.id)
-      order by m.created_at desc
-      limit 200
-    `;
-    const group = await sql<{ id: string; group_id: string; from_id: string; kind: string; body: string; created_at: unknown }>`
-      select m.id, m.group_id, m.from_id, m.kind, m.body, m.created_at
-      from group_messages m
-      join chat_group_members g on g.group_id = m.group_id and g.user_id = ${me}
-      left join message_reads r on r.user_id = ${me} and r.thread = 'g:' || m.group_id
-      where m.from_id <> ${me}
-        and m.created_at > coalesce(r.read_at, to_timestamp(0))
-        and not exists (select 1 from message_hidden h where h.user_id = ${me} and h.message_id = m.id)
-      order by m.created_at desc
-      limit 200
-    `;
-    const likes = await sql<{ n: number }>`
-      select count(*)::int as n from reactions x
-      left join message_reads r on r.user_id = ${me} and r.thread = 'likes'
-      where x.owner_id = ${me} and x.created_at > coalesce(r.read_at, to_timestamp(0))
-    `;
-    const friends: Record<string, number> = {};
-    for (const row of direct) friends[row.from_id] = (friends[row.from_id] ?? 0) + 1;
-    const groups: Record<string, number> = {};
-    for (const row of group) groups[row.group_id] = (groups[row.group_id] ?? 0) + 1;
-    const newest = [
-      ...direct.map((row) => ({ ...row, thread: { kind: "friend" as const, id: row.from_id } })),
-      ...group.map((row) => ({ ...row, thread: { kind: "group" as const, id: row.group_id } })),
-    ]
-      .sort((a, b) => toMs(b.created_at) - toMs(a.created_at))
-      .slice(0, 5);
-    const names = await namesFor(sql, [...new Set(newest.map((row) => row.from_id))]);
-    return {
-      friends,
-      groups,
-      likes: Number(likes[0]?.n) || 0,
-      latest: newest.map((row) => ({
-        id: row.id,
-        thread: row.thread,
-        from: names.get(row.from_id) ?? "A friend",
-        preview: preview(row.kind, row.body),
-        at: toMs(row.created_at),
-      })),
-    };
-  });
+  .handler(async ({ context }): Promise<UnreadSummary> => unreadFor(context.userId));
+
+/**
+ * The work behind unreadSummary, also used by /api/notify (where the phone's
+ * own background check asks, with its device token instead of the cookie).
+ */
+export async function unreadFor(me: string): Promise<UnreadSummary> {
+  const { getSql } = await import("@/lib/db");
+  const sql = await getSql();
+  const direct = await sql<{ id: string; from_id: string; kind: string; body: string; created_at: unknown }>`
+    select m.id, m.from_id, m.kind, m.body, m.created_at
+    from messages m
+    left join message_reads r on r.user_id = ${me} and r.thread = m.from_id
+    where m.to_id = ${me}
+      and m.created_at > coalesce(r.read_at, to_timestamp(0))
+      and exists (select 1 from friendships f where f.user_id = ${me} and f.friend_id = m.from_id)
+      and not exists (select 1 from message_hidden h where h.user_id = ${me} and h.message_id = m.id)
+    order by m.created_at desc
+    limit 200
+  `;
+  const group = await sql<{ id: string; group_id: string; from_id: string; kind: string; body: string; created_at: unknown }>`
+    select m.id, m.group_id, m.from_id, m.kind, m.body, m.created_at
+    from group_messages m
+    join chat_group_members g on g.group_id = m.group_id and g.user_id = ${me}
+    left join message_reads r on r.user_id = ${me} and r.thread = 'g:' || m.group_id
+    where m.from_id <> ${me}
+      and m.created_at > coalesce(r.read_at, to_timestamp(0))
+      and not exists (select 1 from message_hidden h where h.user_id = ${me} and h.message_id = m.id)
+    order by m.created_at desc
+    limit 200
+  `;
+  const likes = await sql<{ n: number }>`
+    select count(*)::int as n from reactions x
+    left join message_reads r on r.user_id = ${me} and r.thread = 'likes'
+    where x.owner_id = ${me} and x.created_at > coalesce(r.read_at, to_timestamp(0))
+  `;
+  const friends: Record<string, number> = {};
+  for (const row of direct) friends[row.from_id] = (friends[row.from_id] ?? 0) + 1;
+  const groups: Record<string, number> = {};
+  for (const row of group) groups[row.group_id] = (groups[row.group_id] ?? 0) + 1;
+  const newest = [
+    ...direct.map((row) => ({ ...row, thread: { kind: "friend" as const, id: row.from_id } })),
+    ...group.map((row) => ({ ...row, thread: { kind: "group" as const, id: row.group_id } })),
+  ]
+    .sort((a, b) => toMs(b.created_at) - toMs(a.created_at))
+    .slice(0, 5);
+  const names = await namesFor(sql, [...new Set(newest.map((row) => row.from_id))]);
+  return {
+    friends,
+    groups,
+    likes: Number(likes[0]?.n) || 0,
+    latest: newest.map((row) => ({
+      id: row.id,
+      thread: row.thread,
+      from: names.get(row.from_id) ?? "A friend",
+      preview: preview(row.kind, row.body),
+      at: toMs(row.created_at),
+    })),
+  };
+}
 
 export type BoardItem = {
   thread: Thread;
