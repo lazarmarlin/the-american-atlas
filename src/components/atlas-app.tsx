@@ -1012,9 +1012,9 @@ function AtlasShell() {
       // The map's dot follows every fix (the app itself only updates every few seconds):
       // the newest of them, whatever order they came in.
       if (latest) noteLiveFix(latest);
+      checkBattery();
       useGhost.getState().record(fixes);
       shareLive();
-      checkBattery();
       if (!adding) return;
       logDrive(fixes);
       noteTripFixes(recordingRef.current, fixes);
