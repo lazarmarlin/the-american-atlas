@@ -371,7 +371,9 @@ export function AtlasMap({
         style: style as never,
         bounds: USA,
         fitBoundsOptions: { padding: 28 },
-        attributionControl: { compact: true },
+        // The (i) button sat where thumbs land and opened OpenStreetMap's site.
+        // The credit is a plain line instead (below), with links in Settings.
+        attributionControl: false,
         fadeDuration: 0,
       });
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
@@ -1715,5 +1717,12 @@ export function AtlasMap({
     return () => window.clearTimeout(timer);
   }, [followZoom, ready, selected, you, dot]);
 
-  return <div ref={host} className="h-full w-full" />;
+  return (
+    <div className="relative h-full w-full">
+      <div ref={host} className="h-full w-full" />
+      <p className="pointer-events-none absolute right-1.5 bottom-0.5 z-[1] text-[8px] leading-none text-faint/70 select-none">
+        © OpenStreetMap · OpenFreeMap
+      </p>
+    </div>
+  );
 }

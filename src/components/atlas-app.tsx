@@ -26,6 +26,7 @@ import { placeToMark, placesNear, readDeviceLocation, roadToMark, stateToMark, s
 import { collectPassed, takeNativeFixes } from "@/lib/travel";
 import { missedFixes, nativeDelivery, noteHandledFix } from "@/lib/native-tracking";
 import { startChatChecks, useChat } from "@/lib/chat-store";
+import { onNotificationOpen } from "@/lib/message-watch";
 import { SendPlaceSheet } from "@/components/chat-send";
 import { MessageBoard } from "@/components/friend-chat";
 import { StopsLog } from "@/components/stops-log";
@@ -726,6 +727,23 @@ function AtlasShell() {
     if (!user?.id) return;
     return startChatChecks(user.id);
   }, [user?.id]);
+  // A message notification tapped: straight into that chat (a thumbs-up one: the Friends tab).
+  useEffect(() => {
+    if (!user?.id) return;
+    return onNotificationOpen((key) => {
+      if (key === "likes") {
+        setMailOpen(false);
+        setTab("friends");
+        if (sheet < 40) setSheet(50);
+        return;
+      }
+      const [kind, id] = key.split(":");
+      if ((kind !== "friend" && kind !== "group") || !id) return;
+      setMailThread({ kind, id });
+      setMailOpen(true);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
   // The home-screen widget (Android): today's new places, this month's points, tracking.
   useEffect(() => {
     if (!user?.id) return;
@@ -1193,7 +1211,7 @@ function AtlasShell() {
 
   async function syncAccount() {
     if (typeof navigator !== "undefined" && !navigator.onLine) {
-      throw new Error("You're offline. Your places stay on this device until you have a signal.");
+      throw new Error("Offline. Places will sync when you have signal.");
     }
     const snap = await refreshVault();
     if (!snap) throw new Error("Couldn't sync the account. Your places are still on this device.");
@@ -2280,6 +2298,7 @@ function AtlasShell() {
         />
         {mailOpen && user?.id ? (
           <MessageBoard
+            key={mailThread ? `${mailThread.kind}:${mailThread.id}` : "board"}
             meId={user.id}
             places={marks.map((mark) => ({
               id: mark.id,
@@ -2372,7 +2391,7 @@ function AtlasShell() {
               {stateAbbr
                 ? visitedOnly
                   ? "Only places you've added. Switch to All to see the rest."
-                  : "Major cities, highways, and parks are on the map. Zoom in for smaller places."
+                  : "Zoom in for smaller places."
                 : stats.places === 0
                   ? "Clear until you add a place"
                   : `${stats.points.toLocaleString()} pts · ${stats.states} states`}
@@ -2978,7 +2997,7 @@ function Yours({
         ) : null}
         <p className="font-serif text-xl">The map is clear.</p>
         <p className="mt-2 text-sm text-muted">
-          Add a beach, a stadium, a road, or a store. It shows up here and as a small mark on the map. Roads draw as a thin line.
+          Add places from the Add tab.
         </p>
       </div>
     );
@@ -3353,7 +3372,7 @@ function NearList({
           <Locate className="size-4" aria-hidden="true" />
           {busy ? "Finding you…" : "Places near me"}
         </button>
-        <p className="mt-2 text-xs text-muted">Uses this device's location. If The American Atlas is inside another app, allow location for that app.</p>
+        <p className="mt-2 text-xs text-muted">Needs location access.</p>
         {note ? <p className="mt-2 text-sm text-accent">{note}</p> : null}
       </div>
       <ul>
@@ -3413,7 +3432,7 @@ function BadgeList({
         </div>
       </div>
       <p className="mt-1 text-sm text-muted">
-        {earned} of {total} badges. They unlock from the places you add and stay on your account.
+        {earned} of {total} badges
       </p>
       <div className="mt-3 space-y-2">
         {progress.map((row) => (
@@ -3617,7 +3636,7 @@ function TripsPanel({
           )}
         </div>
         <p className="mt-1 text-sm text-muted">
-          Start a trip and it asks for a name, turns tracking on, and adds each place you pass until you end it. The line stays on the map.
+          Start a trip to record its route and every place you pass.
         </p>
         {naming ? (
           <form
@@ -3775,7 +3794,7 @@ function TripsPanel({
         />
       </label>
       <p className="mt-3 text-xs tracking-widest text-faint uppercase">Order</p>
-      {stops.length === 0 ? <p className="mt-1 text-sm text-muted">Nothing on this trip yet. Search below and tap a place. Tap it again to add the return.</p> : null}
+      {stops.length === 0 ? <p className="mt-1 text-sm text-muted">No stops yet. Search below to add one.</p> : null}
       <ul className="mt-1">
         {stops.map((stop, index) => {
           const mark = byId.get(stop.poiId);

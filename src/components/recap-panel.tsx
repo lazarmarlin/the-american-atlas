@@ -239,7 +239,7 @@ export function RecapPanel({ name, marks = [], onOpenPlace }: { name: string; ma
           ) : null}
           {empty ? (
             <p className="mt-2 text-sm text-muted">
-              Nothing here yet. Add a place or drive with tracking on.
+              Nothing yet.
             </p>
           ) : null}
           {note ? <p className="mt-2 text-sm text-muted">{note}</p> : null}

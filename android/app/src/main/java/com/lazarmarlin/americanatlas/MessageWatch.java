@@ -140,7 +140,7 @@ final class MessageWatch {
             if (list != null) {
                 for (int i = 0; i < list.length(); i++) {
                     JSONObject m = list.getJSONObject(i);
-                    items.add(new String[] { m.optString("id"), m.optString("title"), m.optString("body") });
+                    items.add(new String[] { m.optString("id"), m.optString("title"), m.optString("body"), m.optString("thread") });
                     all.add(m.optString("id"));
                 }
             }
@@ -165,20 +165,23 @@ final class MessageWatch {
         for (String[] item : items) if (!item[0].isEmpty() && !ids.contains(item[0])) fresh.add(item);
         for (int i = Math.min(fresh.size(), 3) - 1; i >= 0; i--) {
             String[] item = fresh.get(i);
-            post(app, "m:" + item[0], item[1], item[2]);
+            post(app, "m:" + item[0], item[1], item[2], item.length > 3 ? item[3] : "");
         }
         for (String[] item : items) ids.add(item[0]);
         ids.addAll(seen);
         SharedPreferences.Editor edit = p.edit().putString("seen", join(ids));
         if (likes >= 0) {
             int before = p.getInt("likes", -1);
-            if (before >= 0 && likes > before) post(app, "likes:" + likes, "New thumbs-up", "A friend liked one of your badges or check-ins.");
+            if (before >= 0 && likes > before) post(app, "likes:" + likes, "New thumbs-up", "A friend liked one of your badges or check-ins.", "likes");
             edit.putInt("likes", likes);
         }
         edit.apply();
     }
 
-    private static void post(Context ctx, String key, String title, String body) {
+    /** Extra on the notification's tap: which chat to open ("friend:<id>", "group:<id>" or "likes"). */
+    static final String EXTRA_THREAD = "atlasThread";
+
+    private static void post(Context ctx, String key, String title, String body, String thread) {
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return;
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationManager manager = ctx.getSystemService(NotificationManager.class);
@@ -192,6 +195,7 @@ final class MessageWatch {
         PendingIntent tap = null;
         if (open != null) {
             open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            if (thread != null && !thread.isEmpty()) open.putExtra(EXTRA_THREAD, thread);
             tap = PendingIntent.getActivity(ctx, key.hashCode(), open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         }
         NotificationCompat.Builder n = new NotificationCompat.Builder(ctx, CHANNEL)

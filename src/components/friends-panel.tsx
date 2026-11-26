@@ -505,7 +505,6 @@ export function FriendsPanel({
             {part === "photos" ? (
               <>
             <h3 className="mt-5 px-2 font-serif text-xl">Photos</h3>
-            <p className="mt-1 px-2 text-sm text-muted">Pictures they chose to share. A gold edge on the map is one of theirs.</p>
             {shots.length ? (
               <ul className="mt-2 grid grid-cols-3 gap-2">
                 {shots.map((photo) => (
@@ -545,7 +544,7 @@ export function FriendsPanel({
             {part === "trails" ? (
               <>
             <h3 className="mt-5 px-2 font-serif text-xl">Ghost trails</h3>
-            <p className="mt-1 px-2 text-sm text-muted">Saved trails they chose to share. The ends and the times are left off.</p>
+            <p className="mt-1 px-2 text-sm text-muted">Start and end are hidden.</p>
             {page.trails.length ? (
               <ul className="mt-2 grid gap-2">
                 {page.trails.map((trail) => (
@@ -596,8 +595,7 @@ export function FriendsPanel({
       <div className="px-2">
         <h2 className="font-serif text-2xl">Friends</h2>
         <p className="mt-1 text-sm text-muted">
-          Send a link. Once they open it and sign in, you can both see earned badges and any saved ghost trails you
-          choose to share. Live trails are picked in the Ghost trail panel.
+          Send a link to add a friend.
         </p>
       </div>
       {note ? <p className="mt-3 px-2 text-sm text-ink">{note}</p> : null}
@@ -613,7 +611,7 @@ export function FriendsPanel({
       {linkNote ? <p className="mt-2 px-2 text-sm break-all text-muted">{linkNote}</p> : null}
       {resetAsk ? (
         <div className="mx-2 mt-2 rounded-lg border border-line px-3 py-3">
-          <p className="text-sm">Make a new link? The old one stops working. Friends you already have stay.</p>
+          <p className="text-sm">Make a new link? The old one stops working.</p>
           <div className="mt-2 flex gap-2">
             <button type="button" onClick={() => void resetLink()} className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm">
               New link
@@ -661,7 +659,7 @@ export function FriendsPanel({
               New chat
             </button>
           </div>
-          <p className="mt-1 text-xs text-muted">A group conversation with friends you pick, with everyone's live dots on one map.</p>
+          <p className="mt-1 text-xs text-muted">Group chat with everyone's live dots on one map.</p>
           {groups?.length ? (
             <ul className="mt-2 grid gap-2">
               {groups.map((g) => (
@@ -683,7 +681,6 @@ export function FriendsPanel({
       {friends && friends.length > 0 ? (
         <div className="mt-6 px-2">
           <h3 className="font-serif text-xl">Thumbs-up</h3>
-          <p className="mt-1 text-xs text-muted">Friends can give a 👍 to your badges and check-ins from your page. They show up here.</p>
           <button type="button" onClick={showLikes} className="mt-2 flex h-11 w-full items-center justify-between gap-2 rounded-lg border border-line px-3 text-sm">
             <span>{likesOpen ? "Hide" : "See who gave you a thumbs-up"}</span>
             {unread.likes ? <Count n={unread.likes} label="new" /> : null}

@@ -7,25 +7,25 @@ const STEPS = [
   },
   {
     title: "Start with a state",
-    body: "Tap a state. Highways, cities, and parks show first. Zoom in and smaller towns appear. Places you've added stay visible when you zoom back out.",
+    body: "Tap a state, then zoom in for smaller towns.",
   },
   {
     title: "Add a place",
-    body: "Tap a dot, then Add to map. A date, note, or photo is optional. You can skip it and add the place in one tap.",
+    body: "Tap a dot, then Add to map.",
   },
   {
     title: "Go back again",
-    body: "Visit again records another time there. The first visit is full points, then 85%, 50%, 25%, and 10%. After that it is still tracked, and it just stops adding points.",
+    body: "Visit again to log another stop. Repeat visits earn fewer points.",
   },
   {
     title: "Build a route",
-    body: "A trip draws your places in order. The same place can be on it twice, so a drive can leave Erie, cross into Ohio, and come home.",
+    body: "A trip draws your places in order on the map.",
   },
   {
     title: "Take it with you",
     body: nativeApp
-      ? "The places, roads, and counties are already on this phone. Sign in and they stay with your account. You can replay this tour in Settings."
-      : "In Settings, turn on Offline atlas. A progress bar runs while every place is saved on this device. You can replay this tour there too.",
+      ? "Sign in to keep your places with your account."
+      : "Turn on Offline atlas in Settings to use it with no signal.",
   },
 ];
 

@@ -182,10 +182,21 @@ export function SettingsPage({
       {page === "account" ? (
       <>
       <AppVersion />
+      <p className="mt-2 text-xs text-faint">
+        Map data ©{" "}
+        <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" className="underline">
+          OpenStreetMap contributors
+        </a>
+        , tiles by{" "}
+        <a href="https://openfreemap.org" target="_blank" rel="noopener noreferrer" className="underline">
+          OpenFreeMap
+        </a>
+        .
+      </p>
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Sync</h2>
         <p className="mt-1 text-sm text-muted">
-          Send your places, trips, and notes to your account, then download the atlas again so any new places are on this device.
+          Upload your changes and refresh the atlas.
         </p>
         <button
           type="button"
@@ -231,7 +242,6 @@ export function SettingsPage({
 
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Profile</h2>
-        <p className="mt-1 text-sm text-muted">This name and photo show on your atlas. They're saved on this device and sync to your account when you're online.</p>
         <div className="mt-4 flex items-center gap-3">
           {photo ? (
             <img src={photo} alt="" className="size-16 rounded-full object-cover" />
@@ -311,8 +321,8 @@ export function SettingsPage({
         <h2 className="font-serif text-2xl">Travel tracking</h2>
         <p className="mt-1 text-sm text-muted">
           {nativeApp
-            ? "When this is on, a town or city you pass through, an Indian reservation you cross, the county you are in, a road you are driving, or a site within a quarter mile is added for you. It keeps going with the screen off. Turning it on asks Android to allow location all the time."
-            : "When this is on, a town or city you pass through, an Indian reservation you cross, the county you are in, a road you are driving, or a site within a quarter mile is added for you. The open app can do that now. Background tracking, with the screen off, needs the installed phone app."}
+            ? "Adds the towns, counties, roads and sites you pass, even with the screen off."
+            : "Adds the towns, counties, roads and sites you pass while the app is open. The phone app also tracks with the screen off."}
         </p>
         <button
           type="button"
@@ -348,14 +358,14 @@ export function SettingsPage({
         >
           {trackTravel ? "Tracking on" : "Tracking off"}
         </button>
-        <p className="mt-2 text-xs text-faint">Only on this device. Signing in somewhere else doesn't turn it on there.</p>
+        <p className="mt-2 text-xs text-faint">This device only.</p>
         {trackNote ? <p className="mt-2 text-sm text-muted">{trackNote}</p> : null}
       </section>
 
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Ghost trail</h2>
         <p className="mt-1 text-sm text-muted">
-          While tracking, a wispy path stays behind you, then fades. Pick how many hours of it to show, up to 24, and a color. The color stays faint. The Ghost trail button on the map is where you save one for good; saved trails stay on your account and show up on all your devices.
+          A fading path behind you while tracking.
         </p>
         <GhostHours hours={ghostHours} onChange={setGhostHours} />
         <GhostColors color={ghostColor} onChange={setGhostColor} />
@@ -372,15 +382,12 @@ export function SettingsPage({
           {keepGhost ? "Live trail kept on your account" : "Keep the live trail on your account"}
         </button>
         <p className="mt-2 text-sm text-muted">
-          Off unless you turn it on. The last 24 hours of the fading trail stays with your account, so a reinstall can pick it up. Friends don't use this. They see you when you pick them under Live with friends. Saved trails are separate and always stay.
+          Keeps the last 24 hours with your account.
         </p>
       </section>
 
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Your location</h2>
-        <p className="mt-1 text-sm text-muted">
-          The marker that follows you while tracking is on. Pick a color, then a picture. It is saved to your account.
-        </p>
         <div className="mt-3 flex items-center gap-3">
           <YouMarkerFace icon={markerIcon} color={markerColor} size={64} />
           <p className="text-sm text-muted">
@@ -432,7 +439,7 @@ export function SettingsPage({
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Fast add</h2>
         <p className="mt-1 text-sm text-muted">
-          Tap a place, road, or county and it is added right away. A note at the top opens the card. Tap the same spot again to open it too.
+          Tap a place on the map to add it instantly.
         </p>
         <button
           type="button"
@@ -450,7 +457,7 @@ export function SettingsPage({
         <section className="mt-8">
           <h2 className="font-serif text-2xl">On this day</h2>
           <p className="mt-1 text-sm text-muted">
-            Once a day, a notification when you visited somewhere on this date in an earlier year. They're also at the top of the Recap tab.
+            Places you visited on this date in past years.
           </p>
           <button
             type="button"
@@ -474,7 +481,7 @@ export function SettingsPage({
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Offline atlas</h2>
         <p className="mt-1 text-sm text-muted">
-          Save every place, town, and road on this device so the lists still open with no signal. A download runs once, then stays here.
+          Keep every place on this phone for use without signal.
         </p>
         <button
           type="button"
@@ -502,7 +509,6 @@ export function SettingsPage({
 
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Tour</h2>
-        <p className="mt-1 text-sm text-muted">The first-time walkthrough. Play it again whenever the map starts to feel crowded.</p>
         <button type="button" onClick={onTour} className="mt-3 h-12 w-full rounded-lg border border-line text-sm">
           Replay the tour
         </button>
@@ -514,7 +520,7 @@ export function SettingsPage({
         <section className="mt-8">
           <h2 className="font-serif text-2xl">Camera roll</h2>
           <p className="mt-1 text-sm text-muted">
-            On the phone, choose the pictures to check. The website can only see the ones you pick. A match needs a location on the photo and a place you have already added.
+            Only the photos you pick are checked.
           </p>
           <div className="mt-3">
             <PhotoFinder marks={marks} trip={trip} onSaved={onPhotosSaved} onRemoved={onPhotoRemoved} />
@@ -543,10 +549,8 @@ export function SettingsPage({
 
       {page === "map" ? (
       <>
-      <p className="mt-3 text-sm text-muted">These stay with your account, including county colors, so a new install picks them up.</p>
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Map markers</h2>
-        <p className="mt-1 text-sm text-muted">Icons use the same colors as the place types. Dots are the plain circles.</p>
         <div className="mt-3 grid grid-cols-2 gap-2">
           <button
             type="button"
@@ -569,7 +573,6 @@ export function SettingsPage({
 
       <section className="mt-8">
         <h2 className="font-serif text-2xl">States you've been to</h2>
-        <p className="mt-1 text-sm text-muted">The outline of a state changes after you add it, or anything in it.</p>
         <div className="mt-3 grid grid-cols-3 gap-2">
           {BORDER_COLORS.map((color) => (
             <button
@@ -591,7 +594,6 @@ export function SettingsPage({
 
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Counties you've been to</h2>
-        <p className="mt-1 text-sm text-muted">The fill on a county after you add it. Outlines of the ones you haven't added stay light.</p>
         <div className="mt-3 grid grid-cols-3 gap-2">
           {BORDER_COLORS.map((color) => (
             <button
@@ -613,9 +615,6 @@ export function SettingsPage({
 
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Parks</h2>
-        <p className="mt-1 text-sm text-muted">
-          Deeper green is a national park. Lighter green is a state park. Tap either shape to open it, the same as its pin.
-        </p>
         <button
           type="button"
           aria-pressed={showParks}
@@ -628,7 +627,6 @@ export function SettingsPage({
 
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Cities and towns</h2>
-        <p className="mt-1 text-sm text-muted">A faint wash over city and town boundaries. Tapping it does nothing.</p>
         <button
           type="button"
           aria-pressed={showTowns}
@@ -659,8 +657,7 @@ export function SettingsPage({
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Moving between states</h2>
         <p className="mt-1 text-sm text-muted">
-          Zoomed in, tapping a neighboring state switches to it without zooming out. With this on, moving the map into
-          another state switches to it too.
+          Moving the map into another state switches to it.
         </p>
         <button
           type="button"
@@ -675,7 +672,7 @@ export function SettingsPage({
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Reservations</h2>
         <p className="mt-1 text-sm text-muted">
-          A wash over Indian reservation boundaries. Tap one to add it, the same as a park. Driving through one adds it while tracking is on. Each reservation has its own points.
+          Tap one to add it. Driving through adds it too.
         </p>
         <button
           type="button"
@@ -788,8 +785,7 @@ function OfflineMapsSection() {
     <section className="mt-8">
       <h2 className="font-serif text-2xl">Offline maps</h2>
       <p className="mt-1 text-sm text-muted">
-        Save a state's map on this phone so roads and towns still draw with no signal. Places still get added offline either way; this is the map
-        underneath. Use Wi-Fi: a state is usually 20 to 150 MB.
+        Maps that work with no signal. Use Wi-Fi (20–150 MB a state).
       </p>
       <div className="mt-3 flex gap-2">
         <select
@@ -900,7 +896,7 @@ function NotificationsSection() {
           },
         ],
       });
-      setNote("Sent. If nothing showed up, check the switches in Android's notification settings.");
+      setNote("Sent. Nothing? Check Android's notification settings.");
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Couldn't send it.");
     }
@@ -909,8 +905,7 @@ function NotificationsSection() {
     <section className="mt-8">
       <h2 className="font-serif text-2xl">Notifications</h2>
       <p className="mt-1 text-sm text-muted">
-        Places tracking adds, messages, thumbs-up, friends sharing their location, and On this day. They come while the app is running, including in
-        the background on a drive. If Android closes the app, the places you passed are added (and notified) when you open it again.
+        Messages, thumbs-up, places added, friends going live, and On this day.
       </p>
       {status === null ? <p className="mt-3 text-sm text-faint">Checking…</p> : null}
       {status && !status.enabled ? (

@@ -542,7 +542,7 @@ export function ChatThread({
         {rows === null ? <p className="text-sm text-muted">Loading…</p> : null}
         {rows && rows.length === 0 ? (
           <p className="m-auto max-w-xs text-center text-sm text-muted">
-            Nothing yet. Say hi, send a photo, or share a place you've been with the + button. Hold a message for more.
+            No messages yet. Say hi 👋
           </p>
         ) : null}
         {rows?.map((row, index) => {
@@ -1365,7 +1365,7 @@ function TrailSheet({
   const day = (t: number) => new Date(t).toLocaleDateString("en-CA");
   return (
     <Sheet label="Share a trail" onClose={onClose}>
-      <p className="text-xs text-muted">The ends are left off, so it doesn't point at where you started or stopped.</p>
+      <p className="text-xs text-muted">Start and end are hidden.</p>
       <ul className="mt-2">
         {today.length >= 2 ? (
           <li>

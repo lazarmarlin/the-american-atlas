@@ -713,8 +713,7 @@ export function PhotoFinder({
             {busy ? "Looking through your photos…" : "Scan my camera roll"}
           </button>
           <p className="mt-2 text-xs text-muted">
-            Looks at the last 90 days of photos and finds the ones taken at places on your atlas. Android asks once to let the
-            app see your photos and where they were taken. Nothing is uploaded until you add it.
+            Finds photos from the last 90 days taken at your places. Nothing uploads until you add it.
           </p>
           <button
             type="button"
@@ -736,8 +735,7 @@ export function PhotoFinder({
             {busy ? "Reading photos…" : "Find photos of places you've been"}
           </button>
           <p className="mt-2 text-xs text-muted">
-            Choose pictures from your camera roll. A picture with a location is matched to a place already on your atlas; for
-            the rest, pick the place. Nothing is uploaded until you add it.
+            Photos with a location match a place automatically.
           </p>
         </>
       )}
@@ -1095,7 +1093,6 @@ export function PhotosPanel({
   return (
     <div className={"px-2 " + (searching ? "pb-[70dvh]" : "pb-4")}>
       <h2 className="px-2 font-serif text-2xl">Photos</h2>
-      <p className="mt-1 px-2 text-sm text-muted">Pictures stay with the place. Friends see one only after you share it.</p>
       <div className="mt-3 px-2">
         <PhotoFinder
           marks={marks}

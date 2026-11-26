@@ -87,7 +87,7 @@ export function UpdatePrompt() {
               {available.notes ? ` · ${available.notes.split("\n")[0]}` : ""}
             </p>
             <p className="text-xs text-muted">
-              Installs over this one. Your places and settings stay.
+              Your places and settings stay.
             </p>
             {message ? <p className="mt-1 text-sm text-accent">{message}</p> : null}
             {status === "downloading" ? (
@@ -138,8 +138,7 @@ export function AppVersion() {
     <section className="mt-8">
       <h2 className="font-serif text-2xl">App version</h2>
       <p className="mt-1 text-sm text-muted">
-        {current ? `Build ${current}.` : "Checking…"} New builds install over this one, so nothing
-        is lost.
+        {current ? `Build ${current}` : "Checking…"}
       </p>
       {available && status === "downloading" ? <DownloadBar percent={percent} size={available.size} /> : null}
       {available && status === "permission" ? (
