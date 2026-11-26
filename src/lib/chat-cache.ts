@@ -54,7 +54,8 @@ async function write(key: string, value: unknown) {
 const threadKey = (me: string, thread: Thread) => `${me}:${thread.kind}:${thread.id}`;
 
 export function cachedThread(me: string, thread: Thread) {
-  return read<ChatMessage[]>(threadKey(me, thread));
+  // A friend's saved profile once shared this key: only a list of messages counts.
+  return read<unknown>(threadKey(me, thread)).then((rows) => (Array.isArray(rows) ? (rows as ChatMessage[]) : null));
 }
 
 export function cacheThread(me: string, thread: Thread, rows: ChatMessage[]) {
@@ -95,12 +96,17 @@ export function cacheFriends(me: string, rows: unknown[]) {
   return write(`${me}:friends`, rows);
 }
 
+// Not `${me}:friend:${id}`: that's the saved chat with them (threadKey), and
+// sharing it crashed their profile (a list of messages read as a profile).
 export function cachedFriendPage<T>(me: string, id: string) {
-  return read<T>(`${me}:friend:${id}`);
+  return read<unknown>(`${me}:profile:${id}`).then((page) => {
+    const row = page as { badges?: unknown; trails?: unknown; recent?: unknown } | null;
+    return row && !Array.isArray(row) && Array.isArray(row.badges) && Array.isArray(row.trails) ? (page as T) : null;
+  });
 }
 
 export function cacheFriendPage(me: string, id: string, page: unknown) {
-  return write(`${me}:friend:${id}`, page);
+  return write(`${me}:profile:${id}`, page);
 }
 
 export function cachedGroups<T>(me: string) {
