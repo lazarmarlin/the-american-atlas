@@ -29,6 +29,8 @@ import { startChatChecks, useChat } from "@/lib/chat-store";
 import { SendPlaceSheet } from "@/components/chat-send";
 import { MessageBoard } from "@/components/friend-chat";
 import { StopsLog } from "@/components/stops-log";
+import { flushStops, forgetPendingStop, keepStop, noteStopFixes, pendingStops } from "@/lib/stop-detect";
+import { listStops, removeStop, type GpsStop } from "@/lib/stops";
 import { TripRecap, type TripCard } from "@/components/trip-recap";
 import { flushTripTrack, noteTripFixes, trackLines } from "@/lib/trip-track";
 import { AtlasSplash, LoginScreen } from "@/components/login-screen";
@@ -712,6 +714,31 @@ function AtlasShell() {
   recordingRef.current = recordingId;
   const metaRef = useRef(meta);
   metaRef.current = meta;
+  // Stops found from GPS while tracking (the Stops view shows them with your places).
+  const [gpsStops, setGpsStops] = useState<GpsStop[]>([]);
+  useEffect(() => {
+    if (!user?.id) return;
+    let dead = false;
+    const load = () =>
+      listStops()
+        .then((rows) => {
+          if (dead) return;
+          const waiting = pendingStops().filter((p) => !rows.some((r) => r.id === p.id));
+          setGpsStops([...waiting, ...rows]);
+        })
+        .catch(() => {
+          if (!dead) setGpsStops((cur) => (cur.length ? cur : pendingStops()));
+        });
+    void flushStops().finally(load);
+    const retry = () => void flushStops();
+    const timer = window.setInterval(retry, 60_000);
+    window.addEventListener("online", retry);
+    return () => {
+      dead = true;
+      window.clearInterval(timer);
+      window.removeEventListener("online", retry);
+    };
+  }, [user?.id]);
   const userIdRef = useRef("");
   userIdRef.current = user?.id ?? "";
   // Once a day: a memory from this day in an earlier year, if there is one.
@@ -815,6 +842,7 @@ function AtlasShell() {
     label: string,
     routes: { color: string; lines: [number, number][][]; dots?: [number, number][] }[],
     legend?: { name: string; color: string }[],
+    maxZoom = 11,
   ) {
     setTripRoutes({ label, routes, legend });
     // Fit the routes driven; stops only when there's no route yet.
@@ -824,7 +852,7 @@ function AtlasShell() {
     setSheet(8);
     window.setTimeout(() => setSheetInstant(false), 80);
     // Once the map has taken the space the menu gave up.
-    if (points.length) window.setTimeout(() => setFitTo((cur) => ({ tick: (cur?.tick ?? 0) + 1, points, maxZoom: 11 })), 350);
+    if (points.length) window.setTimeout(() => setFitTo((cur) => ({ tick: (cur?.tick ?? 0) + 1, points, maxZoom })), 350);
   }
 
   async function noteTrip(poiId: string) {
@@ -997,6 +1025,12 @@ function AtlasShell() {
       if (!adding) return;
       logDrive(fixes);
       noteTripFixes(recordingRef.current, fixes);
+      // Somewhere you stayed 10+ minutes: a stop, named and kept with your account.
+      for (const found of noteStopFixes(fixes)) {
+        void keepStop(found, metaRef.current?.states ?? []).then((row) =>
+          setGpsStops((cur) => [row, ...cur.filter((s) => s.id !== row.id)]),
+        );
+      }
       shareCache();
       pending.push(...fixes);
       void pump();
@@ -2072,7 +2106,7 @@ function AtlasShell() {
           <button
             type="button"
             onClick={() => setTripRoutes(null)}
-            className="h-11 max-w-[70%] truncate rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
+            className="h-11 max-w-[min(75vw,20rem)] truncate rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
           >
             {tripRoutes.legend?.length ? (
               <span className="mr-1 inline-flex items-center gap-2">
@@ -2659,6 +2693,15 @@ function AtlasShell() {
           {tab === "yours" ? (
             <Yours
               marks={yours}
+              gpsStops={gpsStops}
+              onShowOnMap={(label, spots) =>
+                showRoutes(label, [{ color: "#9aa7ff", lines: [], dots: spots }], undefined, spots.length > 1 ? 11 : 15)
+              }
+              onRemoveStop={(id) => {
+                setGpsStops((cur) => cur.filter((s) => s.id !== id));
+                forgetPendingStop(id);
+                void removeStop({ data: { id } }).catch(() => {});
+              }}
               stateAbbr={stateAbbr}
               stateName={stateName}
               selected={selected}
@@ -2940,18 +2983,24 @@ function Stat({ value, label }: { value: string; label: string }) {
 
 function Yours({
   marks,
+  gpsStops,
   stateAbbr,
   stateName,
   selected,
   onBack,
   onOpen,
+  onShowOnMap,
+  onRemoveStop,
 }: {
   marks: Mark[];
+  gpsStops: GpsStop[];
   stateAbbr: string | null;
   stateName: string | null;
   selected: string | null;
   onBack: () => void;
   onOpen: (mark: Mark) => void;
+  onShowOnMap: (label: string, spots: [number, number][]) => void;
+  onRemoveStop: (id: string) => void;
 }) {
   const [view, setView] = useState<"places" | "stops">(() => {
     try {
@@ -3010,7 +3059,13 @@ function Yours({
         ))}
       </div>
       {view === "stops" ? (
-        <StopsLog marks={marks} onOpen={onOpen} />
+        <StopsLog
+          marks={marks}
+          gpsStops={stateAbbr ? gpsStops.filter((s) => s.state === stateAbbr) : gpsStops}
+          onOpen={onOpen}
+          onShowOnMap={onShowOnMap}
+          onRemoveStop={onRemoveStop}
+        />
       ) : (
         <ul>
           {marks.map((mark) => (
