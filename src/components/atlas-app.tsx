@@ -1431,11 +1431,26 @@ function AtlasShell() {
     let catchingUp = false;
     let lastMotionTick = 0;
     const held: Fix[] = [];
-    function push(fixes: Fix[], forceDot = false) {
+    // Fixes from the phone's location service come in time order. One older than
+    // the newest already handled is a repeat: coming back to the app, the phone can
+    // hand over fixes it had queued after the same stretch was read back from its
+    // log. Going over them again doubled that stretch in the day's miles and put a
+    // there-and-back in the trail and the trip.
+    const serviceFixes = new WeakSet<Fix>();
+    let serviceT = 0;
+    function push(all: Fix[], forceDot = false) {
       if (catchingUp) {
-        held.push(...fixes);
+        held.push(...all);
         return;
       }
+      const fixes = all.filter((fix) => {
+        if (!serviceFixes.has(fix)) return true;
+        const t = fix.t ?? 0;
+        if (t < serviceT) return false;
+        serviceT = t;
+        return true;
+      });
+      if (!fixes.length) return;
       const latest = fixes.reduce<Fix | null>((best, fix) => (!best || (fix.t ?? 0) >= (best.t ?? 0) ? fix : best), null);
       if (latest) paintTracker(latest, forceDot);
       if (latest) rememberFix(latest);
@@ -1490,6 +1505,7 @@ function AtlasShell() {
       }
       catchingUp = false;
       if (dead) return;
+      for (const fix of missed) serviceFixes.add(fix);
       if (missed.length) push(missed, true);
       if (held.length) push(held.splice(0), true);
     }
@@ -1532,13 +1548,18 @@ function AtlasShell() {
             if (!location) return;
             const t = Number(location.time) || Date.now();
             if (!catchingUp) noteHandledFix(t);
-            push([{ lat: location.latitude, lon: location.longitude, t }]);
+            const fix: Fix = { lat: location.latitude, lon: location.longitude, t };
+            serviceFixes.add(fix);
+            push([fix]);
           },
         );
       });
     }
-    const host = window as Window & { atlasPushFixes?: (fixes: Fix[]) => void };
-    host.atlasPushFixes = (fixes) => push(fixes);
+    const host = window as Window & { atlasPushFixes?: (fixes: Fix[], fromService?: boolean) => void };
+    host.atlasPushFixes = (fixes, fromService = false) => {
+      if (fromService) for (const fix of fixes) serviceFixes.add(fix);
+      push(fixes);
+    };
     const refreshDot = () => {
       if (document.visibilityState === "hidden") return;
       void catchUp();
@@ -1558,14 +1579,17 @@ function AtlasShell() {
             return;
           }
           if (catchingUp) {
-            held.push(fix);
+            // (On the phone the log being read back already ends where you are.)
+            if (!nativeApp) held.push(fix);
             return;
           }
           paintTracker(fix, true);
           useGhost.getState().record([fix]);
           shareLive();
           if (!adding) return;
-          logDrive([fix]);
+          // On the phone the location service's own fixes count the miles; this one
+          // is timed by a different clock, so it stays out of that sum.
+          if (!nativeApp) logDrive([fix]);
           shareCache();
         })
         .catch(() => {});
