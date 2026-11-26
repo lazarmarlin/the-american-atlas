@@ -40,6 +40,7 @@ import { startDriveScreen, stopDriveScreen } from "@/lib/power";
 import { PhotosPanel, PhotoViewer } from "@/components/photos-panel";
 import { updateWidget } from "@/lib/widget";
 import { noteLiveFix } from "@/lib/live-dot";
+import { lastKnownFix, rememberFix } from "@/lib/nearby";
 import { matchPlace, tripFor, type RecordingTrip } from "@/lib/photo-file";
 import { choosePhotoPlace, loadParkShapes, matchPark } from "@/lib/park-photo";
 import { UpdatePrompt } from "@/components/update-prompt";
@@ -867,10 +868,15 @@ function AtlasShell() {
       return entered;
     }
 
+    let trackerT = 0;
     function paintTracker(fix: Fix, force = false) {
       const now = Date.now();
+      // Never back to an older spot (fixes read back from the phone's log can be).
+      const t = fix.t ?? now;
+      if (t < trackerT) return;
       if (!force && now - lastDotAt < 8000) return;
       lastDotAt = now;
+      trackerT = t;
       setTracker(fix);
     }
 
@@ -979,9 +985,11 @@ function AtlasShell() {
         held.push(...fixes);
         return;
       }
-      const latest = fixes[fixes.length - 1];
+      const latest = fixes.reduce<Fix | null>((best, fix) => (!best || (fix.t ?? 0) >= (best.t ?? 0) ? fix : best), null);
       if (latest) paintTracker(latest, forceDot);
-      // The map's dot follows every fix (the app itself only updates every few seconds).
+      if (latest) rememberFix(latest);
+      // The map's dot follows every fix (the app itself only updates every few seconds):
+      // the newest of them, whatever order they came in.
       if (latest) noteLiveFix(latest);
       useGhost.getState().record(fixes);
       shareLive();
@@ -1079,6 +1087,10 @@ function AtlasShell() {
         })
         .catch(() => {});
     };
+    // Straight away, before any new location comes in: where you were last (it's
+    // usually where you still are). Parked, the location service sends nothing new.
+    const known = lastKnownFix();
+    if (known) paintTracker(known, true);
     push(takeNativeFixes());
     refreshDot();
     const beat = window.setInterval(() => shareLive(), 12000);

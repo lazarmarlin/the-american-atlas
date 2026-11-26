@@ -92,24 +92,66 @@ export function milesBetween(lat1: number, lon1: number, lat2: number, lon2: num
 }
 
 /** Device GPS via the browser geolocation API. Native wrappers expose the same call. */
-export function readDeviceLocation(): Promise<Fix> {
+function readOnce(options: PositionOptions): Promise<Fix> {
   return new Promise((resolve, reject) => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       reject(new Error("This device can't share a location."));
       return;
     }
     navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      (pos) => {
+        const fix = { lat: pos.coords.latitude, lon: pos.coords.longitude, t: pos.timestamp || Date.now() };
+        rememberFix(fix);
+        resolve(fix);
+      },
       (err) => {
         if (err.code === 1) {
-          reject(new Error("Location is blocked. Allow it for The American Atlas in the app or browser settings."));
+          reject(Object.assign(new Error("Location is blocked. Allow it for The American Atlas in the app or browser settings."), { blocked: true }));
           return;
         }
         reject(new Error("Couldn't read a location. Step outside or try again."));
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
+      options,
     );
   });
+}
+
+/**
+ * Where you are now. GPS first; indoors (or just after opening the app) GPS can
+ * take a long while, so a quicker phone-network position is tried if it fails.
+ */
+export async function readDeviceLocation(): Promise<Fix> {
+  try {
+    return await readOnce({ enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
+  } catch (err) {
+    if ((err as { blocked?: boolean }).blocked) throw err;
+    return readOnce({ enableHighAccuracy: false, timeout: 10000, maximumAge: 10 * 60 * 1000 });
+  }
+}
+
+const LAST_KEY = "atlas.last-fix";
+
+/** Keep the newest location on the phone, so the marker can show the moment the app opens. */
+export function rememberFix(fix: Fix) {
+  try {
+    const prev = lastKnownFix();
+    if (prev?.t && fix.t && fix.t < prev.t) return;
+    localStorage.setItem(LAST_KEY, JSON.stringify({ lat: fix.lat, lon: fix.lon, t: fix.t ?? Date.now() }));
+  } catch {
+    /* not kept, then */
+  }
+}
+
+/** The last location seen (from tracking or a location read), if it's from the last day. */
+export function lastKnownFix(): Fix | null {
+  try {
+    const row = JSON.parse(localStorage.getItem(LAST_KEY) ?? "null") as Fix | null;
+    if (!row || !Number.isFinite(row.lat) || !Number.isFinite(row.lon)) return null;
+    if (row.t && Date.now() - row.t > 24 * 3600 * 1000) return null;
+    return row;
+  } catch {
+    return null;
+  }
 }
 
 function statesNear(fix: Fix, states: StateInfo[]) {
