@@ -58,8 +58,10 @@ export function FriendsPanel({
   onWatch,
   meId,
   places,
+  you = null,
   onAddToMap,
   onOpenPlace,
+  onOpenHere,
   onShowGroup,
   onShareLive,
   resume = null,
@@ -79,9 +81,11 @@ export function FriendsPanel({
   onWatch: (friend: { id: string; name: string }) => void;
   meId: string;
   places: ChatPlaceOption[];
+  you?: { lat: number; lon: number; t?: number } | null;
   onAddToMap: (photo: ChatPhoto, place: ChatPlaceOption) => Promise<void>;
   /** Show a place from a chat; `from` is the chat to come back to. */
   onOpenPlace: (place: ChatPlace, from?: Thread) => void;
+  onOpenHere?: (lat: number, lon: number) => void;
   /** The friend whose live trail is on the map. */
   watchingLive?: string | null;
   /** A chat to reopen (coming back from a place shown on the map). */
@@ -419,7 +423,14 @@ export function FriendsPanel({
               {unread.friends[page.id] ? <Count n={unread.friends[page.id] ?? 0} label="new messages" /> : null}
             </button>
 
-            {page.places ? <CompareCard mine={places} theirs={page.places} name={page.name.split(" ")[0] || "They"} /> : null}
+            {page.places ? (
+              <CompareCard
+                mine={places}
+                theirs={page.places}
+                name={page.name.split(" ")[0] || "They"}
+                onOpen={(place) => onOpenPlace(place, { kind: "friend", id: page.id })}
+              />
+            ) : null}
 
             <div className="mt-4 flex gap-1 px-2">
               {(
@@ -460,6 +471,8 @@ export function FriendsPanel({
                   setChatOpen(false);
                   onShow(lines);
                 }}
+                onOpenHere={onOpenHere}
+                you={you}
               />
             ) : null}
 
@@ -790,6 +803,8 @@ export function FriendsPanel({
             setGroupId(null);
             onShow(lines);
           }}
+          onOpenHere={onOpenHere}
+          you={you}
         />
       ) : null}
       {openGroup && leaving ? (
@@ -908,10 +923,12 @@ function CompareCard({
   mine,
   theirs,
   name,
+  onOpen,
 }: {
-  mine: { id: string; name: string; state?: string; category?: string }[];
-  theirs: { id: string; name: string; state: string; category: string }[];
+  mine: { id: string; name: string; state?: string; category?: string; lat?: number | null; lon?: number | null }[];
+  theirs: { id: string; name: string; state: string; category: string; lat?: number | null; lon?: number | null }[];
   name: string;
+  onOpen?: (place: ChatPlace) => void;
 }) {
   const [list, setList] = useState<"both" | "theirs" | null>(null);
   const { both, onlyMe, onlyThem, sharedStates, sharedCounties } = useMemo(() => {
@@ -920,7 +937,7 @@ function CompareCard({
     const bothRows = theirs.filter((p) => myIds.has(p.id));
     const myStates = new Set(mine.map((p) => p.state ?? "").filter(Boolean));
     return {
-      both: bothRows.sort((a, b) => a.state.localeCompare(b.state) || a.name.localeCompare(b.name)),
+      both: bothRows.sort((a, b) => (a.category === "county" ? 0 : 1) - (b.category === "county" ? 0 : 1) || a.state.localeCompare(b.state) || a.name.localeCompare(b.name)),
       onlyMe: mine.filter((p) => !theirIds.has(p.id)).length,
       onlyThem: theirs.filter((p) => !myIds.has(p.id)).sort((a, b) => a.state.localeCompare(b.state) || a.name.localeCompare(b.name)),
       sharedStates: new Set(theirs.map((p) => p.state).filter((s) => s && myStates.has(s))).size,
@@ -961,12 +978,39 @@ function CompareCard({
       </div>
       {shown.length ? (
         <ul className="mt-2 max-h-64 divide-y divide-line overflow-y-auto rounded-lg border border-line">
-          {shown.slice(0, 200).map((p) => (
-            <li key={p.id} className="flex items-center gap-2 px-3 py-2 text-sm">
-              <span className="min-w-0 flex-1 truncate">{p.name}</span>
-              <span className="shrink-0 text-xs text-faint">{p.state}</span>
-            </li>
-          ))}
+          {shown.slice(0, 200).map((p) => {
+            const own = mine.find((item) => item.id === p.id);
+            const lat = own?.lat ?? p.lat ?? null;
+            const lon = own?.lon ?? p.lon ?? null;
+            return (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  disabled={lat == null || lon == null || !onOpen}
+                  onClick={() =>
+                    onOpen?.({
+                      id: p.id,
+                      name: p.name,
+                      category: p.category,
+                      state: p.state,
+                      lat,
+                      lon,
+                      points: 0,
+                      visitedOn: null,
+                      visited: true,
+                    })
+                  }
+                  className="flex h-11 w-full items-center gap-2 px-3 text-left text-sm disabled:opacity-60"
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {p.category === "county" ? <span className="text-faint">County · </span> : null}
+                    {p.name}
+                  </span>
+                  <span className="shrink-0 text-xs text-faint">{p.state}</span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </section>

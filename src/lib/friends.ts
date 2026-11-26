@@ -42,7 +42,7 @@ export type FriendPage = {
   /** Their latest check-ins, newest first (for a thumbs-up). */
   recent: { target: string; name: string; category: string; state: string; points: number; visitedOn: string }[];
   /** Every place on their map, to compare with yours ("you've both been to…"). */
-  places: { id: string; name: string; category: string; state: string }[];
+  places: { id: string; name: string; category: string; state: string; lat: number | null; lon: number | null }[];
 };
 
 const CODE_RE = /^[a-z0-9]{8}$/;
@@ -312,8 +312,10 @@ export const loadFriend = createServerFn({ method: "POST" })
       points: number;
       sys: string;
       visits: string | null;
+      lat: number | null;
+      lon: number | null;
     }>`
-      select poi_id, name, category, state, points, sys, visits
+      select poi_id, name, category, state, points, sys, visits, lat, lon
       from marks where user_id = ${friendId}
     `;
     const rows = (
@@ -329,6 +331,8 @@ export const loadFriend = createServerFn({ method: "POST" })
             points: real.points,
             sys: real.sys,
             visits: readVisits(row.visits),
+            lat: row.lat,
+            lon: row.lon,
           };
         }),
       )
@@ -362,7 +366,7 @@ export const loadFriend = createServerFn({ method: "POST" })
       ...friend,
       badges,
       recent,
-      places: rows.map((row) => ({ id: row.id, name: row.name, category: row.category, state: row.state })),
+      places: rows.map((row) => ({ id: row.id, name: row.name, category: row.category, state: row.state, lat: row.lat, lon: row.lon })),
       trails: trails
         .map((trail) => {
           const savedAt = toMs(trail.saved_at);

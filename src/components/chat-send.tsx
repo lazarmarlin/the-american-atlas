@@ -6,6 +6,73 @@ import type { Mark } from "@/lib/marks";
 import { sendToThread, type Thread } from "@/lib/messages";
 import { useBackClose } from "@/lib/sheet-back";
 
+/** Pick a friend or a trip chat, then the caller sends whatever it built. */
+export function SendToSheet({
+  label,
+  hint,
+  onClose,
+  onSend,
+}: {
+  label: string;
+  hint?: string;
+  onClose: () => void;
+  onSend: (thread: Thread, name: string) => Promise<void>;
+}) {
+  const [friends, setFriends] = useState<{ id: string; name: string }[] | null>(null);
+  const [groups, setGroups] = useState<ChatGroup[]>([]);
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    listFriends()
+      .then((rows) => setFriends(rows.map((row) => ({ id: row.id, name: row.name }))))
+      .catch(() => setFriends([]));
+    listGroups()
+      .then(setGroups)
+      .catch(() => setGroups([]));
+  }, []);
+  useBackClose(onClose);
+
+  async function send(thread: Thread, name: string) {
+    if (busy) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      await onSend(thread, name);
+      setNote(`Sent to ${name}.`);
+      window.setTimeout(onClose, 700);
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Couldn't send it.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet label={label} onClose={onClose}>
+      {hint ? <p className="mb-2 text-sm text-muted">{hint}</p> : null}
+      {friends === null ? <p className="text-sm text-muted">Loading…</p> : null}
+      {friends && !friends.length && !groups.length ? <p className="text-sm text-muted">Add a friend first, from the Friends tab.</p> : null}
+      <ul className="grid max-h-72 gap-1 overflow-y-auto">
+        {groups.map((g) => (
+          <li key={g.id}>
+            <button type="button" disabled={busy} onClick={() => void send({ kind: "group", id: g.id }, g.name)} className="flex h-11 w-full items-center rounded-lg border border-line px-3 text-left text-sm">
+              <span className="min-w-0 flex-1 truncate">{g.name}</span>
+              <span className="text-xs text-faint">trip chat</span>
+            </button>
+          </li>
+        ))}
+        {(friends ?? []).map((f) => (
+          <li key={f.id}>
+            <button type="button" disabled={busy} onClick={() => void send({ kind: "friend", id: f.id }, f.name)} className="flex h-11 w-full items-center rounded-lg border border-line px-3 text-left text-sm">
+              <span className="min-w-0 flex-1 truncate">{f.name}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {note ? <p className="mt-2 text-sm text-muted">{note}</p> : null}
+    </Sheet>
+  );
+}
+
 /** Send a place card ("I was here") to a friend or a trip chat, from a place card. */
 export function SendPlaceSheet({ mark, onClose }: { mark: Mark; onClose: () => void }) {
   const [friends, setFriends] = useState<{ id: string; name: string }[] | null>(null);

@@ -91,6 +91,18 @@ export function milesBetween(lat1: number, lon1: number, lat2: number, lon2: num
   return 2 * r * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
+/** The saved place you're standing in, if one is close enough to count as "here". */
+export function closestPlace<T extends { lat: number | null; lon: number | null }>(fix: Fix, places: T[], maxMiles = 0.3): T | null {
+  let best: { place: T; miles: number } | null = null;
+  for (const place of places) {
+    if (place.lat == null || place.lon == null) continue;
+    const miles = milesBetween(fix.lat, fix.lon, place.lat, place.lon);
+    if (miles > maxMiles) continue;
+    if (!best || miles < best.miles) best = { place, miles };
+  }
+  return best?.place ?? null;
+}
+
 /** Device GPS via the browser geolocation API. Native wrappers expose the same call. */
 function readOnce(options: PositionOptions): Promise<Fix> {
   return new Promise((resolve, reject) => {

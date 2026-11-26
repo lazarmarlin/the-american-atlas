@@ -28,11 +28,26 @@ export type ChatReply = { id: string; name: string; text: string };
 
 export type { ChatTrail };
 
+export type ChatHere = {
+  label: string;
+  lat: number;
+  lon: number;
+  state: string;
+  placeId: string | null;
+};
+
+export type ChatDay = {
+  day: string;
+  places: { id: string; name: string; state: string; lat: number | null; lon: number | null }[];
+  stops: { label: string; lat: number; lon: number }[];
+  trail: ChatTrail | null;
+};
+
 export type ChatMessage = {
   id: string;
   fromId: string;
   fromName: string;
-  kind: "text" | "link" | "photo" | "place" | "trip" | "trail";
+  kind: "text" | "link" | "photo" | "place" | "trip" | "trail" | "here" | "day";
   body: string;
   thumb: string;
   at: number;
@@ -42,6 +57,8 @@ export type ChatMessage = {
   place: ChatPlace | null;
   trip?: TripCard | null;
   trail?: ChatTrail | null;
+  here?: ChatHere | null;
+  day?: ChatDay | null;
   reply?: ChatReply | null;
   reactions?: ChatReaction;
   /** Stuck to the top of this chat. */
@@ -140,7 +157,7 @@ export async function namesFor(sql: Sql, ids: string[]) {
   return new Map(rows.map((row) => [row.id, row.name]));
 }
 
-const KINDS = ["link", "photo", "place", "trip", "trail"] as const;
+const KINDS = ["link", "photo", "place", "trip", "trail", "here", "day"] as const;
 function kindOf(value: unknown): ChatMessage["kind"] {
   return (KINDS as readonly unknown[]).includes(value) ? (value as ChatMessage["kind"]) : "text";
 }
@@ -239,11 +256,13 @@ const MARKS = ["up", "heart", "pin"] as const;
 type Mark = (typeof MARKS)[number];
 
 function quoteOf(kind: ChatMessage["kind"], body: string) {
-  if (kind === "photo") return "Photo";
+  if (kind === "photo") return body.trim().slice(0, 80) || "Photo";
   if (kind === "link") return "Google Photos";
   if (kind === "place") return readPlace(body)?.name || "A place";
   if (kind === "trip") return readTrip(body)?.name || "A trip";
   if (kind === "trail") return readTrail(body)?.name || "A trail";
+  if (kind === "here") return readHere(body)?.label || "I'm here";
+  if (kind === "day") return readDay(body)?.day || "A day";
   return (body || "").slice(0, 80);
 }
 
@@ -255,6 +274,73 @@ function readTrail(body: string): ChatTrail | null {
   } catch {
     return null;
   }
+}
+
+function readHere(body: string): ChatHere | null {
+  try {
+    const row = JSON.parse(body) as ChatHere;
+    if (!row || typeof row.label !== "string" || !Number.isFinite(row.lat) || !Number.isFinite(row.lon)) return null;
+    return row;
+  } catch {
+    return null;
+  }
+}
+
+function readDay(body: string): ChatDay | null {
+  try {
+    const row = JSON.parse(body) as ChatDay;
+    if (!row || !/^\d{4}-\d{2}-\d{2}$/.test(row.day)) return null;
+    return row;
+  } catch {
+    return null;
+  }
+}
+
+function cleanHere(value: unknown): ChatHere {
+  const row = (value ?? {}) as Record<string, unknown>;
+  const lat = num(row.lat, 90);
+  const lon = num(row.lon, 180);
+  if (lat == null || lon == null) throw new Error("No location");
+  const placeId = typeof row.placeId === "string" && PLACE_RE.test(row.placeId) ? row.placeId : null;
+  const state = String(row.state ?? "").toUpperCase();
+  return {
+    label: String(row.label ?? "").trim().slice(0, 80) || "Here",
+    lat,
+    lon,
+    state: /^[A-Z]{2}$/.test(state) ? state : "",
+    placeId,
+  };
+}
+
+function cleanDay(value: unknown): ChatDay {
+  const row = (value ?? {}) as Record<string, unknown>;
+  const day = String(row.day ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error("Unknown day");
+  const places = (Array.isArray(row.places) ? row.places : []).slice(0, 40).flatMap((item) => {
+    const place = item as Record<string, unknown>;
+    const id = String(place.id ?? "");
+    const state = String(place.state ?? "").toUpperCase();
+    if (!PLACE_RE.test(id) || !/^[A-Z]{2}$/.test(state)) return [];
+    return [{ id, name: String(place.name ?? "").trim().slice(0, 80) || "A place", state, lat: num(place.lat, 90), lon: num(place.lon, 180) }];
+  });
+  const stops = (Array.isArray(row.stops) ? row.stops : []).slice(0, 24).flatMap((item) => {
+    const stop = item as Record<string, unknown>;
+    const lat = num(stop.lat, 90);
+    const lon = num(stop.lon, 180);
+    if (lat == null || lon == null) return [];
+    return [{ label: String(stop.label ?? "").trim().slice(0, 80) || "A stop", lat, lon }];
+  });
+  let trail: ChatTrail | null = null;
+  if (row.trail && typeof row.trail === "object") {
+    const card = row.trail as Record<string, unknown>;
+    try {
+      trail = trailCard(String(card.name ?? "This day"), card.points, day);
+    } catch {
+      trail = null;
+    }
+  }
+  if (!places.length && !stops.length && !trail) throw new Error("Nothing from that day to send.");
+  return { day, places, stops, trail };
 }
 
 async function listRows(sql: Sql, userId: string, thread: Thread): Promise<Row[]> {
@@ -332,7 +418,7 @@ export const listThread = createServerFn({ method: "POST" })
         fromId: row.from_id,
         fromName: names.get(row.from_id) ?? "Friend",
         kind,
-        body: kind === "place" || kind === "trip" || kind === "trail" ? "" : row.body || "",
+        body: kind === "place" || kind === "trip" || kind === "trail" || kind === "here" || kind === "day" ? "" : row.body || "",
         thumb: have.has(row.id) ? "" : row.thumb || "",
         at,
         lat: row.lat ?? null,
@@ -341,6 +427,8 @@ export const listThread = createServerFn({ method: "POST" })
         place: kind === "place" ? readPlace(row.body) : null,
         trip: kind === "trip" ? readTrip(row.body) : null,
         trail: kind === "trail" ? readTrail(row.body) : null,
+        here: kind === "here" ? readHere(row.body) : null,
+        day: kind === "day" ? readDay(row.body) : null,
         reply,
         reactions,
         pinned: row.id === pinId,
@@ -378,6 +466,7 @@ function parseSend(input: unknown) {
       lat: num(row.lat, 90),
       lon: num(row.lon, 180),
       takenAt: taken && taken > 0 ? Math.round(taken) : null,
+      body: String(row.body ?? "").trim().slice(0, 140),
     };
   }
   if (kind === "trip") {
@@ -387,6 +476,13 @@ function parseSend(input: unknown) {
     const card = (row.trail ?? {}) as Record<string, unknown>;
     const day = /^\d{4}-\d{2}-\d{2}$/.test(String(card.day ?? "")) ? String(card.day) : null;
     return { ...base, body: JSON.stringify(trailCard(String(card.name ?? ""), card.points, day)) };
+  }
+  if (kind === "here") {
+    const card = cleanHere(row.here);
+    return { ...base, body: JSON.stringify(card), lat: card.lat, lon: card.lon };
+  }
+  if (kind === "day") {
+    return { ...base, body: JSON.stringify(cleanDay(row.day)) };
   }
   if (kind === "place") {
     const place = (row.place ?? {}) as Record<string, unknown>;
@@ -422,6 +518,14 @@ export const sendToThread = createServerFn({ method: "POST" })
         ...data,
         body: JSON.stringify({ ...card, name: real.name, category: real.category, points: real.points, visited, visitedOn: visited ? card.visitedOn : null }),
       };
+    }
+    if (data.kind === "here") {
+      const card = JSON.parse(data.body) as ChatHere;
+      if (card.placeId) {
+        const { canonicalPlace } = await import("@/lib/catalog.server");
+        const real = await canonicalPlace(card.placeId, card.state || undefined);
+        if (real) data = { ...data, body: JSON.stringify({ ...card, label: real.name, state: real.state }) };
+      }
     }
     if (data.replyTo) {
       const found =
@@ -642,17 +746,23 @@ export type UnreadSummary = {
 };
 
 const preview = (kind: string, body: string) =>
-  kind === "trail"
-    ? `Shared a trail: ${readTrail(body)?.name ?? ""}`.trim()
-    : kind === "trip"
-      ? `Shared a trip: ${readTrip(body)?.name ?? ""}`.trim()
-      : kind === "photo"
-        ? "Sent a photo"
-        : kind === "place"
-          ? `Shared ${readPlace(body)?.name ?? "a place"}`
-          : kind === "link"
-            ? "Sent a Google Photos link"
-            : body.slice(0, 120);
+  kind === "day"
+    ? `A day: ${readDay(body)?.day ?? ""}`.trim()
+    : kind === "here"
+      ? `I'm here: ${readHere(body)?.label ?? ""}`.trim()
+      : kind === "trail"
+        ? `Shared a trail: ${readTrail(body)?.name ?? ""}`.trim()
+        : kind === "trip"
+          ? `Shared a trip: ${readTrip(body)?.name ?? ""}`.trim()
+          : kind === "photo"
+            ? body.trim()
+              ? `Photo: ${body.trim().slice(0, 80)}`
+              : "Sent a photo"
+            : kind === "place"
+              ? `Shared ${readPlace(body)?.name ?? "a place"}`
+              : kind === "link"
+                ? "Sent a Google Photos link"
+                : body.slice(0, 120);
 
 /** What's new since you last looked: messages per friend and group, and likes. */
 export const unreadSummary = createServerFn({ method: "GET" })

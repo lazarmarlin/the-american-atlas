@@ -212,6 +212,7 @@ export function StopsLog({
   onOpen,
   onShowOnMap,
   onRemoveStop,
+  onShareDay,
 }: {
   marks: Mark[];
   gpsStops?: GpsStop[];
@@ -219,6 +220,8 @@ export function StopsLog({
   /** Show a group's spots on the map, under this label. */
   onShowOnMap?: (label: string, spots: GroupSpot[]) => void;
   onRemoveStop?: (id: string) => void;
+  /** Send this day's places, stops, and trail as one chat card. */
+  onShareDay?: (day: string) => void;
 }) {
   const [by, setBy] = useState<StopGroup>(() => readPref(GROUP_KEY, ["day", "week", "month", "state"] as const, "day"));
   const [show, setShow] = useState<Show>(() => readPref(SHOW_KEY, ["all", "places", "stops"] as const, "all"));
@@ -347,6 +350,15 @@ export function StopsLog({
                   {section.points ? <span className="shrink-0 text-xs font-medium text-accent">+{section.points.toLocaleString()} pts</span> : null}
                   <ChevronDown className={"size-4 shrink-0 text-faint transition-transform " + (open ? "rotate-180" : "")} aria-hidden />
                 </button>
+                {onShareDay && by === "day" && section.key !== "~undated" ? (
+                  <button
+                    type="button"
+                    onClick={() => onShareDay(section.key)}
+                    className="h-11 shrink-0 px-2 text-xs text-muted active:text-ink"
+                  >
+                    Send
+                  </button>
+                ) : null}
                 {onShowOnMap && spots.length ? (
                   <button
                     type="button"

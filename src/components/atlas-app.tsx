@@ -19,15 +19,16 @@ import { useAtlas } from "@/lib/atlas-store";
 import { badgeViewsFromMarks, listBadgeProgress, type BadgeView } from "@/lib/badges";
 import { type Mark } from "@/lib/marks";
 import type { Thread } from "@/lib/messages";
+import { sendToThread } from "@/lib/messages";
 import { type Trip, type TripStop } from "@/lib/trips";
 import { fallbackBlurb, lookupPlace, mapsUrl, type PlaceBlurb } from "@/lib/place-info";
 import { categoryName, kindFor, kindVisible, placeKinds, tierForKind, tierForPlace } from "@/lib/place-kinds";
-import { placeToMark, placesNear, readDeviceLocation, roadToMark, stateToMark, stopsAlong, milesBetween, type Fix, type NearMark } from "@/lib/nearby";
+import { placeToMark, placesNear, readDeviceLocation, roadToMark, stateToMark, stopsAlong, closestPlace, milesBetween, type Fix, type NearMark } from "@/lib/nearby";
 import { collectPassed, takeNativeFixes } from "@/lib/travel";
 import { missedFixes, nativeDelivery, noteHandledFix } from "@/lib/native-tracking";
 import { startChatChecks, useChat } from "@/lib/chat-store";
 import { onNotificationOpen } from "@/lib/message-watch";
-import { SendPlaceSheet } from "@/components/chat-send";
+import { SendPlaceSheet, SendToSheet } from "@/components/chat-send";
 import { MessageBoard } from "@/components/friend-chat";
 import { StopsLog, type GroupSpot } from "@/components/stops-log";
 import { flushStops, forgetPendingStop, keepStop, noteStopFixes, pendingStops } from "@/lib/stop-detect";
@@ -202,6 +203,14 @@ function sameSettings(a: AccountSettings, b: AccountSettings) {
 /** Places that are areas or lines, not spots; a trip's line skips them. */
 const AREA_KINDS = new Set(["county", "route", "state", "reservation", "drive", "forest", "seashore"]);
 
+function hereHint(fix: Fix | null, marks: Mark[], stops: GpsStop[]) {
+  if (!fix) return "Location isn't on.";
+  const place = closestPlace(fix, marks);
+  if (place) return place.name;
+  const stop = stops.find((item) => milesBetween(fix.lat, fix.lon, item.lat, item.lon) < 0.5 || Date.now() - item.end < 30 * 60 * 1000);
+  return stop?.label || "Your current spot";
+}
+
 export function AtlasApp() {
   const { user, isPending } = useCurrentUserState();
   if (isPending) return <AtlasSplash label="Opening the atlas…" />;
@@ -368,6 +377,8 @@ function AtlasShell() {
     }
   }, [toolsTucked]);
   const [driving, setDriving] = useState(false);
+  const [hereOpen, setHereOpen] = useState(false);
+  const [shareDay, setShareDay] = useState<string | null>(null);
   const [mph, setMph] = useState<number | null>(null);
   const [sideways, setSideways] = useState(true);
   const speedSample = useRef<{ lat: number; lon: number; t: number } | null>(null);
@@ -2201,6 +2212,13 @@ function AtlasShell() {
                 <p className="mt-1 text-sm text-muted">Screen stays on</p>
               )}
               {passedNote ? <p className="mt-1 truncate text-sm text-muted">{passedNote}</p> : null}
+              <button
+                type="button"
+                onClick={() => setHereOpen(true)}
+                className="mt-2 h-11 w-full rounded-lg border border-ink bg-elevated text-sm"
+              >
+                I'm here
+              </button>
             </div>
             <button
               type="button"
@@ -2454,6 +2472,15 @@ function AtlasShell() {
               setSheet(8);
               window.setTimeout(() => setSheetInstant(false), 80);
             }}
+            onOpenHere={(lat, lon) => {
+              setMailOpen(false);
+              setMailThread(null);
+              setSpot({ id: `here:${lat.toFixed(3)},${lon.toFixed(3)}`, lat, lon, from: null, sheet });
+              setSheetInstant(true);
+              setSheet(8);
+              window.setTimeout(() => setSheetInstant(false), 80);
+            }}
+            you={tracker ?? you}
             onOpenPlace={(place, from) => {
               setMailOpen(false);
               setMailThread(null);
@@ -2501,6 +2528,67 @@ function AtlasShell() {
         ) : null}
         <div className={"pointer-events-none absolute top-safe left-safe z-10 flex flex-col items-start gap-2 " + (driving ? "hidden" : "")}>
           {sendPlace ? <SendPlaceSheet mark={sendPlace} onClose={() => setSendPlace(null)} /> : null}
+          {hereOpen ? (
+            <SendToSheet
+              label="I'm here"
+              hint={hereHint(tracker ?? you, marks, gpsStops)}
+              onClose={() => setHereOpen(false)}
+              onSend={async (thread) => {
+                const fix = tracker ?? you;
+                if (!fix) throw new Error("Location isn't on.");
+                const place = closestPlace(fix, marks);
+                const id = `m-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+                if (place) {
+                  const visitedOn = [...place.visits].map((visit) => visit.visitedOn).filter(Boolean).sort().at(-1) ?? null;
+                  await sendToThread({ data: { thread, id, kind: "place", place: { id: place.id, state: place.state, lat: place.lat, lon: place.lon, visitedOn } } });
+                  return;
+                }
+                const stop = gpsStops.find((item) => milesBetween(fix.lat, fix.lon, item.lat, item.lon) < 0.5 || Date.now() - item.end < 30 * 60 * 1000);
+                await sendToThread({
+                  data: {
+                    thread,
+                    id,
+                    kind: "here",
+                    here: { label: stop?.label || "Here", lat: stop?.lat ?? fix.lat, lon: stop?.lon ?? fix.lon, state: stop?.state || "", placeId: stop?.poiId ?? null },
+                  },
+                });
+              }}
+            />
+          ) : null}
+          {shareDay ? (
+            <SendToSheet
+              label="Send this day"
+              hint={shareDay}
+              onClose={() => setShareDay(null)}
+              onSend={async (thread) => {
+                const day = shareDay;
+                const seen = new Set<string>();
+                const places = [];
+                for (const mark of marks) {
+                  const days = mark.visits.length ? mark.visits.map((visit) => visit.visitedOn) : [mark.visitedOn];
+                  const onDay = days.includes(day) || (!mark.visitedOn && mark.addedAt && localDay(mark.addedAt) === day);
+                  if (!onDay || seen.has(mark.id)) continue;
+                  seen.add(mark.id);
+                  places.push({ id: mark.id, name: mark.name, state: mark.state, lat: mark.lat, lon: mark.lon });
+                }
+                const stops = gpsStops.filter((item) => localDay(item.start) === day).map((item) => ({ label: item.label, lat: item.lat, lon: item.lon }));
+                const points = ghostLive.filter((point) => localDay(point.t) === day).slice(0, 800);
+                await sendToThread({
+                  data: {
+                    thread,
+                    id: `m-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+                    kind: "day",
+                    day: {
+                      day,
+                      places,
+                      stops,
+                      trail: points.length >= 2 ? { name: "This day", points: points.map((point) => [point.lat, point.lon, point.brk ? 1 : 0]), day } : null,
+                    },
+                  },
+                });
+              }}
+            />
+          ) : null}
           {addedFlash ? (
             <button
               type="button"
@@ -2866,6 +2954,7 @@ function AtlasShell() {
                 forgetPendingStop(id);
                 void removeStop({ data: { id } }).catch(() => {});
               }}
+              onShareDay={setShareDay}
               stateAbbr={stateAbbr}
               stateName={stateName}
               selected={selected}
@@ -3003,6 +3092,14 @@ function AtlasShell() {
                 lon: mark.lon,
                 visitedOn: [...mark.visits].map((visit) => visit.visitedOn).filter(Boolean).sort().at(-1) ?? null,
               }))}
+              you={tracker ?? you}
+              onOpenHere={(lat, lon) => {
+                setFriendId(null);
+                setSpot({ id: `here:${lat.toFixed(3)},${lon.toFixed(3)}`, lat, lon, from: null, sheet });
+                setSheetInstant(true);
+                setSheet(8);
+                window.setTimeout(() => setSheetInstant(false), 80);
+              }}
               resume={resumeChat}
               onResumed={() => setResumeChat(null)}
               onOpenPlace={(place, from) => {
@@ -3159,6 +3256,7 @@ function Yours({
   onOpen,
   onShowOnMap,
   onRemoveStop,
+  onShareDay,
 }: {
   marks: Mark[];
   gpsStops: GpsStop[];
@@ -3169,6 +3267,7 @@ function Yours({
   onOpen: (mark: Mark) => void;
   onShowOnMap: (label: string, spots: GroupSpot[]) => void;
   onRemoveStop: (id: string) => void;
+  onShareDay: (day: string) => void;
 }) {
   const [view, setView] = useState<"places" | "stops">(() => {
     try {
@@ -3239,6 +3338,7 @@ function Yours({
           onOpen={onOpen}
           onShowOnMap={onShowOnMap}
           onRemoveStop={onRemoveStop}
+          onShareDay={onShareDay}
         />
       ) : (
         <ul>

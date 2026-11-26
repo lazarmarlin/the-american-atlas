@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useChat } from "@/lib/chat-store";
-import { deleteMessage, listThread, loadThreadPhoto, messageBoard, searchChats, setThreadPin, toggleReaction, type BoardItem, type ChatHit, type ChatMessage, type ChatPlace, type ChatTrail, type Thread } from "@/lib/messages";
-import { milesBetween } from "@/lib/nearby";
+import { deleteMessage, listThread, loadThreadPhoto, messageBoard, searchChats, sendToThread, setThreadPin, toggleReaction, type BoardItem, type ChatDay, type ChatHere, type ChatHit, type ChatMessage, type ChatPlace, type ChatTrail, type Thread } from "@/lib/messages";
+import { closestPlace, milesBetween, type Fix } from "@/lib/nearby";
 import { readGps } from "@/lib/photo-file";
 import { categoryName } from "@/lib/place-kinds";
 import { pushBack, useBackClose } from "@/lib/sheet-back";
@@ -38,6 +38,8 @@ function blurb(row: ChatMessage) {
   if (row.kind === "place") return row.place?.name || "A place";
   if (row.kind === "trip") return row.trip?.name || "A trip";
   if (row.kind === "trail") return row.trail?.name || "A trail";
+  if (row.kind === "here") return row.here?.label || "I'm here";
+  if (row.kind === "day") return row.day ? `A day · ${row.day.day}` : "A day";
   return row.body;
 }
 
@@ -113,6 +115,8 @@ export function ChatThread({
   onAddToMap,
   onOpenPlace,
   onOpenTrail,
+  onOpenHere,
+  you = null,
   focusId,
   fill = false,
 }: {
@@ -122,6 +126,9 @@ export function ChatThread({
   onAddToMap: (photo: ChatPhoto, place: ChatPlaceOption) => Promise<void>;
   onOpenPlace?: (place: ChatPlace) => void;
   onOpenTrail?: (lines: [number, number][][]) => void;
+  onOpenHere?: (lat: number, lon: number) => void;
+  /** Where you are, so "I'm here" can send the place you're in. */
+  you?: Fix | null;
   /** Scroll this message into view once, from a search. */
   focusId?: string | null;
   /** Fill a full-screen chat: messages take the space, the box sits at the bottom. */
@@ -138,6 +145,8 @@ export function ChatThread({
   useEffect(() => setSavedNote(null), [viewing?.id]);
   const [attach, setAttach] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [captionFor, setCaptionFor] = useState<File | null>(null);
+  const [caption, setCaption] = useState("");
   const [trailsOpen, setTrailsOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [query, setQuery] = useState("");
@@ -260,17 +269,18 @@ export function ChatThread({
 
   // Back closes whatever is on top: the photo, a picker, the menu.
   useEffect(() => {
-    if (!viewing && !picking && !menu && !attach && !sharing && !trailsOpen) return;
+    if (!viewing && !picking && !menu && !attach && !sharing && !trailsOpen && !captionFor) return;
     return pushBack(() => {
       if (viewing) setViewing(null);
       else if (picking) setPicking(null);
       else if (sharing) setSharing(false);
       else if (trailsOpen) setTrailsOpen(false);
+      else if (captionFor) setCaptionFor(null);
       else if (attach) setAttach(false);
       else setMenu(null);
       return true;
     });
-  }, [viewing, picking, menu, attach, sharing, trailsOpen]);
+  }, [viewing, picking, menu, attach, sharing, trailsOpen, captionFor]);
 
   function optimistic(row: Omit<ChatMessage, "fromId" | "fromName" | "at">) {
     const full: ChatMessage = { ...row, fromId: meId, fromName: "You", at: Date.now() };
@@ -366,8 +376,9 @@ export function ChatThread({
       if (thumb.length > 115000) thumb = await shrinkChatPhoto(file, 400, 0.65);
       const id = newId();
       const extra = { lat: gps?.lat ?? null, lon: gps?.lon ?? null, takenAt: gps?.takenAt ?? file.lastModified ?? null };
-      const message = optimistic({ id, kind: "photo", body: "", thumb, place: null, ...extra });
-      await deliver(message, { thread, id, kind: "photo", body: "", thumb, image, ...extra }, setNote);
+      const text = caption.trim().slice(0, 140);
+      const message = optimistic({ id, kind: "photo", body: text, thumb, place: null, ...extra });
+      await deliver(message, { thread, id, kind: "photo", body: text, thumb, image, ...extra }, setNote);
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Couldn't send that photo.");
     } finally {
@@ -394,6 +405,23 @@ export function ChatThread({
     };
     const message = optimistic({ id, kind: "place", body: "", thumb: "", lat: place.lat, lon: place.lon, takenAt: null, place: card });
     await deliver(message, { thread, id, kind: "place", place: card }, setNote);
+  }
+
+  async function sendHere() {
+    setAttach(false);
+    if (!you) {
+      setNote("Location isn't on.");
+      return;
+    }
+    const near = closestPlace(you, places);
+    if (near?.state) {
+      await sendPlace(near);
+      return;
+    }
+    const id = newId();
+    const card: ChatHere = { label: "Here", lat: you.lat, lon: you.lon, state: "", placeId: null };
+    const message = optimistic({ id, kind: "here", body: "", thumb: "", lat: you.lat, lon: you.lon, takenAt: null, place: null, here: card });
+    await deliver(message, { thread, id, kind: "here", here: card }, setNote);
   }
 
   async function sendTrail(name: string, points: GhostPoint[], day: string | null) {
@@ -599,6 +627,7 @@ export function ChatThread({
                     <ChatImage thread={thread} meId={meId} id={row.id} thumb={row.thumb} />
                   </button>
                 ) : null}
+                {row.kind === "photo" && row.body ? <span className="mt-1 block text-sm">{row.body}</span> : null}
                 {row.kind === "photo" && row.lat != null ? <span className="mt-1 block text-xs text-faint">Has a location</span> : null}
                 {row.kind === "link" ? (
                   <a href={row.body} target="_blank" rel="noopener noreferrer" className="block">
@@ -649,6 +678,76 @@ export function ChatThread({
                     </span>
                     {onOpenTrail ? (
                       <button type="button" onClick={() => onOpenTrail(row.trail?.lines ?? [])} className="my-1.5 h-10 w-full rounded-lg border border-line text-sm">
+                        On the map
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+                {row.kind === "here" && row.here ? (
+                  <div className="py-1">
+                    <span className="block text-xs tracking-widest text-faint uppercase">{mine ? "I'm here" : `${row.fromName} is here`}</span>
+                    <span className="mt-0.5 block font-serif text-lg leading-tight">{row.here.label}</span>
+                    {row.here.state ? <span className="block text-xs text-muted">{row.here.state}</span> : null}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const here = row.here as ChatHere;
+                        if (here.placeId && onOpenPlace) {
+                          onOpenPlace({
+                            id: here.placeId,
+                            name: here.label,
+                            category: "",
+                            state: here.state,
+                            lat: here.lat,
+                            lon: here.lon,
+                            points: 0,
+                            visitedOn: null,
+                            visited: false,
+                          });
+                        } else onOpenHere?.(here.lat, here.lon);
+                      }}
+                      className="my-1.5 h-10 w-full rounded-lg border border-line text-sm"
+                    >
+                      Show on map
+                    </button>
+                  </div>
+                ) : null}
+                {row.kind === "day" && row.day ? (
+                  <div className="py-1">
+                    <span className="block text-xs tracking-widest text-faint uppercase">{mine ? "My day" : `${row.fromName}'s day`}</span>
+                    <span className="mt-0.5 block font-serif text-lg leading-tight">{shortDate(row.day.day)}</span>
+                    {row.day.trail ? (
+                      <div className="mt-1.5">
+                        <TripSketch lines={row.day.trail.lines} dots={[]} height={100} />
+                      </div>
+                    ) : null}
+                    <span className="mt-1.5 block text-xs text-muted">
+                      {row.day.places.length ? `${row.day.places.length} ${row.day.places.length === 1 ? "place" : "places"}` : ""}
+                      {row.day.places.length && row.day.stops.length ? " · " : ""}
+                      {row.day.stops.length ? `${row.day.stops.length} ${row.day.stops.length === 1 ? "stop" : "stops"}` : ""}
+                      {row.day.trail ? ` · ${row.day.trail.miles.toLocaleString()} mi` : ""}
+                    </span>
+                    {row.day.places.slice(0, 4).map((place) => (
+                      <span key={place.id} className="block truncate text-sm">
+                        {place.name}
+                      </span>
+                    ))}
+                    {row.day.trail && onOpenTrail ? (
+                      <button type="button" onClick={() => onOpenTrail(row.day?.trail?.lines ?? [])} className="my-1.5 h-10 w-full rounded-lg border border-line text-sm">
+                        On the map
+                      </button>
+                    ) : onOpenHere && (row.day.places.find((p) => p.lat != null) || row.day.stops[0]) ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const place = row.day?.places.find((p) => p.lat != null && p.lon != null);
+                          const stop = row.day?.stops[0];
+                          const lat = place?.lat ?? stop?.lat;
+                          const lon = place?.lon ?? stop?.lon;
+                          if (lat != null && lon != null) onOpenHere(lat, lon);
+                        }}
+                        className="my-1.5 h-10 w-full rounded-lg border border-line text-sm"
+                      >
                         On the map
                       </button>
                     ) : null}
@@ -740,7 +839,10 @@ export function ChatThread({
           onChange={(event) => {
             const file = event.target.files?.[0];
             event.target.value = "";
-            if (file) void sendPhoto(file);
+            if (file) {
+              setCaption("");
+              setCaptionFor(file);
+            }
           }}
         />
         <input
@@ -766,11 +868,19 @@ export function ChatThread({
         <Sheet label="Send" onClose={() => setAttach(false)}>
           <button
             type="button"
+            disabled={!you}
+            onClick={() => void sendHere()}
+            className="h-11 w-full rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
+          >
+            {you ? (closestPlace(you, places)?.name ? `I'm here · ${closestPlace(you, places)?.name}` : "I'm here") : "I'm here"}
+          </button>
+          <button
+            type="button"
             onClick={() => {
               setAttach(false);
               photoInput.current?.click();
             }}
-            className="h-11 w-full rounded-lg border border-line text-sm"
+            className="mt-2 h-11 w-full rounded-lg border border-line text-sm"
           >
             A photo
           </button>
@@ -794,6 +904,33 @@ export function ChatThread({
             className="mt-2 h-11 w-full rounded-lg border border-line text-sm"
           >
             A ghost trail
+          </button>
+        </Sheet>
+      ) : null}
+
+      {captionFor ? (
+        <Sheet
+          label="Add a caption"
+          onClose={() => setCaptionFor(null)}
+        >
+          <input
+            autoFocus
+            value={caption}
+            onChange={(event) => setCaption(event.target.value.slice(0, 140))}
+            placeholder="A line about this photo"
+            className="h-11 w-full rounded-lg border border-line bg-bg px-3 text-base text-ink outline-none placeholder:text-faint"
+          />
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              const file = captionFor;
+              setCaptionFor(null);
+              void sendPhoto(file);
+            }}
+            className="mt-2 h-11 w-full rounded-lg border border-ink bg-elevated text-sm"
+          >
+            {caption.trim() ? "Send" : "Send without a caption"}
           </button>
         </Sheet>
       ) : null}
@@ -832,7 +969,7 @@ export function ChatThread({
                 {menu.fromId === meId ? "You" : menu.fromName} · {stampText(menu.at)}
               </p>
               <p className="truncate text-sm">
-                {menu.kind === "photo" ? "Photo" : menu.kind === "place" ? menu.place?.name : menu.kind === "trip" ? menu.trip?.name : menu.kind === "trail" ? menu.trail?.name : menu.body}
+                {menu.kind === "photo" ? (menu.body ? menu.body : "Photo") : menu.kind === "place" ? menu.place?.name : menu.kind === "trip" ? menu.trip?.name : menu.kind === "trail" ? menu.trail?.name : menu.kind === "here" ? menu.here?.label : menu.kind === "day" ? "A day" : menu.body}
               </p>
             </div>
           </div>
@@ -1183,6 +1320,8 @@ export function MessageBoard({
   onAddToMap,
   onOpenPlace,
   onOpenTrail,
+  onOpenHere,
+  you = null,
   onClose,
   initial = null,
 }: {
@@ -1191,6 +1330,8 @@ export function MessageBoard({
   onAddToMap: (photo: ChatPhoto, place: ChatPlaceOption) => Promise<void>;
   onOpenPlace?: (place: ChatPlace, from?: Thread) => void;
   onOpenTrail?: (lines: [number, number][][]) => void;
+  onOpenHere?: (lat: number, lon: number) => void;
+  you?: Fix | null;
   onClose: () => void;
   /** Open straight into this chat (back from a place it sent). */
   initial?: Thread | null;
@@ -1254,6 +1395,8 @@ export function MessageBoard({
         focusId={focusId}
         onAddToMap={onAddToMap}
         onOpenTrail={onOpenTrail}
+        onOpenHere={onOpenHere}
+        you={you}
         onOpenPlace={
           onOpenPlace
             ? (place) => {
