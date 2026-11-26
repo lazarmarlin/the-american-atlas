@@ -62,6 +62,8 @@ type Props = {
   dot: Fix | null;
   /** While driving, keep the camera at this zoom on your location. */
   followZoom?: number;
+  /** While following (Drive mode): the way you're going, so the map faces it. Null: north up. */
+  followBearing?: number | null;
   /** Bigger place icons and a bigger tap area, for tapping from the driver's seat. */
   bigIcons?: boolean;
   onState: (abbr: string) => void;
@@ -274,6 +276,7 @@ export function AtlasMap({
   you,
   dot,
   followZoom,
+  followBearing = null,
   bigIcons = false,
   onState,
   followState = false,
@@ -1659,6 +1662,8 @@ export function AtlasMap({
   const dotOn = useRef(false);
   const followRef = useRef<number | undefined>(followZoom);
   followRef.current = followZoom;
+  const bearingRef = useRef<number | null>(followBearing);
+  bearingRef.current = followBearing;
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const placeDot = useCallback((coords: [number, number] | null) => {
@@ -1696,6 +1701,7 @@ export function AtlasMap({
         map.easeTo({
           center: [lon, lat],
           zoom: followRef.current,
+          bearing: bearingRef.current ?? 0,
           duration: far || reducedMotion() ? 0 : span,
           easing: (t) => t,
         });
@@ -1802,6 +1808,7 @@ export function AtlasMap({
       map.easeTo({
         center: [here.lon, here.lat],
         zoom: followZoom ?? Math.max(map.getZoom(), 8),
+        ...(followZoom != null ? { bearing: bearingRef.current ?? 0 } : {}),
         duration: duration(),
       });
     if (followZoom == null) {
@@ -1820,6 +1827,13 @@ export function AtlasMap({
     }, 250);
     return () => window.clearTimeout(timer);
   }, [followZoom, ready, selected, you, dot]);
+
+  // Out of Drive mode (or heading-up turned off): north back up.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    if ((followZoom == null || followBearing == null) && Math.abs(map.getBearing()) > 0.5) map.easeTo({ bearing: 0, duration: duration() });
+  }, [followZoom, followBearing, ready]);
 
   return (
     <div className="relative h-full w-full">
