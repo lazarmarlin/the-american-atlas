@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Calendar, CalendarDays, CalendarRange, ChevronDown, CircleParking, Download, Map as MapIcon, MapPinned, X } from "lucide-react";
 import { localDay } from "@/lib/drive-log";
 import type { Mark } from "@/lib/marks";
+import { listPhotos } from "@/lib/photos";
 import { categoryName, kindFor, placeKinds } from "@/lib/place-kinds";
 import { shareTextFile } from "@/lib/share-file";
 import { STATE_NAMES } from "@/lib/state-names";
@@ -20,7 +21,7 @@ export type StopGroup = "day" | "week" | "month" | "state";
 type Show = "all" | "places" | "stops";
 
 type Entry =
-  | { type: "visit"; key: string; mark: Mark; index: number; day: string | null; sort: number; points: number; note: string; state: string }
+  | { type: "visit"; key: string; mark: Mark; index: number; day: string | null; sort: number; points: number; note: string; state: string; photo: string }
   | { type: "gps"; key: string; stop: GpsStop; day: string; sort: number; points: 0; state: string };
 
 type Section = { key: string; label: string; sub: string; entries: Entry[]; points: number };
@@ -71,6 +72,7 @@ function entriesFrom(marks: Mark[], stops: GpsStop[]): Entry[] {
         points: pointsForVisit(mark.points, index),
         note: visit.note,
         state: mark.state,
+        photo: visit.photo,
       });
     });
   }
@@ -212,6 +214,26 @@ export function StopsLog({
     setShown(20);
   }, [by, show]);
 
+  // Photos matched to your places: one taken there that day shows on the visit.
+  const [photos, setPhotos] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    let live = true;
+    listPhotos()
+      .then((rows) => {
+        if (!live) return;
+        const map = new Map<string, string>();
+        for (const row of rows) {
+          if (!row.takenAt || !row.thumb) continue;
+          const key = `${row.poiId}|${localDay(row.takenAt)}`;
+          if (!map.has(key)) map.set(key, row.thumb);
+        }
+        setPhotos(map);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
   const all = useMemo(() => entriesFrom(marks, gpsStops), [marks, gpsStops]);
   const entries = useMemo(() => (show === "all" ? all : all.filter((e) => (show === "places" ? e.type === "visit" : e.type === "gps"))), [all, show]);
   const sections = useMemo(() => groupEntries(entries, by), [entries, by]);
@@ -358,6 +380,10 @@ export function StopsLog({
                               {entry.note ? ` · ${entry.note}` : ""}
                             </span>
                           </span>
+                          {(() => {
+                            const pic = entry.photo || (entry.day ? photos.get(`${entry.mark.id}|${entry.day}`) : undefined);
+                            return pic ? <img src={pic} alt="" className="size-9 shrink-0 rounded-md object-cover" /> : null;
+                          })()}
                           <span className="shrink-0 text-right">
                             {by !== "day" && entry.day ? <span className="block text-[11px] text-faint">{dayLabel(entry.day)}</span> : null}
                             <span className="block text-xs text-muted">{entry.points ? `${entry.points} pts` : "—"}</span>
