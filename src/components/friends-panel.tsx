@@ -1,5 +1,5 @@
 import { ChevronLeft } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BadgeIcon } from "@/components/badge-icon";
 import {
   friendTrail,
@@ -418,6 +418,8 @@ export function FriendsPanel({
               Message {page.name.split(" ")[0]}
               {unread.friends[page.id] ? <Count n={unread.friends[page.id] ?? 0} label="new messages" /> : null}
             </button>
+
+            {page.places ? <CompareCard mine={places} theirs={page.places} name={page.name.split(" ")[0] || "They"} /> : null}
 
             <div className="mt-4 flex gap-1 px-2">
               {(
@@ -902,4 +904,74 @@ function sharedNote(travelers: SharedTraveler[], meId: string) {
   return going.length
     ? `Shared trip: ${names.join(", ")} ${going.length === 1 && names[0] !== "you" ? "is" : "are"} on it · ${stops} ${stops === 1 ? "place" : "places"} so far. ··· to see everyone's routes.`
     : `Shared trip · ${stops} ${stops === 1 ? "place" : "places"}. ··· to see everyone's routes.`;
+}
+
+/** You and a friend side by side: places you've both been, and ones only one of you has. */
+function CompareCard({
+  mine,
+  theirs,
+  name,
+}: {
+  mine: { id: string; name: string; state?: string; category?: string }[];
+  theirs: { id: string; name: string; state: string; category: string }[];
+  name: string;
+}) {
+  const [list, setList] = useState<"both" | "theirs" | null>(null);
+  const { both, onlyMe, onlyThem, sharedStates, sharedCounties } = useMemo(() => {
+    const myIds = new Set(mine.map((p) => p.id));
+    const theirIds = new Set(theirs.map((p) => p.id));
+    const bothRows = theirs.filter((p) => myIds.has(p.id));
+    const myStates = new Set(mine.map((p) => p.state ?? "").filter(Boolean));
+    return {
+      both: bothRows.sort((a, b) => a.state.localeCompare(b.state) || a.name.localeCompare(b.name)),
+      onlyMe: mine.filter((p) => !theirIds.has(p.id)).length,
+      onlyThem: theirs.filter((p) => !myIds.has(p.id)).sort((a, b) => a.state.localeCompare(b.state) || a.name.localeCompare(b.name)),
+      sharedStates: new Set(theirs.map((p) => p.state).filter((s) => s && myStates.has(s))).size,
+      sharedCounties: bothRows.filter((p) => p.category === "county").length,
+    };
+  }, [mine, theirs]);
+  const shown = list === "both" ? both : list === "theirs" ? onlyThem : [];
+  return (
+    <section className="mt-4 rounded-card border border-line bg-surface/60 p-3">
+      <p className="font-serif text-lg leading-tight">
+        {both.length ? `You've both been to ${both.length.toLocaleString()} ${both.length === 1 ? "place" : "places"}` : `No places in common with ${name} yet`}
+      </p>
+      {both.length ? (
+        <p className="text-xs text-muted">
+          {sharedStates} {sharedStates === 1 ? "state" : "states"} in common{sharedCounties ? ` · ${sharedCounties} ${sharedCounties === 1 ? "county" : "counties"}` : ""}
+        </p>
+      ) : null}
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+        {(
+          [
+            ["both", both.length, "Both"],
+            [null, onlyMe, "Only you"],
+            ["theirs", onlyThem.length, `Only ${name}`],
+          ] as const
+        ).map(([id, count, label]) => (
+          <button
+            key={label}
+            type="button"
+            disabled={!id || !count}
+            onClick={() => setList((cur) => (cur === id ? null : id))}
+            aria-pressed={id ? list === id : undefined}
+            className={"rounded-lg border px-1 py-2 " + (id && list === id ? "border-ink bg-elevated" : "border-line")}
+          >
+            <span className="block font-serif text-2xl leading-none">{count.toLocaleString()}</span>
+            <span className="mt-1 block truncate text-[11px] text-muted">{label}</span>
+          </button>
+        ))}
+      </div>
+      {shown.length ? (
+        <ul className="mt-2 max-h-64 divide-y divide-line overflow-y-auto rounded-lg border border-line">
+          {shown.slice(0, 200).map((p) => (
+            <li key={p.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+              <span className="min-w-0 flex-1 truncate">{p.name}</span>
+              <span className="shrink-0 text-xs text-faint">{p.state}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
 }
