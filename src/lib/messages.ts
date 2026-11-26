@@ -277,8 +277,14 @@ async function listRows(sql: Sql, userId: string, thread: Thread): Promise<Row[]
 /** The conversation, oldest first. Opening it marks it read. */
 export const listThread = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((input: unknown) => parseThread((input as { thread?: unknown } | null)?.thread))
-  .handler(async ({ context, data: thread }): Promise<ChatMessage[]> => {
+  .validator((input: unknown) => {
+    const row = (input ?? {}) as { thread?: unknown; have?: unknown };
+    // Photo messages whose preview the phone already has: their preview isn't sent again,
+    // so checking for new messages every few seconds stays small.
+    const have = Array.isArray(row.have) ? row.have.filter((id): id is string => typeof id === "string").slice(0, 500) : [];
+    return { thread: parseThread(row.thread), have: new Set(have) };
+  })
+  .handler(async ({ context, data: { thread, have } }): Promise<ChatMessage[]> => {
     const sql = await openThread(context.userId, thread);
     const rows = (await listRows(sql, context.userId, thread)).reverse();
     const names = await namesFor(sql, [...new Set(rows.map((row) => row.from_id))]);
@@ -323,7 +329,7 @@ export const listThread = createServerFn({ method: "POST" })
         fromName: names.get(row.from_id) ?? "Friend",
         kind,
         body: kind === "place" || kind === "trip" || kind === "trail" ? "" : row.body || "",
-        thumb: row.thumb || "",
+        thumb: have.has(row.id) ? "" : row.thumb || "",
         at,
         lat: row.lat ?? null,
         lon: row.lon ?? null,

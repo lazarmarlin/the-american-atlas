@@ -148,18 +148,42 @@ export function ChatThread({
   const group = thread.kind === "group";
   const threadKey = `${thread.kind}:${thread.id}`;
 
+  /** Messages being sent right now: kept on screen even if a check comes back without them yet. */
+  const sending = useRef(new Set<string>());
+  const rowsRef = useRef<ChatMessage[] | null>(null);
+  rowsRef.current = rows;
+  const pullNow = useRef<() => void>(() => {});
+
   useEffect(() => {
     let dead = false;
     useChat.getState().setOpen(thread);
     let offline = false;
     let shown = false;
+    let inFlight = false;
+    let again = false;
     const pull = () => {
-      listThread({ data: { thread } })
-        .then((next) => {
+      // One check at a time, so an older answer can't land after a newer one.
+      if (inFlight) {
+        again = true;
+        return;
+      }
+      inFlight = true;
+      const known = new Map((rowsRef.current ?? []).filter((row) => row.thumb).map((row) => [row.id, row.thumb]));
+      listThread({ data: { thread, have: [...known.keys()] } })
+        .then((fresh) => {
           if (dead) return;
           shown = true;
-          setRows(next);
-          void cacheThread(meId, thread, next);
+          setRows((cur) => {
+            const keep = new Map((cur ?? []).filter((row) => row.thumb).map((row) => [row.id, row.thumb]));
+            const next = fresh.map((row) => (row.thumb ? row : { ...row, thumb: keep.get(row.id) ?? known.get(row.id) ?? "" }));
+            const have = new Set(next.map((row) => row.id));
+            // On the server now: no longer needs keeping by hand.
+            for (const id of have) sending.current.delete(id);
+            const pending = (cur ?? []).filter((row) => sending.current.has(row.id) && !have.has(row.id));
+            const merged = pending.length ? [...next, ...pending].sort((a, b) => a.at - b.at) : next;
+            void cacheThread(meId, thread, merged);
+            return merged;
+          });
           if (offline) setNote(null);
           offline = false;
           void useChat.getState().refresh();
@@ -169,8 +193,16 @@ export function ChatThread({
           // No signal: keep showing the saved messages, and say so.
           offline = true;
           setNote(shown ? "No connection. Showing saved messages." : err instanceof Error ? err.message : "Couldn't load the chat.");
+        })
+        .finally(() => {
+          inFlight = false;
+          if (again && !dead) {
+            again = false;
+            pull();
+          }
         });
     };
+    pullNow.current = pull;
     setRows(null);
     // Saved messages first, so the chat opens straight away (and with no signal).
     void cachedThread(meId, thread).then((saved) => {
@@ -182,10 +214,18 @@ export function ChatThread({
       }
     });
     pull();
-    const id = window.setInterval(pull, 8000);
+    const tick = () => {
+      if (document.visibilityState === "visible") pull();
+    };
+    const id = window.setInterval(tick, 4000);
+    // Back in the app (a notification tapped, the screen turned on): check right away.
+    document.addEventListener("visibilitychange", tick);
+    window.addEventListener("focus", tick);
     return () => {
       dead = true;
       window.clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+      window.removeEventListener("focus", tick);
       useChat.getState().setOpen(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -228,10 +268,19 @@ export function ChatThread({
 
   function optimistic(row: Omit<ChatMessage, "fromId" | "fromName" | "at">) {
     const full: ChatMessage = { ...row, fromId: meId, fromName: "You", at: Date.now() };
+    sending.current.add(full.id);
     setRows((prev) => [...(prev ?? []), full]);
     return full.id;
   }
-  const drop = (id: string) => setRows((prev) => (prev ?? []).filter((row) => row.id !== id));
+  const drop = (id: string) => {
+    sending.current.delete(id);
+    setRows((prev) => (prev ?? []).filter((row) => row.id !== id));
+  };
+  /** The send went through: the next check shows it from the server, so look now. */
+  const sent = (id: string) => {
+    void id;
+    pullNow.current();
+  };
 
   async function sendText() {
     const body = draft.trim();
@@ -256,6 +305,7 @@ export function ChatThread({
     });
     try {
       await sendToThread({ data: { thread, id, kind, body, replyTo: quoting?.id } });
+      sent(id);
     } catch (err) {
       drop(id);
       setDraft(body);
@@ -282,6 +332,7 @@ export function ChatThread({
       optimistic({ id, kind: "photo", body: "", thumb, place: null, ...extra });
       try {
         await sendToThread({ data: { thread, id, kind: "photo", body: "", thumb, image, ...extra } });
+        sent(id);
       } catch (err) {
         drop(id);
         throw err;
@@ -311,6 +362,7 @@ export function ChatThread({
     optimistic({ id, kind: "place", body: "", thumb: "", lat: place.lat, lon: place.lon, takenAt: null, place: card });
     try {
       await sendToThread({ data: { thread, id, kind: "place", place: card } });
+      sent(id);
     } catch (err) {
       drop(id);
       setNote(err instanceof Error ? err.message : "Couldn't share that place.");
@@ -345,6 +397,7 @@ export function ChatThread({
     });
     try {
       await sendToThread({ data: { thread, id, kind: "trail", trail: { name, points: packed, day }, replyTo: quoting?.id } });
+      sent(id);
     } catch (err) {
       drop(id);
       setNote(err instanceof Error ? err.message : "Couldn't share that trail.");
