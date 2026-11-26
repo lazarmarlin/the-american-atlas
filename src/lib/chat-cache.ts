@@ -68,3 +68,12 @@ export function cachedBoard(me: string) {
 export function cacheBoard(me: string, rows: BoardItem[]) {
   return write(`${me}:board`, rows);
 }
+
+/** Full-size chat photos already loaded, so they show sharp straight away next time. */
+export function cachedPhoto(me: string, id: string) {
+  return read<string>(`${me}:photo:${id}`);
+}
+
+export function cachePhoto(me: string, id: string, image: string) {
+  return write(`${me}:photo:${id}`, image);
+}
