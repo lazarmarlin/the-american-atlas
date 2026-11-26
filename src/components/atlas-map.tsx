@@ -84,6 +84,12 @@ type Props = {
   onAway?: (away: boolean) => void;
   /** Trip routes drawn on the map (a recap, or everyone on a shared trip), each in its own color. */
   tripRoutes?: { color: string; lines: [number, number][][]; dots?: [number, number][] }[];
+  /**
+   * A group from the Stops view: places get a ring in their own color around
+   * their icon (still tapped to open), GPS stops a small dot of their own.
+   */
+  groupSpots?: { id: string; lon: number; lat: number; kind: "place" | "stop"; color: string }[];
+  onGroupStop?: (id: string) => void;
   /** One place on its own: everything else hidden, zoomed all the way in on it. */
   spotlight?: { id: string; lon: number; lat: number } | null;
 };
@@ -229,6 +235,8 @@ function dotFeatures(items: Mark[]) {
     }));
 }
 
+const EMPTY_SPOTS: { id: string; lon: number; lat: number; kind: "place" | "stop"; color: string }[] = [];
+
 export function AtlasMap({
   states,
   marks,
@@ -280,13 +288,15 @@ export function AtlasMap({
   onAway,
   spotlight = null,
   tripRoutes = [],
+  groupSpots = EMPTY_SPOTS,
+  onGroupStop,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
   const bigRef = useRef(bigIcons);
   bigRef.current = bigIcons;
-  const propsRef = useRef({ onState, onCounty, onPark, onSelect, onOffer, onPress, onFriend, onView, onAway });
-  propsRef.current = { onState, onCounty, onPark, onSelect, onOffer, onPress, onFriend, onView, onAway };
+  const propsRef = useRef({ onState, onCounty, onPark, onSelect, onOffer, onPress, onFriend, onView, onAway, onGroupStop });
+  propsRef.current = { onState, onCounty, onPark, onSelect, onOffer, onPress, onFriend, onView, onAway, onGroupStop };
   const statesRef = useRef(states);
   statesRef.current = states;
   const viewRef = useRef({ stateAbbr, showCounties, followState });
@@ -905,6 +915,14 @@ export function AtlasMap({
               return;
             }
           }
+          // A GPS stop from a group shown from the Stops view: what it was.
+          if (map.getLayer("group-stops")) {
+            const stop = map.queryRenderedFeatures(area, { layers: ["group-stops"] })[0]?.properties?.id;
+            if (typeof stop === "string") {
+              propsRef.current.onGroupStop?.(stop);
+              return;
+            }
+          }
           const person = map.queryRenderedFeatures(area, { layers: ["friend-people"] });
           const personId = person[0]?.properties?.id;
           if (typeof personId === "string") {
@@ -1280,6 +1298,49 @@ export function AtlasMap({
     ]);
     (map.getSource("trip-routes") as GeoJSONSource).setData({ type: "FeatureCollection", features });
   }, [tripRoutes, ready]);
+
+  // A group from the Stops view (see groupSpots): added on first use, on top.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    if (!map.getSource("group-spots")) {
+      if (!groupSpots.length) return;
+      map.addSource("group-spots", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      map.addLayer({
+        id: "group-rings",
+        type: "circle",
+        source: "group-spots",
+        filter: ["==", ["get", "kind"], "place"],
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 7, 9, 10, 14, 14],
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 4, 1.5, 12, 2.5],
+          "circle-stroke-color": ["get", "color"],
+          "circle-stroke-opacity": 0.95,
+        },
+      });
+      map.addLayer({
+        id: "group-stops",
+        type: "circle",
+        source: "group-spots",
+        filter: ["==", ["get", "kind"], "stop"],
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 3, 9, 4.5, 14, 7],
+          "circle-color": ["get", "color"],
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#121410",
+        },
+      });
+    }
+    (map.getSource("group-spots") as GeoJSONSource).setData({
+      type: "FeatureCollection",
+      features: groupSpots.map((spot) => ({
+        type: "Feature" as const,
+        properties: { id: spot.id, kind: spot.kind, color: spot.color },
+        geometry: { type: "Point" as const, coordinates: [spot.lon, spot.lat] },
+      })),
+    });
+  }, [groupSpots, ready]);
 
   // Driving: place icons and dots about twice the size, so they're easy to hit with a finger.
   const sizeBase = useRef(new Map<string, unknown>());

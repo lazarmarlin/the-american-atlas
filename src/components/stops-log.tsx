@@ -178,10 +178,32 @@ function toCsv(entries: Entry[]) {
   return [head, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
 }
 
-/** A spot to draw on the map: [lon, lat]. */
-function spotOf(entry: Entry): [number, number] | null {
-  if (entry.type === "gps") return [entry.stop.lon, entry.stop.lat];
-  return entry.mark.lat != null && entry.mark.lon != null ? [entry.mark.lon, entry.mark.lat] : null;
+/** One spot of a group on the map: a place (ringed in its own color) or a GPS stop. */
+export type GroupSpot = { id: string; lon: number; lat: number; kind: "place" | "stop"; color: string; name: string; sub: string };
+
+/** The group's spots, oldest first; a place visited more than once is one spot. */
+function spotsOf(entries: Entry[]): GroupSpot[] {
+  const seen = new Set<string>();
+  const out: GroupSpot[] = [];
+  for (const e of [...entries].sort((a, b) => a.sort - b.sort)) {
+    if (e.type === "gps") {
+      const s = e.stop;
+      out.push({ id: s.id, lon: s.lon, lat: s.lat, kind: "stop", color: STOP_COLOR, name: s.label, sub: `${dayLabel(e.day)} · ${clock(s.start)} · ${duration(s.end - s.start)}` });
+    } else if (e.mark.lat != null && e.mark.lon != null && !seen.has(e.mark.id)) {
+      seen.add(e.mark.id);
+      const kind = kindFor(e.mark.category, e.mark.name, e.mark.points, e.mark.sys);
+      out.push({
+        id: e.mark.id,
+        lon: e.mark.lon,
+        lat: e.mark.lat,
+        kind: "place",
+        color: kindColor.get(kind) ?? "#e2b15a",
+        name: e.mark.name,
+        sub: `${categoryName(e.mark.category, e.mark.name)} · ${e.state}`,
+      });
+    }
+  }
+  return out;
 }
 
 export function StopsLog({
@@ -194,8 +216,8 @@ export function StopsLog({
   marks: Mark[];
   gpsStops?: GpsStop[];
   onOpen: (mark: Mark) => void;
-  /** Draw these spots (in order) on the map, with a label for the Hide chip. */
-  onShowOnMap?: (label: string, spots: [number, number][]) => void;
+  /** Show a group's spots on the map, under this label. */
+  onShowOnMap?: (label: string, spots: GroupSpot[]) => void;
   onRemoveStop?: (id: string) => void;
 }) {
   const [by, setBy] = useState<StopGroup>(() => readPref(GROUP_KEY, ["day", "week", "month", "state"] as const, "day"));
@@ -313,7 +335,7 @@ export function StopsLog({
       <div className="mt-2 grid gap-2">
         {sections.slice(0, shown).map((section) => {
           const open = !closed.has(section.key);
-          const spots = [...section.entries].sort((a, b) => a.sort - b.sort).map(spotOf).filter((s): s is [number, number] => !!s);
+          const spots = spotsOf(section.entries);
           return (
             <section key={section.key} className="overflow-hidden rounded-card border border-line">
               <div className="flex items-center bg-surface">
@@ -345,7 +367,7 @@ export function StopsLog({
                         <li key={entry.key} className="flex items-center">
                           <button
                             type="button"
-                            onClick={() => onShowOnMap?.(s.label, [[s.lon, s.lat]])}
+                            onClick={() => onShowOnMap?.(s.label, spotsOf([entry]))}
                             className="flex min-h-12 min-w-0 flex-1 items-center gap-3 py-2 pl-3 text-left active:bg-elevated"
                           >
                             <CircleParking className="size-4 shrink-0" style={{ color: STOP_COLOR }} aria-hidden />
