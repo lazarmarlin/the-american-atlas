@@ -39,7 +39,9 @@ public class PowerPlugin extends Plugin {
         int scale = state.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100);
         int status = state.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1);
         out.put("level", level < 0 || scale <= 0 ? -1 : Math.round(level * 100f / scale));
-        out.put("charging", status == android.os.BatteryManager.BATTERY_STATUS_CHARGING || status == android.os.BatteryManager.BATTERY_STATUS_FULL);
+        // Plugged in counts even when the phone holds the charge at its limit ("not charging" at 80%).
+        boolean plugged = state.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0) != 0;
+        out.put("charging", plugged || status == android.os.BatteryManager.BATTERY_STATUS_CHARGING || status == android.os.BatteryManager.BATTERY_STATUS_FULL);
         call.resolve(out);
     }
 

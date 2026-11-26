@@ -2,7 +2,8 @@ import { loadPlaces, loadRoads, type RoadRec, type StateInfo } from "@/lib/atlas
 import type { Mark } from "@/lib/marks";
 
 /** A location; `t` (ms) when it was taken, if not just now. */
-export type Fix = { lat: number; lon: number; t?: number };
+/** `rough`: from the phone network rather than GPS (can be a mile off, or minutes old). */
+export type Fix = { lat: number; lon: number; t?: number; rough?: boolean };
 
 const NEAR_CATS = [
   "beach",
@@ -137,7 +138,7 @@ export async function readDeviceLocation(): Promise<Fix> {
     return await readOnce({ enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
   } catch (err) {
     if ((err as { blocked?: boolean }).blocked) throw err;
-    return readOnce({ enableHighAccuracy: false, timeout: 10000, maximumAge: 10 * 60 * 1000 });
+    return { ...(await readOnce({ enableHighAccuracy: false, timeout: 10000, maximumAge: 10 * 60 * 1000 })), rough: true };
   }
 }
 

@@ -35,6 +35,20 @@ export function widgetNumbers(marks: Mark[], tracking: boolean, now = Date.now()
 
 let lastSent = "";
 let timer: ReturnType<typeof setTimeout> | null = null;
+/** The server's totals are asked for at most this often (on a drive every added place used to ask twice). */
+const REFINE_EVERY_MS = 10 * 60_000;
+let lastRefine = 0;
+/** How far the server's month total was from the phone's own count, for this month (kept between asks, so the number doesn't jump back). */
+let monthFix: { month: string; points: number; today: number; day: string } | null = null;
+
+function withFix(quick: WidgetData): WidgetData {
+  if (!monthFix || monthFix.month !== quick.day.slice(0, 7)) return quick;
+  return {
+    ...quick,
+    monthPoints: Math.max(0, quick.monthPoints + monthFix.points),
+    today: monthFix.day === quick.day ? Math.max(quick.today, monthFix.today) : quick.today,
+  };
+}
 let latest: { marks: Mark[]; tracking: boolean } | null = null;
 
 function send(data: WidgetData) {
@@ -56,14 +70,15 @@ export function updateWidget(marks: Mark[], tracking: boolean) {
   if (!nativeApp) return;
   latest = { marks, tracking };
   const quick = widgetNumbers(marks, tracking);
-  send(quick);
+  send(withFix(quick));
   if (timer) clearTimeout(timer);
-  timer = setTimeout(() => void refine(), 4000);
+  timer = setTimeout(() => void refine(), Math.max(4000, lastRefine + REFINE_EVERY_MS - Date.now()));
 }
 
 async function refine() {
   timer = null;
   if (!latest) return;
+  lastRefine = Date.now();
   const { marks, tracking } = latest;
   try {
     const { getRecap, periodRange } = await import("@/lib/recap");
@@ -74,7 +89,9 @@ async function refine() {
       getRecap({ data: { from: day, to: day, tz: month.tz } }),
     ]);
     const quick = widgetNumbers(marks, tracking);
-    send({ ...quick, monthPoints: monthRecap.points, today: Math.max(quick.today, todayRecap.places) });
+    monthFix = { month: quick.day.slice(0, 7), points: monthRecap.points - quick.monthPoints, today: todayRecap.places, day: quick.day };
+    // Places added while the server was answering are in `latest` already.
+    send(withFix(latest ? widgetNumbers(latest.marks, latest.tracking) : quick));
   } catch {
     // Offline: the quick count stays.
   }

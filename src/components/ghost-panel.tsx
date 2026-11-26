@@ -391,7 +391,7 @@ function LiveFriends() {
           </button>
         </div>
       ) : null}
-      {note ? <p className="mt-1 text-sm text-accent">{note}</p> : null}
+      {note ? <p className="mt-1 text-sm text-muted">{note}</p> : null}
       {friends === null ? (
         <p className="mt-2 text-sm text-muted">Loading friends…</p>
       ) : friends.length === 0 ? (

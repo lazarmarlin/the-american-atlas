@@ -227,17 +227,35 @@ function asSaved(value: unknown): SavedGhost | null {
   };
 }
 
+let dbOpen: Promise<IDBDatabase> | null = null;
+
+/** One connection, kept (a new one was opened for every read and write, and never closed). */
 function openDb() {
-  return new Promise<IDBDatabase>((resolve, reject) => {
+  dbOpen ??= new Promise<IDBDatabase>((resolve, reject) => {
     const req = indexedDB.open("american-atlas", 1);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
       if (!db.objectStoreNames.contains("outbox")) db.createObjectStore("outbox", { autoIncrement: true });
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const db = req.result;
+      // Closed under us (storage cleared, another tab upgrading): open again next time.
+      db.onclose = () => {
+        dbOpen = null;
+      };
+      db.onversionchange = () => {
+        db.close();
+        dbOpen = null;
+      };
+      resolve(db);
+    };
+    req.onerror = () => {
+      dbOpen = null;
+      reject(req.error);
+    };
   });
+  return dbOpen;
 }
 
 /** Reads one key from the shared on-device store; resolves null on any failure. */
@@ -284,17 +302,37 @@ async function readStored(userId: string): Promise<Stored | null> {
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+/** The live trail grows with nearly every fix; writing everything (saved trails included) each time kept the phone busy. */
+const LIVE_SAVE_MS = 15_000;
 
-function scheduleSave() {
-  if (typeof indexedDB === "undefined") return;
+function saveNow() {
   if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    const { live, saved, hidden, shared, pending, synced, userId } = useGhost.getState();
-    if (!userId) return; // signed out: nothing is kept on the device
-    const payload: Stored = { v: 2, live, saved, hidden, shared, pending, synced };
-    void writeKey(keyFor(userId), payload);
-  }, 400);
+  saveTimer = null;
+  const { live, saved, hidden, shared, pending, synced, userId } = useGhost.getState();
+  if (!userId) return; // signed out: nothing is kept on the device
+  const payload: Stored = { v: 2, live, saved, hidden, shared, pending, synced };
+  void writeKey(keyFor(userId), payload);
+}
+
+/**
+ * Write to the phone soon. `lazy` (a new point on the live trail): within 15 s
+ * is fine, and leaving the app writes straight away (see below). Anything
+ * you did yourself (save, delete, hide) is written within half a second.
+ */
+function scheduleSave(lazy = false) {
+  if (typeof indexedDB === "undefined") return;
+  if (lazy && saveTimer) return;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveNow, lazy ? LIVE_SAVE_MS : 400);
+}
+
+if (typeof document !== "undefined") {
+  // Leaving the app (or the screen going off): don't sit on the last few points.
+  const flush = () => {
+    if (saveTimer && document.visibilityState === "hidden") saveNow();
+  };
+  document.addEventListener("visibilitychange", flush);
+  window.addEventListener("pagehide", flush);
 }
 
 const addTo = (list: string[], id: string) => (list.includes(id) ? list : [...list, id]);
@@ -317,7 +355,7 @@ export const useGhost = create<GhostState>((set, get) => ({
     set((state) => {
       const live = appendTrail(state.live, fixes);
       if (live === state.live) return state;
-      scheduleSave();
+      scheduleSave(true);
       return { live, dirty: true };
     });
   },
@@ -325,7 +363,7 @@ export const useGhost = create<GhostState>((set, get) => ({
     set((state) => {
       const live = freshPoints(state.live, hours);
       if (live.length === state.live.length) return state;
-      scheduleSave();
+      scheduleSave(true);
       return { live, dirty: true };
     });
   },

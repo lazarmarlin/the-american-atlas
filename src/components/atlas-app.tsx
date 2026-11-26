@@ -51,7 +51,7 @@ import { nextCounty, type NextCounty } from "@/lib/next-county";
 import { batteryInfo, lowPowerNext, setDriveScreenAwake, startDriveScreen, stopDriveScreen } from "@/lib/power";
 import { PhotosPanel, PhotoViewer } from "@/components/photos-panel";
 import { updateWidget } from "@/lib/widget";
-import { noteLiveFix } from "@/lib/live-dot";
+import { latestLiveFix, noteLiveFix } from "@/lib/live-dot";
 import { lastKnownFix, rememberFix } from "@/lib/nearby";
 import { matchPlace, tripFor, type RecordingTrip } from "@/lib/photo-file";
 import { choosePhotoPlace, loadParkShapes, matchPark } from "@/lib/park-photo";
@@ -104,6 +104,28 @@ import {
 } from "@/lib/vault";
 
 const AtlasMap = lazy(() => import("@/components/atlas-map").then((mod) => ({ default: mod.AtlasMap })));
+
+/**
+ * The live trail, as last seen on screen. With the app in the background the
+ * trail still grows with nearly every fix; redrawing the whole app and
+ * re-cutting the map's line for each point was work nobody could see.
+ */
+function useLiveTrailOnScreen() {
+  const [live, setLive] = useState(() => useGhost.getState().live);
+  useEffect(() => {
+    const sync = () => {
+      if (document.visibilityState !== "hidden") setLive(useGhost.getState().live);
+    };
+    sync();
+    const stop = useGhost.subscribe(sync);
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", sync);
+    };
+  }, []);
+  return live;
+}
 
 // Your places, then your journeys, then your progress, then friends. All
 // eight fit in one row (icon over a short label), so nothing scrolls sideways.
@@ -403,7 +425,7 @@ function AtlasShell() {
   const setGhostHours = useSettings((s) => s.setGhostHours);
   const ghostColor = useSettings((s) => s.ghostColor);
   const setGhostColor = useSettings((s) => s.setGhostColor);
-  const ghostLive = useGhost((s) => s.live);
+  const ghostLive = useLiveTrailOnScreen();
   const ghostSaved = useGhost((s) => s.saved);
   const ghostHidden = useGhost((s) => s.hidden);
   const ghostFocus = useGhost((s) => s.focusId);
@@ -1081,6 +1103,39 @@ function AtlasShell() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tracker, motionTick, autoDrive, trackTravel]);
+  // The dashboard covers part of the map: you and the road go in the bigger
+  // free piece (beside it with the phone sideways, under it upright). Facing
+  // the way you're going, you sit lower in it, so more of the road ahead shows.
+  const driveCard = useRef<HTMLDivElement>(null);
+  const [drivePad, setDrivePad] = useState<{ top: number; left: number; right: number; bottom: number } | null>(null);
+  useEffect(() => {
+    const card = driveCard.current;
+    const host = card?.parentElement?.parentElement;
+    if (!driving || !card || !host) {
+      setDrivePad(null);
+      return;
+    }
+    const measure = () => {
+      const box = host.getBoundingClientRect();
+      const at = card.getBoundingClientRect();
+      if (!box.width || !box.height) return;
+      const beside = Math.max(0, box.right - at.right);
+      const under = Math.max(0, box.bottom - at.bottom);
+      const sideBySide = beside * box.height > under * box.width;
+      const freeHeight = sideBySide ? box.height : under;
+      const ahead = headingUp ? Math.round(freeHeight * 0.3) : 0;
+      const next = sideBySide
+        ? { top: ahead, left: Math.round(at.right - box.left), right: 0, bottom: 0 }
+        : { top: Math.round(at.bottom - box.top) + ahead, left: 0, right: 0, bottom: 0 };
+      setDrivePad((cur) => (cur && cur.top === next.top && cur.left === next.left ? cur : next));
+    };
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(card);
+    watch.observe(host);
+    return () => watch.disconnect();
+  }, [driving, headingUp]);
+
   function endDrive() {
     // Turned off by hand while still moving: don't turn straight back on.
     if ((speedMph() ?? 0) >= 5) autoSnoozed.current = true;
@@ -1236,7 +1291,10 @@ function AtlasShell() {
       // Never back to an older spot (fixes read back from the phone's log can be).
       const t = fix.t ?? now;
       if (t < trackerT) return;
-      if (!force && now - lastDotAt < 8000) return;
+      // In the background nothing is drawn: a look every 20 s keeps the next county
+      // and the notification current without redrawing the app every 8.
+      const every = document.visibilityState === "hidden" ? 20_000 : 8000;
+      if (!force && now - lastDotAt < every) return;
       lastDotAt = now;
       trackerT = t;
       setTracker(fix);
@@ -1353,11 +1411,13 @@ function AtlasShell() {
       });
     }
 
+    // "Keep the live trail on your account": the whole trail goes up each time, so
+    // every 3 minutes (it was every 20 seconds) and when you leave the app.
     let lastCache = 0;
-    function shareCache() {
+    function shareCache(force = false) {
       if (!useSettings.getState().keepGhost) return;
       const now = Date.now();
-      if (now - lastCache < 20000) return;
+      if (now - lastCache < (force ? 20_000 : 180_000)) return;
       const points = thinTrail(freshPoints(useGhost.getState().live, 24), 80);
       if (points.length < 2) return;
       lastCache = now;
@@ -1371,11 +1431,26 @@ function AtlasShell() {
     let catchingUp = false;
     let lastMotionTick = 0;
     const held: Fix[] = [];
-    function push(fixes: Fix[], forceDot = false) {
+    // Fixes from the phone's location service come in time order. One older than
+    // the newest already handled is a repeat: coming back to the app, the phone can
+    // hand over fixes it had queued after the same stretch was read back from its
+    // log. Going over them again doubled that stretch in the day's miles and put a
+    // there-and-back in the trail and the trip.
+    const serviceFixes = new WeakSet<Fix>();
+    let serviceT = 0;
+    function push(all: Fix[], forceDot = false) {
       if (catchingUp) {
-        held.push(...fixes);
+        held.push(...all);
         return;
       }
+      const fixes = all.filter((fix) => {
+        if (!serviceFixes.has(fix)) return true;
+        const t = fix.t ?? 0;
+        if (t < serviceT) return false;
+        serviceT = t;
+        return true;
+      });
+      if (!fixes.length) return;
       const latest = fixes.reduce<Fix | null>((best, fix) => (!best || (fix.t ?? 0) >= (best.t ?? 0) ? fix : best), null);
       if (latest) paintTracker(latest, forceDot);
       if (latest) rememberFix(latest);
@@ -1430,6 +1505,7 @@ function AtlasShell() {
       }
       catchingUp = false;
       if (dead) return;
+      for (const fix of missed) serviceFixes.add(fix);
       if (missed.length) push(missed, true);
       if (held.length) push(held.splice(0), true);
     }
@@ -1472,13 +1548,18 @@ function AtlasShell() {
             if (!location) return;
             const t = Number(location.time) || Date.now();
             if (!catchingUp) noteHandledFix(t);
-            push([{ lat: location.latitude, lon: location.longitude, t }]);
+            const fix: Fix = { lat: location.latitude, lon: location.longitude, t };
+            serviceFixes.add(fix);
+            push([fix]);
           },
         );
       });
     }
-    const host = window as Window & { atlasPushFixes?: (fixes: Fix[]) => void };
-    host.atlasPushFixes = (fixes) => push(fixes);
+    const host = window as Window & { atlasPushFixes?: (fixes: Fix[], fromService?: boolean) => void };
+    host.atlasPushFixes = (fixes, fromService = false) => {
+      if (fromService) for (const fix of fixes) serviceFixes.add(fix);
+      push(fixes);
+    };
     const refreshDot = () => {
       if (document.visibilityState === "hidden") return;
       void catchUp();
@@ -1487,15 +1568,28 @@ function AtlasShell() {
       void readDeviceLocation()
         .then((fix) => {
           if (dead) return;
+          // Tracking already has something newer (the phone answered with a spot it had
+          // from before): going back to it would put a jag in the trail and count road twice.
+          const newest = latestLiveFix();
+          if (newest?.t && (fix.t ?? Date.now()) <= newest.t) return;
+          // A rough network position: fine for showing where you are, never for the
+          // trail, the miles, or adding places (it can be a town over).
+          if (fix.rough) {
+            if (!catchingUp) paintTracker(fix, true);
+            return;
+          }
           if (catchingUp) {
-            held.push(fix);
+            // (On the phone the log being read back already ends where you are.)
+            if (!nativeApp) held.push(fix);
             return;
           }
           paintTracker(fix, true);
           useGhost.getState().record([fix]);
           shareLive();
           if (!adding) return;
-          logDrive([fix]);
+          // On the phone the location service's own fixes count the miles; this one
+          // is timed by a different clock, so it stays out of that sum.
+          if (!nativeApp) logDrive([fix]);
           shareCache();
         })
         .catch(() => {});
@@ -1512,10 +1606,15 @@ function AtlasShell() {
       shareLive(true);
       postNextFix();
     });
+    const cacheOnLeave = () => {
+      if (adding && document.visibilityState === "hidden") shareCache(true);
+    };
+    document.addEventListener("visibilitychange", cacheOnLeave);
     window.addEventListener("focus", refreshDot);
     document.addEventListener("visibilitychange", refreshDot);
     return () => {
       dead = true;
+      document.removeEventListener("visibilitychange", cacheOnLeave);
       setTracker(null);
       if (nativeApp) void import("@capgo/background-geolocation").then(({ BackgroundGeolocation }) => BackgroundGeolocation.stop());
       else navigator.geolocation.clearWatch(watch);
@@ -2408,6 +2507,7 @@ function AtlasShell() {
               dot={locating ? (tracker ?? you) : you}
               followZoom={driving && !cardOnly ? driveZoom : undefined}
               followBearing={driving && !cardOnly && headingUp ? driveBearing : null}
+              followPadding={driving && !cardOnly ? drivePad : null}
               bigIcons={driving}
               onPress={() => {
                 if (driving) return;
@@ -2481,7 +2581,7 @@ function AtlasShell() {
         )}
         {driving ? (
           <div className="px-safe pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
-            <div className="pointer-events-auto w-[min(78%,24rem)] overflow-hidden rounded-card border border-line bg-surface/95 shadow-sm backdrop-blur-sm">
+            <div ref={driveCard} className="pointer-events-auto w-[min(78%,24rem)] overflow-hidden rounded-card border border-line bg-surface/95 shadow-sm backdrop-blur-sm">
               {/* Glance strip: speed, then today's tally. */}
               <div className="flex items-end gap-4 px-4 pt-3 pb-2">
                 <p className="font-serif text-5xl leading-none tabular-nums">
@@ -4025,13 +4125,13 @@ function NearList({
           type="button"
           onClick={onLocate}
           disabled={busy}
-          className="flex h-11 w-full items-center justify-center gap-2 rounded-card bg-accent text-sm font-medium text-accent-ink disabled:opacity-60"
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-ink bg-elevated text-sm disabled:opacity-60"
         >
           <Locate className="size-4" aria-hidden="true" />
           {busy ? "Finding you…" : "Places near me"}
         </button>
         <p className="mt-2 text-xs text-muted">Needs location access.</p>
-        {note ? <p className="mt-2 text-sm text-accent">{note}</p> : null}
+        {note ? <p className="mt-2 text-sm text-muted">{note}</p> : null}
       </div>
       <ul>
         {rows.map((item) => (
@@ -4760,7 +4860,7 @@ function Detail({
         >
           Save details
         </button>
-        {detailNote ? <p className="mt-2 text-xs text-accent">{detailNote}</p> : null}
+        {detailNote ? <p className="mt-2 text-xs text-muted">{detailNote}</p> : null}
       </div>
     );
   }
@@ -4945,7 +5045,7 @@ function Detail({
             />
           </label>
         ) : null}
-        {detailNote && !editing ? <p className="mt-1 text-xs text-accent">{detailNote}</p> : null}
+        {detailNote && !editing ? <p className="mt-1 text-xs text-muted">{detailNote}</p> : null}
       </div>
       {saved ? (
         <button

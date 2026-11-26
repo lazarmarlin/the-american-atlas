@@ -64,6 +64,11 @@ type Props = {
   followZoom?: number;
   /** While following (Drive mode): the way you're going, so the map faces it. Null: north up. */
   followBearing?: number | null;
+  /**
+   * While following: the part of the map covered by the dashboard (px from each
+   * edge), so you and the road sit in the part that's free instead of under it.
+   */
+  followPadding?: MapPad | null;
   /** Bigger place icons and a bigger tap area, for tapping from the driver's seat. */
   bigIcons?: boolean;
   onState: (abbr: string) => void;
@@ -241,6 +246,9 @@ function dotFeatures(items: Mark[]) {
 
 const EMPTY_SPOTS: { id: string; lon: number; lat: number; kind: "place" | "stop"; color: string }[] = [];
 
+export type MapPad = { top: number; left: number; right: number; bottom: number };
+const NO_PAD: MapPad = { top: 0, left: 0, right: 0, bottom: 0 };
+
 export function AtlasMap({
   states,
   marks,
@@ -277,6 +285,7 @@ export function AtlasMap({
   dot,
   followZoom,
   followBearing = null,
+  followPadding = null,
   bigIcons = false,
   onState,
   followState = false,
@@ -1664,6 +1673,8 @@ export function AtlasMap({
   followRef.current = followZoom;
   const bearingRef = useRef<number | null>(followBearing);
   bearingRef.current = followBearing;
+  const padRef = useRef<MapPad | null>(followPadding);
+  padRef.current = followPadding;
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const placeDot = useCallback((coords: [number, number] | null) => {
@@ -1702,6 +1713,7 @@ export function AtlasMap({
           center: [lon, lat],
           zoom: followRef.current,
           bearing: bearingRef.current ?? 0,
+          padding: padRef.current ?? NO_PAD,
           duration: far || reducedMotion() ? 0 : span,
           easing: (t) => t,
         });
@@ -1726,13 +1738,21 @@ export function AtlasMap({
     if (dotShown.current && dotShown.current[0] === here.lon && dotShown.current[1] === here.lat) return;
     glideTo(here.lon, here.lat);
   }, [dot, ready, glideTo, placeDot]);
-  useEffect(
-    () =>
-      onLiveFix((fix) => {
-        if (dotOn.current) glideTo(fix.lon, fix.lat);
-      }),
-    [glideTo],
-  );
+  useEffect(() => {
+    const stop = onLiveFix((fix) => {
+      // In the background there's nothing to glide: the dot goes to the newest spot when you're back.
+      if (dotOn.current && document.visibilityState !== "hidden") glideTo(fix.lon, fix.lat);
+    });
+    const onShow = () => {
+      const fix = latestLiveFix();
+      if (fix && dotOn.current && document.visibilityState === "visible") glideTo(fix.lon, fix.lat);
+    };
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onShow);
+    };
+  }, [glideTo]);
   useEffect(() => () => cancelAnimationFrame(dotAnim.current), []);
 
   const friendIcons = useRef(new Map<string, string>());
@@ -1808,7 +1828,7 @@ export function AtlasMap({
       map.easeTo({
         center: [here.lon, here.lat],
         zoom: followZoom ?? Math.max(map.getZoom(), 8),
-        ...(followZoom != null ? { bearing: bearingRef.current ?? 0 } : {}),
+        ...(followZoom != null ? { bearing: bearingRef.current ?? 0, padding: padRef.current ?? NO_PAD } : {}),
         duration: duration(),
       });
     if (followZoom == null) {
@@ -1828,12 +1848,24 @@ export function AtlasMap({
     return () => window.clearTimeout(timer);
   }, [followZoom, ready, selected, you, dot]);
 
-  // Out of Drive mode (or heading-up turned off): north back up.
+  // Out of Drive mode (or heading-up turned off): north back up, and the whole map in use again.
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
-    if ((followZoom == null || followBearing == null) && Math.abs(map.getBearing()) > 0.5) map.easeTo({ bearing: 0, duration: duration() });
+    const pad = map.getPadding();
+    const padded = followZoom == null && !!(pad.top || pad.left || pad.right || pad.bottom);
+    const turned = (followZoom == null || followBearing == null) && Math.abs(map.getBearing()) > 0.5;
+    if (padded || turned) map.easeTo({ ...(turned ? { bearing: 0 } : {}), ...(padded ? { padding: NO_PAD } : {}), duration: duration() });
   }, [followZoom, followBearing, ready]);
+
+  // The dashboard changed size (phone turned, a row came or went): keep you in the free part.
+  const padKey = followPadding ? `${followPadding.top},${followPadding.left},${followPadding.right},${followPadding.bottom}` : "";
+  useEffect(() => {
+    const map = mapRef.current;
+    const at = dotShown.current;
+    if (!ready || !map || followRef.current == null || selectedRef.current || !at) return;
+    map.easeTo({ center: at, padding: padRef.current ?? NO_PAD, duration: duration() });
+  }, [padKey, ready]);
 
   return (
     <div className="relative h-full w-full">
