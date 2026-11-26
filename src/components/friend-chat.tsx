@@ -143,6 +143,7 @@ export function ChatThread({
   const [query, setQuery] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
   const photoInput = useRef<HTMLInputElement>(null);
+  const draftBox = useRef<HTMLInputElement>(null);
   const press = useRef<{ timer: number; x: number; y: number } | null>(null);
   /** The menu was opened by holding (not right-click): it waits for the finger to lift. */
   const menuHeld = useRef(false);
@@ -326,6 +327,7 @@ export function ChatThread({
     setNote(null);
     setDraft("");
     setReplyTo(null);
+    draftBox.current?.focus();
     const message = optimistic({
       id,
       kind,
@@ -344,6 +346,9 @@ export function ChatThread({
       });
     } finally {
       setBusy(false);
+      const box = draftBox.current;
+      box?.focus();
+      window.setTimeout(() => box?.focus(), 30);
     }
   }
 
@@ -715,6 +720,7 @@ export function ChatThread({
         onSubmit={(event) => {
           event.preventDefault();
           void sendText();
+          draftBox.current?.focus();
         }}
       >
         <button
@@ -738,6 +744,7 @@ export function ChatThread({
           }}
         />
         <input
+          ref={draftBox}
           value={draft}
           onChange={(event) => setDraft(event.target.value.slice(0, 500))}
           onFocus={() => window.setTimeout(() => scroller.current?.scrollTo({ top: scroller.current.scrollHeight }), 300)}
@@ -748,6 +755,7 @@ export function ChatThread({
         <button
           type="submit"
           disabled={busy || !draft.trim()}
+          onPointerDown={(event) => event.preventDefault()}
           className="h-11 shrink-0 rounded-lg border border-ink bg-elevated px-3 text-sm disabled:border-line disabled:text-faint"
         >
           Send
