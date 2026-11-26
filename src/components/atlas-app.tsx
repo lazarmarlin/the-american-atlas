@@ -227,6 +227,8 @@ function AtlasShell() {
   }, [nextUp?.name, nextWide]);
   const nextName = nextUp?.name;
   useEffect(() => setNextWide(true), [nextName]);
+  /** The same for the friend's live-trail chip: name for a few seconds, then just a dot and first name. */
+  const [liveWide, setLiveWide] = useState(true);
   const nextAt = useRef<{ lat: number; lon: number; t: number } | null>(null);
   const [near, setNear] = useState<NearMark[]>([]);
   const [nearNote, setNearNote] = useState<string | null>(null);
@@ -331,6 +333,13 @@ function AtlasShell() {
   const [friendFix, setFriendFix] = useState<{ id: string; lat: number; lon: number } | null>(null);
   const [friendLook, setFriendLook] = useState(0);
   const [friendLive, setFriendLive] = useState<{ id: string; name: string } | null>(null);
+  const liveKey = friendLive?.id ?? (friendLines.length ? "trail" : "");
+  useEffect(() => setLiveWide(true), [liveKey]);
+  useEffect(() => {
+    if (!liveKey || !liveWide) return;
+    const timer = window.setTimeout(() => setLiveWide(false), 10_000);
+    return () => window.clearTimeout(timer);
+  }, [liveKey, liveWide]);
   /** Live trails you've hidden: they stay hidden until that friend stops and starts sharing again. */
   const liveHidden = useRef(new Set<string>());
   /** A friend's saved trail is on the map: don't swap it for a live one. */
@@ -2069,55 +2078,76 @@ function AtlasShell() {
         ) : null}
         {!driving ? (
           <>
-        {/* Tucking the map buttons away hides this too; otherwise it shrinks to
-            the distance after a few seconds, and a tap shows the name again. */}
-        {nextUp && !toolsTucked && !(friendLive || friendLines.length) && !tripRoutes && !selected ? (
-          <button
-            type="button"
-            onClick={() => {
-              if (!nextWide) {
-                setNextWide(true);
-                return;
-              }
-              const mark = countyToMark(nextUp, nextUp.state);
-              chooseState(nextUp.state);
-              openFromMap(mark);
-              setSheetInstant(true);
-              setSheet(8);
-              window.setTimeout(() => setSheetInstant(false), 80);
-            }}
-            aria-label={`Nearest new county: ${nextUp.name}, ${Math.max(1, Math.round(nextUp.miles))} miles ${nextUp.toward}`}
-            className={
-              "flex h-10 max-w-[80%] items-center gap-1.5 rounded-full border border-line bg-surface/95 text-sm shadow-sm backdrop-blur-sm transition-all duration-300 " +
-              (nextWide ? "px-3" : "px-2.5")
-            }
-          >
-            <Compass className="size-4 shrink-0 text-accent" aria-hidden />
-            {nextWide ? (
-              <>
-                <span className="shrink-0 text-xs text-faint">Next</span>
-                <span className="truncate">{nextUp.name}</span>
-              </>
+        {/* The next county and a friend's live trail sit side by side. Tucking the
+            map buttons away hides them too; otherwise each shrinks after a few
+            seconds, and a tap shows it in full again. */}
+        {!toolsTucked && ((nextUp && !tripRoutes && !selected) || friendLive || friendLines.length) ? (
+          <div className="flex max-w-full items-center gap-1.5">
+            {nextUp && !tripRoutes && !selected ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!nextWide) {
+                    setNextWide(true);
+                    return;
+                  }
+                  const mark = countyToMark(nextUp, nextUp.state);
+                  chooseState(nextUp.state);
+                  openFromMap(mark);
+                  setSheetInstant(true);
+                  setSheet(8);
+                  window.setTimeout(() => setSheetInstant(false), 80);
+                }}
+                aria-label={`Nearest new county: ${nextUp.name}, ${Math.max(1, Math.round(nextUp.miles))} miles ${nextUp.toward}`}
+                className={
+                  "flex h-10 min-w-0 shrink items-center gap-1.5 rounded-full border border-line bg-surface/95 text-sm whitespace-nowrap shadow-sm backdrop-blur-sm " +
+                  (nextWide ? "px-3" : "shrink-0 px-2.5")
+                }
+              >
+                <Compass className="size-4 shrink-0 text-accent" aria-hidden />
+                {nextWide ? (
+                  <>
+                    <span className="shrink-0 text-xs text-faint">Next</span>
+                    <span className="min-w-0 truncate">{nextUp.name}</span>
+                  </>
+                ) : null}
+                <span className="shrink-0 text-xs text-muted">
+                  {nextUp.miles < 1 ? "<1" : Math.round(nextUp.miles)} mi {nextUp.toward}
+                </span>
+              </button>
             ) : null}
-            <span className="shrink-0 text-xs text-muted">
-              {nextUp.miles < 1 ? "<1" : Math.round(nextUp.miles)} mi {nextUp.toward}
-            </span>
-          </button>
-        ) : null}
-        {friendLive || friendLines.length ? (
-          <button
-            type="button"
-            onClick={() => {
-              if (friendLive) liveHidden.current.add(friendLive.id);
-              trailShown.current = false;
-              setFriendLines([]);
-              setFriendLive(null);
-              setFriendFix(null);
-            }}
-            className="h-11 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
-          >
-            {friendLive ? `${friendLive.name} · live · Hide` : "Friend's trail · Hide"}
-          </button>
+            {friendLive || friendLines.length ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!liveWide) {
+                    setLiveWide(true);
+                    return;
+                  }
+                  if (friendLive) liveHidden.current.add(friendLive.id);
+                  trailShown.current = false;
+                  setFriendLines([]);
+                  setFriendLive(null);
+                  setFriendFix(null);
+                }}
+                aria-label={friendLive ? `${friendLive.name}'s live trail${liveWide ? ": hide" : ""}` : `Friend's trail${liveWide ? ": hide" : ""}`}
+                className={
+                  "flex h-10 min-w-0 shrink items-center gap-1.5 rounded-full border border-line bg-surface/95 text-sm whitespace-nowrap shadow-sm backdrop-blur-sm " +
+                  (liveWide ? "px-3" : "shrink-0 px-2.5")
+                }
+              >
+                <span className={"size-2 shrink-0 rounded-full bg-accent " + (friendLive ? "animate-pulse" : "opacity-70")} aria-hidden />
+                {liveWide ? (
+                  <>
+                    <span className="min-w-0 truncate">{friendLive ? friendLive.name : "Friend's trail"}</span>
+                    <span className="shrink-0 text-xs text-muted">{friendLive ? "live · Hide" : "Hide"}</span>
+                  </>
+                ) : (
+                  <span className="max-w-24 truncate text-xs text-muted">{friendLive ? friendLive.name.split(" ")[0] : "Trail"}</span>
+                )}
+              </button>
+            ) : null}
+          </div>
         ) : null}
           </>
         ) : null}
