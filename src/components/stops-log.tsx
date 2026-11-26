@@ -1,32 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, CalendarRange, Calendar, ChevronDown, Map as MapIcon } from "lucide-react";
+import { Calendar, CalendarDays, CalendarRange, ChevronDown, CircleParking, Download, Map as MapIcon, MapPinned, X } from "lucide-react";
 import { localDay } from "@/lib/drive-log";
 import type { Mark } from "@/lib/marks";
+import { listPhotos } from "@/lib/photos";
 import { categoryName, kindFor, placeKinds } from "@/lib/place-kinds";
+import { shareTextFile } from "@/lib/share-file";
 import { STATE_NAMES } from "@/lib/state-names";
+import type { GpsStop } from "@/lib/stops";
 import { pointsForVisit } from "@/lib/visits";
 
 /**
- * Every visit to every place on your map, as a log of stops: grouped by day,
- * week, month or state. A place visited three times is three stops. Visits
- * saved before they carried a date fall back to the day the place was added.
+ * Your travel log: every visit to every place on your map, and every stop
+ * found from GPS while tracking (somewhere you stayed 10+ minutes), grouped
+ * by day, week, month or state. A place visited three times is three
+ * entries. Visits saved before they carried a date fall back to the day the
+ * place was added.
  */
 
 export type StopGroup = "day" | "week" | "month" | "state";
+type Show = "all" | "places" | "stops";
 
-type Stop = {
-  key: string;
-  mark: Mark;
-  /** 0 = first visit. */
-  index: number;
-  day: string | null;
-  points: number;
-  note: string;
-};
+type Entry =
+  | { type: "visit"; key: string; mark: Mark; index: number; day: string | null; sort: number; points: number; note: string; state: string; photo: string }
+  | { type: "gps"; key: string; stop: GpsStop; day: string; sort: number; points: 0; state: string };
 
-type Section = { key: string; label: string; sub: string; stops: Stop[]; points: number; states: string[] };
+type Section = { key: string; label: string; sub: string; entries: Entry[]; points: number };
 
 const GROUP_KEY = "atlas.stops-group";
+const SHOW_KEY = "atlas.stops-show";
 const GROUPS: { id: StopGroup; label: string; icon: typeof Calendar }[] = [
   { id: "day", label: "Day", icon: CalendarDays },
   { id: "week", label: "Week", icon: CalendarRange },
@@ -34,6 +35,7 @@ const GROUPS: { id: StopGroup; label: string; icon: typeof Calendar }[] = [
   { id: "state", label: "State", icon: MapIcon },
 ];
 const kindColor = new Map(placeKinds.map((kind) => [kind.id, kind.color]));
+const STOP_COLOR = "#9aa7ff";
 
 /** Noon on that day, local time (so date maths never slips a day). */
 const dateOf = (day: string) => new Date(`${day}T12:00:00`);
@@ -44,24 +46,40 @@ function ordinal(n: number) {
   return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
 }
 
-function stopsFrom(marks: Mark[]): Stop[] {
-  const out: Stop[] = [];
+function readPref<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  try {
+    const saved = localStorage.getItem(key);
+    return allowed.includes(saved as T) ? (saved as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function entriesFrom(marks: Mark[], stops: GpsStop[]): Entry[] {
+  const out: Entry[] = [];
   for (const mark of marks) {
     const visits = mark.visits.length ? mark.visits : [{ id: "first", visitedOn: mark.visitedOn, note: mark.note, photo: mark.photo }];
     visits.forEach((visit, index) => {
-      const fallback = index === 0 && mark.addedAt ? localDay(mark.addedAt) : null;
+      const day = visit.visitedOn ?? (index === 0 && mark.addedAt ? localDay(mark.addedAt) : null);
       out.push({
+        type: "visit",
         key: `${mark.id}|${visit.id}|${index}`,
         mark,
         index,
-        day: visit.visitedOn ?? fallback,
+        day,
+        // Places have a day but no time: they sort at midday.
+        sort: day ? dateOf(day).getTime() : 0,
         points: pointsForVisit(mark.points, index),
         note: visit.note,
+        state: mark.state,
+        photo: visit.photo,
       });
     });
   }
-  // Newest first; undated at the end.
-  return out.sort((a, b) => (b.day ?? "").localeCompare(a.day ?? "") || a.mark.name.localeCompare(b.mark.name));
+  for (const stop of stops) {
+    out.push({ type: "gps", key: stop.id, stop, day: localDay(stop.start), sort: stop.start, points: 0, state: stop.state });
+  }
+  return out.sort((a, b) => b.sort - a.sort);
 }
 
 /** Sunday that starts the week of this day. */
@@ -72,10 +90,8 @@ function weekStart(day: string) {
 }
 
 function dayLabel(day: string) {
-  const today = localDay(Date.now());
-  const yesterday = localDay(Date.now() - 86400000);
-  if (day === today) return "Today";
-  if (day === yesterday) return "Yesterday";
+  if (day === localDay(Date.now())) return "Today";
+  if (day === localDay(Date.now() - 86400000)) return "Yesterday";
   const d = dateOf(day);
   return d.toLocaleDateString(undefined, {
     weekday: "short",
@@ -86,91 +102,142 @@ function dayLabel(day: string) {
 }
 
 function weekLabel(start: string) {
-  const thisWeek = weekStart(localDay(Date.now()));
-  const lastWeek = weekStart(localDay(Date.now() - 7 * 86400000));
-  if (start === thisWeek) return "This week";
-  if (start === lastWeek) return "Last week";
+  if (start === weekStart(localDay(Date.now()))) return "This week";
+  if (start === weekStart(localDay(Date.now() - 7 * 86400000))) return "Last week";
   const a = dateOf(start);
   const b = dateOf(start);
   b.setDate(b.getDate() + 6);
-  const sameMonth = a.getMonth() === b.getMonth();
   const year = a.getFullYear() !== new Date().getFullYear() ? `, ${a.getFullYear()}` : "";
-  return `${a.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${b.toLocaleDateString(undefined, sameMonth ? { day: "numeric" } : { month: "short", day: "numeric" })}${year}`;
+  return `${a.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${b.toLocaleDateString(undefined, a.getMonth() === b.getMonth() ? { day: "numeric" } : { month: "short", day: "numeric" })}${year}`;
 }
 
-function monthLabel(key: string) {
-  return dateOf(`${key}-15`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+const monthLabel = (key: string) => dateOf(`${key}-15`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+const plural = (n: number, one: string, many: string) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+const clock = (ms: number) => new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+function duration(ms: number) {
+  const min = Math.max(1, Math.round(ms / 60_000));
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h} h ${m} min` : `${h} h`;
 }
 
-function plural(n: number, one: string, many: string) {
-  return `${n.toLocaleString()} ${n === 1 ? one : many}`;
+function counts(entries: Entry[]) {
+  const places = entries.filter((e) => e.type === "visit").length;
+  const stops = entries.length - places;
+  return [places ? plural(places, "place", "places") : "", stops ? plural(stops, "stop", "stops") : ""].filter(Boolean).join(" · ") || "Nothing";
 }
 
-function groupStops(stops: Stop[], by: StopGroup): Section[] {
-  const map = new Map<string, Stop[]>();
-  for (const stop of stops) {
+function groupEntries(entries: Entry[], by: StopGroup): Section[] {
+  const map = new Map<string, Entry[]>();
+  for (const entry of entries) {
     let key: string;
-    if (by === "state") key = stop.mark.state || "—";
-    else if (!stop.day) key = "~undated";
-    else if (by === "day") key = stop.day;
-    else if (by === "week") key = weekStart(stop.day);
-    else key = stop.day.slice(0, 7);
+    if (by === "state") key = entry.state || "—";
+    else if (!entry.day) key = "~undated";
+    else if (by === "day") key = entry.day;
+    else if (by === "week") key = weekStart(entry.day);
+    else key = entry.day.slice(0, 7);
     const list = map.get(key);
-    if (list) list.push(stop);
-    else map.set(key, [stop]);
+    if (list) list.push(entry);
+    else map.set(key, [entry]);
   }
   const keys = [...map.keys()];
   if (by === "state") keys.sort((a, b) => (STATE_NAMES[a] ?? a).localeCompare(STATE_NAMES[b] ?? b));
   else keys.sort((a, b) => (a === "~undated" ? 1 : b === "~undated" ? -1 : b.localeCompare(a)));
   return keys.map((key) => {
     const list = map.get(key) ?? [];
-    const states = [...new Set(list.map((stop) => stop.mark.state).filter(Boolean))];
+    const states = [...new Set(list.map((e) => e.state).filter(Boolean))];
     const label =
-      key === "~undated"
-        ? "No date"
-        : by === "state"
-          ? STATE_NAMES[key] ?? key
-          : by === "day"
-            ? dayLabel(key)
-            : by === "week"
-              ? weekLabel(key)
-              : monthLabel(key);
-    let sub = plural(list.length, "stop", "stops");
+      key === "~undated" ? "No date" : by === "state" ? (STATE_NAMES[key] ?? key) : by === "day" ? dayLabel(key) : by === "week" ? weekLabel(key) : monthLabel(key);
+    let sub = counts(list);
     if (by === "state") {
-      const dated = list.map((stop) => stop.day).filter((day): day is string => !!day).sort();
-      if (dated.length) sub += ` · last ${dayLabel(dated[dated.length - 1]!)}`;
+      const last = list.map((e) => e.day).filter((d): d is string => !!d).sort().at(-1);
+      if (last) sub += ` · last ${dayLabel(last)}`;
     } else if (states.length) {
       sub += ` · ${states.length > 4 ? plural(states.length, "state", "states") : states.join(", ")}`;
     }
-    return { key, label, sub, stops: list, points: list.reduce((sum, stop) => sum + stop.points, 0), states };
+    return { key, label, sub, entries: list, points: list.reduce((sum, e) => sum + e.points, 0) };
   });
 }
 
-export function StopsLog({ marks, onOpen }: { marks: Mark[]; onOpen: (mark: Mark) => void }) {
-  const [by, setBy] = useState<StopGroup>(() => {
-    try {
-      const saved = localStorage.getItem(GROUP_KEY);
-      return GROUPS.some((g) => g.id === saved) ? (saved as StopGroup) : "day";
-    } catch {
-      return "day";
-    }
-  });
+const csvCell = (value: string | number) => {
+  const text = String(value);
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+};
+
+function toCsv(entries: Entry[]) {
+  const head = ["Date", "Time", "Type", "Name", "Kind", "State", "Visit", "Points", "Minutes", "Latitude", "Longitude", "Note"];
+  const rows = [...entries]
+    .sort((a, b) => a.sort - b.sort)
+    .map((e) =>
+      e.type === "visit"
+        ? [e.day ?? "", "", "Place", e.mark.name, categoryName(e.mark.category, e.mark.name), e.state, e.index + 1, e.points, "", e.mark.lat ?? "", e.mark.lon ?? "", e.note]
+        : [e.day, clock(e.stop.start), "Stop", e.stop.label, "", e.state, "", "", Math.round((e.stop.end - e.stop.start) / 60_000), e.stop.lat, e.stop.lon, ""],
+    );
+  return [head, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
+}
+
+/** A spot to draw on the map: [lon, lat]. */
+function spotOf(entry: Entry): [number, number] | null {
+  if (entry.type === "gps") return [entry.stop.lon, entry.stop.lat];
+  return entry.mark.lat != null && entry.mark.lon != null ? [entry.mark.lon, entry.mark.lat] : null;
+}
+
+export function StopsLog({
+  marks,
+  gpsStops = [],
+  onOpen,
+  onShowOnMap,
+  onRemoveStop,
+}: {
+  marks: Mark[];
+  gpsStops?: GpsStop[];
+  onOpen: (mark: Mark) => void;
+  /** Draw these spots (in order) on the map, with a label for the Hide chip. */
+  onShowOnMap?: (label: string, spots: [number, number][]) => void;
+  onRemoveStop?: (id: string) => void;
+}) {
+  const [by, setBy] = useState<StopGroup>(() => readPref(GROUP_KEY, ["day", "week", "month", "state"] as const, "day"));
+  const [show, setShow] = useState<Show>(() => readPref(SHOW_KEY, ["all", "places", "stops"] as const, "all"));
   const [closed, setClosed] = useState<Set<string>>(new Set());
   const [shown, setShown] = useState(20);
+  const [note, setNote] = useState<string | null>(null);
   useEffect(() => {
     try {
       localStorage.setItem(GROUP_KEY, by);
+      localStorage.setItem(SHOW_KEY, show);
     } catch {
       /* fine */
     }
     setClosed(new Set());
     setShown(20);
-  }, [by]);
+  }, [by, show]);
 
-  const stops = useMemo(() => stopsFrom(marks), [marks]);
-  const sections = useMemo(() => groupStops(stops, by), [stops, by]);
-  const states = useMemo(() => new Set(stops.map((stop) => stop.mark.state).filter(Boolean)).size, [stops]);
-  const first = useMemo(() => stops.map((stop) => stop.day).filter((day): day is string => !!day).sort()[0], [stops]);
+  // Photos matched to your places: one taken there that day shows on the visit.
+  const [photos, setPhotos] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    let live = true;
+    listPhotos()
+      .then((rows) => {
+        if (!live) return;
+        const map = new Map<string, string>();
+        for (const row of rows) {
+          if (!row.takenAt || !row.thumb) continue;
+          const key = `${row.poiId}|${localDay(row.takenAt)}`;
+          if (!map.has(key)) map.set(key, row.thumb);
+        }
+        setPhotos(map);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  const all = useMemo(() => entriesFrom(marks, gpsStops), [marks, gpsStops]);
+  const entries = useMemo(() => (show === "all" ? all : all.filter((e) => (show === "places" ? e.type === "visit" : e.type === "gps"))), [all, show]);
+  const sections = useMemo(() => groupEntries(entries, by), [entries, by]);
+  const states = useMemo(() => new Set(entries.map((e) => e.state).filter(Boolean)).size, [entries]);
 
   const toggle = (key: string) =>
     setClosed((cur) => {
@@ -180,9 +247,19 @@ export function StopsLog({ marks, onOpen }: { marks: Mark[]; onOpen: (mark: Mark
       return next;
     });
 
+  async function exportCsv() {
+    setNote(null);
+    try {
+      const result = await shareTextFile(`atlas-stops-${localDay(Date.now())}.csv`, toCsv(entries), "text/csv", "Your travel log");
+      if (result === "saved") setNote("Downloaded.");
+    } catch (err) {
+      if (!(err instanceof Error && /cancel/i.test(err.message))) setNote("Couldn't export.");
+    }
+  }
+
   return (
     <div className="px-1">
-      <div className="grid grid-cols-4 gap-1 rounded-xl bg-bg/60 p-1" role="tablist" aria-label="Group stops by">
+      <div className="grid grid-cols-4 gap-1 rounded-xl bg-bg/60 p-1" role="tablist" aria-label="Group by">
         {GROUPS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
@@ -190,59 +267,126 @@ export function StopsLog({ marks, onOpen }: { marks: Mark[]; onOpen: (mark: Mark
             role="tab"
             aria-selected={by === id}
             onClick={() => setBy(id)}
-            className={
-              "flex h-10 items-center justify-center gap-1.5 rounded-lg text-sm transition-colors " +
-              (by === id ? "bg-elevated text-ink shadow-sm" : "text-faint active:bg-elevated/50")
-            }
+            className={"flex h-10 items-center justify-center gap-1.5 rounded-lg text-sm transition-colors " + (by === id ? "bg-elevated text-ink shadow-sm" : "text-faint active:bg-elevated/50")}
           >
             <Icon className={"size-4 " + (by === id ? "text-accent" : "")} aria-hidden />
             {label}
           </button>
         ))}
       </div>
+      <div className="mt-2 flex items-center gap-1.5">
+        {(
+          [
+            ["all", "All"],
+            ["places", "Places"],
+            ["stops", "Stops"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={show === id}
+            onClick={() => setShow(id)}
+            className={"h-8 rounded-full px-3 text-xs " + (show === id ? "bg-elevated text-ink" : "text-faint")}
+          >
+            {label}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => void exportCsv()}
+          disabled={!entries.length}
+          className="ml-auto flex h-8 items-center gap-1 rounded-full border border-line px-3 text-xs text-muted disabled:opacity-40"
+        >
+          <Download className="size-3.5" aria-hidden />
+          Export
+        </button>
+      </div>
       <p className="mt-2 px-1 text-xs text-muted">
-        {plural(stops.length, "stop", "stops")} · {plural(states, "state", "states")}
-        {first ? ` · since ${dateOf(first).toLocaleDateString(undefined, { month: "short", year: "numeric" })}` : ""}
+        {counts(entries)} · {plural(states, "state", "states")}
       </p>
+      {note ? <p className="mt-1 px-1 text-xs text-muted">{note}</p> : null}
+      {show === "stops" && !entries.length ? (
+        <p className="mt-3 px-1 text-sm text-muted">With tracking on, anywhere you stay 10 minutes or more shows up here.</p>
+      ) : null}
 
       <div className="mt-2 grid gap-2">
         {sections.slice(0, shown).map((section) => {
           const open = !closed.has(section.key);
+          const spots = [...section.entries].sort((a, b) => a.sort - b.sort).map(spotOf).filter((s): s is [number, number] => !!s);
           return (
             <section key={section.key} className="overflow-hidden rounded-card border border-line">
-              <button
-                type="button"
-                onClick={() => toggle(section.key)}
-                aria-expanded={open}
-                className="flex w-full items-center gap-3 bg-surface px-3 py-2.5 text-left"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-serif text-lg leading-tight">{section.label}</span>
-                  <span className="block truncate text-xs text-muted">{section.sub}</span>
-                </span>
-                {section.points ? <span className="shrink-0 text-xs font-medium text-accent">+{section.points.toLocaleString()} pts</span> : null}
-                <ChevronDown className={"size-4 shrink-0 text-faint transition-transform " + (open ? "rotate-180" : "")} aria-hidden />
-              </button>
+              <div className="flex items-center bg-surface">
+                <button type="button" onClick={() => toggle(section.key)} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-3 text-left">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-serif text-lg leading-tight">{section.label}</span>
+                    <span className="block truncate text-xs text-muted">{section.sub}</span>
+                  </span>
+                  {section.points ? <span className="shrink-0 text-xs font-medium text-accent">+{section.points.toLocaleString()} pts</span> : null}
+                  <ChevronDown className={"size-4 shrink-0 text-faint transition-transform " + (open ? "rotate-180" : "")} aria-hidden />
+                </button>
+                {onShowOnMap && spots.length ? (
+                  <button
+                    type="button"
+                    onClick={() => onShowOnMap(section.label, spots)}
+                    aria-label={`Show ${section.label} on the map`}
+                    className="grid h-11 w-11 shrink-0 place-items-center text-muted active:text-ink"
+                  >
+                    <MapPinned className="size-[18px]" aria-hidden />
+                  </button>
+                ) : null}
+              </div>
               {open ? (
                 <ul className="divide-y divide-line border-t border-line">
-                  {section.stops.map((stop) => {
-                    const kind = kindFor(stop.mark.category, stop.mark.name, stop.mark.points, stop.mark.sys);
+                  {section.entries.map((entry) => {
+                    if (entry.type === "gps") {
+                      const s = entry.stop;
+                      return (
+                        <li key={entry.key} className="flex items-center">
+                          <button
+                            type="button"
+                            onClick={() => onShowOnMap?.(s.label, [[s.lon, s.lat]])}
+                            className="flex min-h-12 min-w-0 flex-1 items-center gap-3 py-2 pl-3 text-left active:bg-elevated"
+                          >
+                            <CircleParking className="size-4 shrink-0" style={{ color: STOP_COLOR }} aria-hidden />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm">{s.label}</span>
+                              <span className="block truncate text-xs text-muted">
+                                {clock(s.start)} · {duration(s.end - s.start)}
+                                {by !== "state" && s.state ? ` · ${s.state}` : ""}
+                              </span>
+                            </span>
+                            {by !== "day" ? <span className="shrink-0 text-[11px] text-faint">{dayLabel(entry.day)}</span> : null}
+                          </button>
+                          {onRemoveStop ? (
+                            <button type="button" onClick={() => onRemoveStop(s.id)} aria-label={`Remove the stop at ${s.label}`} className="grid h-12 w-10 shrink-0 place-items-center text-faint active:text-ink">
+                              <X className="size-3.5" aria-hidden />
+                            </button>
+                          ) : null}
+                        </li>
+                      );
+                    }
+                    const kind = kindFor(entry.mark.category, entry.mark.name, entry.mark.points, entry.mark.sys);
                     return (
-                      <li key={stop.key}>
-                        <button type="button" onClick={() => onOpen(stop.mark)} className="flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left active:bg-elevated">
-                          <span className="size-2.5 shrink-0 rounded-full" style={{ background: kindColor.get(kind) ?? "#e2b15a" }} aria-hidden />
+                      <li key={entry.key}>
+                        <button type="button" onClick={() => onOpen(entry.mark)} className="flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left active:bg-elevated">
+                          <span className="mx-[3px] size-2.5 shrink-0 rounded-full" style={{ background: kindColor.get(kind) ?? "#e2b15a" }} aria-hidden />
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm">{stop.mark.name}</span>
+                            <span className="block truncate text-sm">{entry.mark.name}</span>
                             <span className="block truncate text-xs text-muted">
-                              {categoryName(stop.mark.category, stop.mark.name)}
-                              {by !== "state" ? ` · ${stop.mark.state}` : ""}
-                              {stop.index > 0 ? ` · ${ordinal(stop.index + 1)} visit` : ""}
-                              {stop.note ? ` · ${stop.note}` : ""}
+                              {categoryName(entry.mark.category, entry.mark.name)}
+                              {by !== "state" ? ` · ${entry.state}` : ""}
+                              {entry.index > 0 ? ` · ${ordinal(entry.index + 1)} visit` : ""}
+                              {entry.note ? ` · ${entry.note}` : ""}
                             </span>
                           </span>
+                          {(() => {
+                            const pic = entry.photo || (entry.day ? photos.get(`${entry.mark.id}|${entry.day}`) : undefined);
+                            return pic ? <img src={pic} alt="" className="size-9 shrink-0 rounded-md object-cover" /> : null;
+                          })()}
                           <span className="shrink-0 text-right">
-                            {by !== "day" && stop.day ? <span className="block text-[11px] text-faint">{dayLabel(stop.day)}</span> : null}
-                            <span className="block text-xs text-muted">{stop.points ? `${stop.points} pts` : "—"}</span>
+                            {by !== "day" && entry.day ? <span className="block text-[11px] text-faint">{dayLabel(entry.day)}</span> : null}
+                            <span className="block text-xs text-muted">{entry.points ? `${entry.points} pts` : "—"}</span>
                           </span>
                         </button>
                       </li>
@@ -256,7 +400,7 @@ export function StopsLog({ marks, onOpen }: { marks: Mark[]; onOpen: (mark: Mark
       </div>
       {sections.length > shown ? (
         <button type="button" onClick={() => setShown((n) => n + 30)} className="mt-2 h-11 w-full rounded-lg border border-line text-sm text-muted">
-          Show more ({sections.length - shown} more)
+          Show more ({sections.length - shown})
         </button>
       ) : null}
     </div>
