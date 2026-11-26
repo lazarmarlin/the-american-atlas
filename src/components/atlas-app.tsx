@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Award, Car, ChartColumn, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CirclePlus, Compass, GripVertical, Images, Locate, Mail, MapPinned, Navigation, Route as RouteIcon, Search, Settings, Users } from "lucide-react";
+import { Award, Car, ChartColumn, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleParking, CirclePlus, Compass, GripVertical, Images, Locate, Mail, MapPinned, Navigation, Route as RouteIcon, Search, Settings, Users, X } from "lucide-react";
 import { useCurrentUser, useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
   loadMeta,
@@ -29,7 +29,7 @@ import { startChatChecks, useChat } from "@/lib/chat-store";
 import { onNotificationOpen } from "@/lib/message-watch";
 import { SendPlaceSheet } from "@/components/chat-send";
 import { MessageBoard } from "@/components/friend-chat";
-import { StopsLog } from "@/components/stops-log";
+import { StopsLog, type GroupSpot } from "@/components/stops-log";
 import { flushStops, forgetPendingStop, keepStop, noteStopFixes, pendingStops } from "@/lib/stop-detect";
 import { listStops, removeStop, type GpsStop } from "@/lib/stops";
 import { TripRecap, type TripCard } from "@/components/trip-recap";
@@ -901,6 +901,30 @@ function AtlasShell() {
   const [sendPlace, setSendPlace] = useState<Mark | null>(null);
   const [fitTo, setFitTo] = useState<{ tick: number; points: [number, number][]; maxZoom: number } | null>(null);
 
+  /** A group from the Stops view on the map (its name and count replace the card at the top). */
+  const [group, setGroup] = useState<{ label: string; spots: GroupSpot[] } | null>(null);
+  /** The GPS stop tapped on the map, shown in that card. */
+  const [groupPick, setGroupPick] = useState<GroupSpot | null>(null);
+  const groupDots = useMemo(() => group?.spots ?? [], [group]);
+  function showGroup(label: string, spots: GroupSpot[]) {
+    setTripRoutes(null);
+    setGroup({ label, spots });
+    setGroupPick(spots.length === 1 && spots[0]?.kind === "stop" ? spots[0] : null);
+    setSheetInstant(true);
+    setSheet(8);
+    window.setTimeout(() => setSheetInstant(false), 80);
+    const points = spots.map((s) => [s.lon, s.lat] as [number, number]);
+    if (points.length) window.setTimeout(() => setFitTo((cur) => ({ tick: (cur?.tick ?? 0) + 1, points, maxZoom: points.length > 1 ? 11 : 15 })), 350);
+  }
+  useEffect(() => {
+    if (!group) return;
+    return pushBack(() => {
+      setGroup(null);
+      setGroupPick(null);
+      return true;
+    });
+  }, [group]);
+
   /** Draw trip routes on the map and fit them in view. */
   function showRoutes(
     label: string,
@@ -908,6 +932,8 @@ function AtlasShell() {
     legend?: { name: string; color: string }[],
     maxZoom = 11,
   ) {
+    setGroup(null);
+    setGroupPick(null);
     setTripRoutes({ label, routes, legend });
     // Fit the routes driven; stops only when there's no route yet.
     const driven = routes.flatMap((route) => route.lines.flat());
@@ -2139,6 +2165,8 @@ function AtlasShell() {
               fitTo={fitTo}
               spotlight={spot}
               tripRoutes={tripRoutes?.routes ?? EMPTY_ROUTES}
+              groupSpots={groupDots}
+              onGroupStop={(id) => setGroupPick(group?.spots.find((s) => s.id === id) ?? null)}
               onAway={setMapAway}
               onView={(zoom, base) => {
                 setViewZoom(zoom);
@@ -2486,7 +2514,58 @@ function AtlasShell() {
               Added {addedFlash.name}
             </button>
           ) : null}
-          <div className="pointer-events-auto rounded-card border border-line bg-surface/95 px-3 py-2 backdrop-blur-sm">
+          {group ? (
+            <div className="pointer-events-auto w-[min(20rem,calc(100vw-5.5rem))] rounded-card border border-line bg-surface/95 shadow-sm backdrop-blur-sm">
+              <div className="flex items-start gap-2 py-2 pr-1 pl-3">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-serif text-lg leading-tight">{group.label}</div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted">
+                    {(() => {
+                      const places = group.spots.filter((s) => s.kind === "place").length;
+                      const stops = group.spots.length - places;
+                      return (
+                        <>
+                          {places ? (
+                            <span className="flex items-center gap-1">
+                              <span className="inline-block size-2.5 rounded-full border-2 border-ink/70" aria-hidden />
+                              {places} {places === 1 ? "place" : "places"}
+                            </span>
+                          ) : null}
+                          {stops ? (
+                            <span className="flex items-center gap-1">
+                              <span className="inline-block size-2 rounded-full bg-[#9aa7ff]" aria-hidden />
+                              {stops} {stops === 1 ? "stop" : "stops"}
+                            </span>
+                          ) : null}
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGroup(null);
+                    setGroupPick(null);
+                  }}
+                  aria-label={`Close ${group.label}`}
+                  className="grid size-9 shrink-0 place-items-center rounded-full text-muted active:bg-elevated"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+              {groupPick ? (
+                <div className="border-t border-line px-3 py-2">
+                  <div className="flex items-center gap-1.5 text-sm">
+                    <CircleParking className="size-4 shrink-0 text-[#9aa7ff]" aria-hidden />
+                    <span className="truncate">{groupPick.name}</span>
+                  </div>
+                  <div className="mt-0.5 text-xs text-muted">{groupPick.sub}</div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <div className={"pointer-events-auto rounded-card border border-line bg-surface/95 px-3 py-2 backdrop-blur-sm " + (group ? "hidden" : "")}>
             <div className="font-serif text-lg leading-none">{stats.places.toLocaleString()} on the map</div>
             <div className="mt-1 text-xs text-muted">
               {stateAbbr
@@ -2781,9 +2860,7 @@ function AtlasShell() {
             <Yours
               marks={yours}
               gpsStops={gpsStops}
-              onShowOnMap={(label, spots) =>
-                showRoutes(label, [{ color: "#9aa7ff", lines: [], dots: spots }], undefined, spots.length > 1 ? 11 : 15)
-              }
+              onShowOnMap={showGroup}
               onRemoveStop={(id) => {
                 setGpsStops((cur) => cur.filter((s) => s.id !== id));
                 forgetPendingStop(id);
@@ -3090,7 +3167,7 @@ function Yours({
   selected: string | null;
   onBack: () => void;
   onOpen: (mark: Mark) => void;
-  onShowOnMap: (label: string, spots: [number, number][]) => void;
+  onShowOnMap: (label: string, spots: GroupSpot[]) => void;
   onRemoveStop: (id: string) => void;
 }) {
   const [view, setView] = useState<"places" | "stops">(() => {
