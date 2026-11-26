@@ -4,7 +4,7 @@ import { matchPlace, readPhotoFile, tripFor, type RecordingTrip } from "@/lib/ph
 import { loadParkShapes, matchPark, choosePhotoPlace } from "@/lib/park-photo";
 import { deletePhoto, loadPhoto, savePhoto, setPhotoAudience, type PhotoAudience, type PhotoInfo } from "@/lib/photos";
 import { listFriends } from "@/lib/friends";
-import { canScanLibrary, forgetAdded, lastScanAt, loadLibraryPhoto, rememberAdded, scanAllowed, scanLibrary } from "@/lib/photo-scan";
+import { canScanLibrary, forgetAdded, lastScanAt, loadLibraryPhoto, rememberAdded, scanAllowed, scanLibrary, skipSuggested } from "@/lib/photo-scan";
 import { nativeApp } from "@/lib/native";
 import { deleteLocalPhoto, getLocalPhoto, listLocalPhotos, markUploaded, saveLocalPhoto, setLocalShared, type LocalPhoto } from "@/lib/photo-local";
 import { pushBack, useBackClose } from "@/lib/sheet-back";
@@ -156,18 +156,28 @@ function ReviewTile({
   row,
   busy,
   marks,
+  selected,
+  selecting,
   onThumb,
   onToggle,
   onPick,
+  onHold,
+  onSelect,
 }: {
   row: Candidate;
   busy: boolean;
   marks: Place[];
+  selected: boolean;
+  selecting: boolean;
   onThumb: (row: Candidate, thumb: string) => void;
   onToggle: (row: Candidate) => void;
   onPick: (row: Candidate, place: Place) => void;
+  onHold: (row: Candidate) => void;
+  onSelect: (row: Candidate) => void;
 }) {
   const ref = useRef<HTMLLIElement>(null);
+  const hold = useRef<number | null>(null);
+  const held = useRef(false);
   useEffect(() => {
     if (row.thumb || !row.uri || !ref.current) return;
     const uri = row.uri;
@@ -190,16 +200,39 @@ function ReviewTile({
     <li ref={ref} className="min-w-0">
       <button
         type="button"
-        aria-pressed={row.added}
-        aria-label={row.added ? "Added. Tap to take it back out" : row.place ? "Add this photo" : "Pick a place first"}
-        disabled={busy || !row.place}
-        onClick={() => onToggle(row)}
+        aria-pressed={selecting ? selected : row.added}
+        aria-label={selecting ? (selected ? "Selected" : "Select this photo") : row.added ? "Added. Tap to take it back out" : row.place ? "Add this photo" : "Pick a place first"}
+        disabled={!selecting && (busy || !row.place)}
+        onPointerDown={() => {
+          held.current = false;
+          hold.current = window.setTimeout(() => {
+            held.current = true;
+            onHold(row);
+          }, 420);
+        }}
+        onPointerUp={() => {
+          if (hold.current) window.clearTimeout(hold.current);
+          hold.current = null;
+        }}
+        onPointerCancel={() => {
+          if (hold.current) window.clearTimeout(hold.current);
+          hold.current = null;
+        }}
+        onClick={() => {
+          if (held.current) {
+            held.current = false;
+            return;
+          }
+          if (selecting) onSelect(row);
+          else onToggle(row);
+        }}
         className={
           "relative block aspect-square w-full overflow-hidden rounded-md border-2 bg-elevated disabled:opacity-60 " +
-          (row.added ? "border-accent" : "border-transparent")
+          (selected ? "border-accent" : row.added ? "border-accent" : "border-transparent")
         }
       >
         {row.thumb ? <img src={row.thumb} alt="" className="size-full object-cover" /> : null}
+        {selected ? <span className="absolute top-1 right-1 grid size-6 place-items-center rounded-full bg-accent text-xs text-bg">✓</span> : null}
         <span
           className={
             "absolute right-1 bottom-1 rounded-full px-2 py-0.5 text-[11px] " +
@@ -243,6 +276,7 @@ function PhotoReview({
   onThumb,
   onToggle,
   onAddMany,
+  onSkip,
 }: {
   rows: Candidate[];
   marks: Place[];
@@ -253,8 +287,10 @@ function PhotoReview({
   onThumb: (row: Candidate, thumb: string) => void;
   onToggle: (row: Candidate) => void;
   onAddMany: (rows: Candidate[]) => void;
+  onSkip: (rows: Candidate[]) => void;
 }) {
   const [limit, setLimit] = useState(PAGE);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const body = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
 
@@ -288,6 +324,15 @@ function PhotoReview({
   let budget = limit;
   const added = rows.filter((row) => row.added).length;
   const remaining = rows.filter((row) => row.place && !row.added);
+  const chosen = rows.filter((row) => picked.has(row.key));
+  const selecting = picked.size > 0;
+  const togglePick = (row: Candidate) =>
+    setPicked((cur) => {
+      const next = new Set(cur);
+      if (next.has(row.key)) next.delete(row.key);
+      else next.add(row.key);
+      return next;
+    });
 
   return (
     <div role="dialog" aria-label="Review photos" className="fixed inset-0 z-50 flex flex-col bg-bg screen-top">
@@ -296,7 +341,7 @@ function PhotoReview({
           ‹ Photos
         </button>
         <div className="min-w-0 flex-1 text-right">
-          <p className="font-serif text-lg leading-tight">Review photos</p>
+          <p className="font-serif text-lg leading-tight">{selecting ? `${picked.size} selected` : "Review photos"}</p>
           <p className="text-xs text-muted">
             {added} of {rows.length} added
           </p>
@@ -341,7 +386,19 @@ function PhotoReview({
               </div>
               <ul className="mt-2 grid grid-cols-3 gap-2">
                 {drawn.map((row) => (
-                  <ReviewTile key={row.key} row={row} busy={busy} marks={marks} onThumb={onThumb} onToggle={onToggle} onPick={onPick} />
+                  <ReviewTile
+                    key={row.key}
+                    row={row}
+                    busy={busy}
+                    marks={marks}
+                    selected={picked.has(row.key)}
+                    selecting={selecting}
+                    onThumb={onThumb}
+                    onToggle={onToggle}
+                    onPick={onPick}
+                    onHold={(item) => setPicked((cur) => new Set(cur).add(item.key))}
+                    onSelect={togglePick}
+                  />
                 ))}
               </ul>
             </section>
@@ -354,17 +411,46 @@ function PhotoReview({
         ) : null}
       </div>
       <div className="flex shrink-0 gap-2 border-t border-line px-3 pt-2 safe-bottom">
-        <button
-          type="button"
-          disabled={busy || !remaining.length}
-          onClick={() => onAddMany(remaining)}
-          className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
-        >
-          {busy ? "Adding…" : remaining.length ? `Add all ${remaining.length}` : "All added"}
-        </button>
-        <button type="button" onClick={onClose} className="h-11 flex-1 rounded-lg border border-line text-sm">
-          Done
-        </button>
+        {selecting ? (
+          <>
+            <button
+              type="button"
+              disabled={busy || !chosen.some((row) => row.place && !row.added)}
+              onClick={() => onAddMany(chosen.filter((row) => row.place && !row.added))}
+              className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
+            >
+              Add {chosen.filter((row) => row.place && !row.added).length || ""}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                onSkip(chosen);
+                setPicked(new Set());
+              }}
+              className="h-11 flex-1 rounded-lg border border-line text-sm"
+            >
+              Don't suggest
+            </button>
+            <button type="button" onClick={() => setPicked(new Set())} className="h-11 rounded-lg border border-line px-3 text-sm">
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              disabled={busy || !remaining.length}
+              onClick={() => onAddMany(remaining)}
+              className="h-11 flex-1 rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
+            >
+              {busy ? "Adding…" : remaining.length ? `Add all ${remaining.length}` : "All added"}
+            </button>
+            <button type="button" onClick={onClose} className="h-11 flex-1 rounded-lg border border-line text-sm">
+              Done
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -774,6 +860,12 @@ export function PhotoFinder({
           onThumb={(row, thumb) => setRows((list) => list?.map((item) => (item.key === row.key ? { ...item, thumb } : item)) ?? list)}
           onToggle={(row) => void (row.added ? undoRow(row) : addOne(row))}
           onAddMany={(list) => void addMany(list)}
+          onSkip={(list) => {
+            skipSuggested(list.map((row) => row.uri).filter((uri): uri is string => Boolean(uri)));
+            const keys = new Set(list.map((row) => row.key));
+            setRows((cur) => cur?.filter((row) => !keys.has(row.key)) ?? cur);
+            setNote(list.length === 1 ? "That photo won't be suggested again." : `${list.length} photos won't be suggested again.`);
+          }}
         />
       ) : null}
     </div>

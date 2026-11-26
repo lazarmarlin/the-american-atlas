@@ -86,3 +86,35 @@ export function cachedOutbox<T>(me: string) {
 export function cacheOutbox(me: string, rows: unknown[]) {
   return write(`${me}:outbox`, rows);
 }
+
+export function cachedFriends<T>(me: string) {
+  return read<T[]>(`${me}:friends`);
+}
+
+export function cacheFriends(me: string, rows: unknown[]) {
+  return write(`${me}:friends`, rows);
+}
+
+export function cachedFriendPage<T>(me: string, id: string) {
+  return read<T>(`${me}:friend:${id}`);
+}
+
+export function cacheFriendPage(me: string, id: string, page: unknown) {
+  return write(`${me}:friend:${id}`, page);
+}
+
+export function cachedGroups<T>(me: string) {
+  return read<T[]>(`${me}:groups`);
+}
+
+export function cacheGroups(me: string, rows: unknown[]) {
+  return write(`${me}:groups`, rows);
+}
+
+export function cachedWall(me: string, thread: Thread) {
+  return read<{ image: string; filter: string; sync: boolean }>(`${me}:wall:${thread.kind}:${thread.id}`);
+}
+
+export function cacheWall(me: string, thread: Thread, wall: { image: string; filter: string; sync: boolean } | null) {
+  return write(`${me}:wall:${thread.kind}:${thread.id}`, wall);
+}

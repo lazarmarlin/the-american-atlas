@@ -17,6 +17,7 @@ import { formatMiles, trailLines, type GhostLines } from "@/lib/ghost-trail";
 import type { PackedPoint } from "@/lib/ghost-sync";
 import { apiOrigin, nativeApp } from "@/lib/native";
 import { friendPhotos, loadFriendPhoto, type PhotoInfo } from "@/lib/photos";
+import { cacheFriendPage, cacheFriends, cacheGroups, cachedFriendPage, cachedFriends, cachedGroups } from "@/lib/chat-cache";
 import { ChatScreen, Sheet, type ChatPhoto, type ChatPlaceOption } from "@/components/friend-chat";
 import { useChat } from "@/lib/chat-store";
 import { createGroup, leaveGroup, listGroups, type ChatGroup } from "@/lib/chat-groups";
@@ -152,9 +153,17 @@ export function FriendsPanel({
   const openGroup = groups?.find((g) => g.id === groupId) ?? null;
 
   function loadGroups() {
+    void cachedGroups<ChatGroup>(meId).then((saved) => {
+      if (saved?.length) setGroups((cur) => cur ?? saved);
+    });
     listGroups()
-      .then(setGroups)
-      .catch(() => setGroups([]));
+      .then((rows) => {
+        setGroups(rows);
+        void cacheGroups(meId, rows);
+      })
+      .catch(() => {
+        void cachedGroups<ChatGroup>(meId).then((saved) => setGroups(saved ?? []));
+      });
   }
   useEffect(loadGroups, []);
   // Back closes an open group chat (and the new-chat form).
@@ -247,24 +256,37 @@ export function FriendsPanel({
       .catch(() => {
         if (!dead) setBoard([]);
       });
+    void cachedFriends<FriendRow>(meId).then((saved) => {
+      if (!dead && saved?.length) setFriends((cur) => cur ?? saved);
+    });
     listFriends()
       .then((rows) => {
-        if (!dead) setFriends(rows);
+        if (dead) return;
+        setFriends(rows);
+        setError(null);
+        void cacheFriends(meId, rows);
       })
       .catch(() => {
-        if (!dead) setError("Couldn't load friends.");
+        if (dead) return;
+        void cachedFriends<FriendRow>(meId).then((saved) => {
+          if (dead) return;
+          if (saved?.length) {
+            setFriends(saved);
+            setError("No connection. Showing saved friends.");
+          } else setError("Couldn't load friends.");
+        });
       });
     myFriendCode()
       .then((row) => {
         if (!dead) setCode(row.code);
       })
       .catch(() => {
-        if (!dead) setError("Couldn't make a friend link.");
+        if (!dead && navigator.onLine !== false) setError("Couldn't make a friend link.");
       });
     return () => {
       dead = true;
     };
-  }, []);
+  }, [meId]);
 
   useEffect(() => {
     if (!openId) {
@@ -291,12 +313,25 @@ export function FriendsPanel({
         if (!dead) setThumbs(new Map(rows.map((row) => [row.target, { count: row.count, mine: row.mine }])));
       })
       .catch(() => {});
+    void cachedFriendPage<FriendPage>(meId, openId).then((saved) => {
+      if (!dead && saved) setPage((cur) => cur ?? saved);
+    });
     loadFriend({ data: { id: openId } })
       .then((next) => {
-        if (!dead) setPage(next);
+        if (dead) return;
+        setPage(next);
+        setError(null);
+        void cacheFriendPage(meId, openId, next);
       })
       .catch((err) => {
-        if (!dead) setError(err instanceof Error ? err.message : "Couldn't open that friend.");
+        if (dead) return;
+        void cachedFriendPage<FriendPage>(meId, openId).then((saved) => {
+          if (dead) return;
+          if (saved) {
+            setPage(saved);
+            setError("No connection. Showing the saved profile.");
+          } else setError(err instanceof Error ? err.message : "Couldn't open that friend.");
+        });
       });
     friendPhotos({ data: { id: openId } })
       .then((rows) => {

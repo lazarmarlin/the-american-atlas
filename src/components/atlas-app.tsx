@@ -50,6 +50,8 @@ import { matchPlace, tripFor, type RecordingTrip } from "@/lib/photo-file";
 import { choosePhotoPlace, loadParkShapes, matchPark } from "@/lib/park-photo";
 import { UpdatePrompt } from "@/components/update-prompt";
 import { RecapPanel } from "@/components/recap-panel";
+import { loadCounties } from "@/lib/atlas-model";
+import { countyContaining, countyToMark, type CountyRec } from "@/lib/counties";
 import { deviceId, flushDriveLog, localDay, logDrive, switchDriveLog } from "@/lib/drive-log";
 import { acceptFriend, listFriends } from "@/lib/friends";
 import { useSettingsRoute } from "@/lib/settings-route";
@@ -73,7 +75,6 @@ import { nativeApp } from "@/lib/native";
 import { COUNTY_COUNTS } from "@/lib/county-counts";
 import { askNotifyOnce, notifyFriendLive } from "@/lib/live-notify";
 import { notifyPlacesAdded } from "@/lib/place-notifications";
-import { countyToMark } from "@/lib/counties";
 import { glyphUrl } from "@/lib/map-glyphs";
 import { type Profile } from "@/lib/profile";
 import { earnedPoints, freshVisit, pointsForVisit, type Visit } from "@/lib/visits";
@@ -728,6 +729,7 @@ function AtlasShell() {
       noteBadges(badgeViewsFromMarks([clean, ...marks.filter((item) => item.id !== clean.id)]));
       setPendingSync((await readVault()).pending);
       await noteTrip(clean.id);
+      if (clean.category !== "county") void addCountyFor(clean, visitedOn);
       return true;
     } catch {
       setMarks((prev) => prev.filter((item) => item.id !== clean.id));
@@ -764,6 +766,41 @@ function AtlasShell() {
 
   const addRef = useRef(add);
   addRef.current = add;
+
+  async function addCountyFor(mark: Mark, day: string | null = null) {
+    if (mark.lat == null || mark.lon == null || !mark.state || mark.category === "county") return;
+    const rows = (await loadCounties(mark.state)) as CountyRec[];
+    const hit = countyContaining(mark.lat, mark.lon, rows);
+    if (!hit || marksRef.current.some((item) => item.id === hit.id)) return;
+    await addRef.current(countyToMark(hit, mark.state), true, day);
+  }
+
+  const countyFilled = useRef(false);
+  useEffect(() => {
+    if (!user?.id || countyFilled.current || !marks.length) return;
+    countyFilled.current = true;
+    const saved = marksRef.current;
+    void (async () => {
+      const byState = new Map<string, Mark[]>();
+      for (const mark of saved) {
+        if (mark.category === "county" || mark.lat == null || mark.lon == null || !mark.state) continue;
+        const list = byState.get(mark.state) ?? [];
+        list.push(mark);
+        byState.set(mark.state, list);
+      }
+      for (const [state, list] of byState) {
+        const rows = (await loadCounties(state)) as CountyRec[];
+        const have = new Set(marksRef.current.filter((item) => item.category === "county").map((item) => item.id));
+        for (const mark of list) {
+          const hit = countyContaining(mark.lat as number, mark.lon as number, rows);
+          if (!hit || have.has(hit.id)) continue;
+          have.add(hit.id);
+          const day = mark.visits.map((visit) => visit.visitedOn).filter(Boolean).sort()[0] ?? mark.visitedOn;
+          await addRef.current(countyToMark(hit, state), true, day);
+        }
+      }
+    })();
+  }, [user?.id, marks.length]);
   const marksRef = useRef(marks);
   marksRef.current = marks;
   const tripsRef = useRef(trips);

@@ -14,6 +14,8 @@ import { useSettings } from "@/lib/atlas-settings";
 import { trailCard } from "@/lib/trail-card";
 import { Copy, Download, Map as MapIcon, MapPinPlus, Maximize2, Pin, Reply, Trash2, Undo2, Users, X, Clock } from "lucide-react";
 import { TripSketch, tripDates } from "@/components/trip-recap";
+import { WallpaperScreen, wallpaperFor } from "@/components/chat-wallpaper";
+import { SharedInChat } from "@/components/chat-shared";
 
 const PHOTO_LINK = /^https?:\/\/(?:photos\.app\.goo\.gl|photos\.google\.com|goo\.gl\/photos)\/\S+$/i;
 
@@ -117,6 +119,7 @@ export function ChatThread({
   onOpenTrail,
   onOpenHere,
   you = null,
+  wallpaper = null,
   focusId,
   fill = false,
 }: {
@@ -129,6 +132,8 @@ export function ChatThread({
   onOpenHere?: (lat: number, lon: number) => void;
   /** Where you are, so "I'm here" can send the place you're in. */
   you?: Fix | null;
+  /** A picture behind the messages. */
+  wallpaper?: string | null;
   /** Scroll this message into view once, from a search. */
   focusId?: string | null;
   /** Fill a full-screen chat: messages take the space, the box sits at the bottom. */
@@ -557,7 +562,14 @@ export function ChatThread({
   }
 
   return (
-    <div className={fill ? "flex min-h-0 flex-1 flex-col" : "mt-4"}>
+    <div
+      className={fill ? "relative flex min-h-0 flex-1 flex-col" : "relative mt-4"}
+      style={
+        wallpaper
+          ? { backgroundImage: `linear-gradient(rgba(10,10,10,0.5), rgba(10,10,10,0.72)), url(${wallpaper})`, backgroundSize: "cover", backgroundPosition: "center" }
+          : undefined
+      }
+    >
       {fill ? null : (
         <p className="px-2 text-sm text-muted">
           {group ? "Everyone in this chat sees what you send." : "Text, a photo, a place, or a Google Photos link."} Hold a message for options.
@@ -1258,7 +1270,20 @@ export function ChatScreen({
 } & React.ComponentProps<typeof ChatThread>) {
   const area = useVisibleArea();
   const [more, setMore] = useState(false);
+  const [wallOpen, setWallOpen] = useState(false);
+  const [sharedOpen, setSharedOpen] = useState(false);
+  const [wallpaper, setWallpaper] = useState<string | null>(null);
   useBackClose(onClose);
+  const threadKey = `${chat.thread.kind}:${chat.thread.id}`;
+  useEffect(() => {
+    let dead = false;
+    void wallpaperFor(chat.meId, chat.thread).then((image) => {
+      if (!dead) setWallpaper(image);
+    });
+    return () => {
+      dead = true;
+    };
+  }, [chat.meId, chat.thread, threadKey]);
   useEffect(() => {
     if (!more) return;
     return pushBack(() => {
@@ -1281,17 +1306,35 @@ export function ChatScreen({
           <p className="truncate font-serif text-xl leading-tight">{title}</p>
           {subtitle ? <p className="truncate text-xs text-muted">{subtitle}</p> : null}
         </div>
-        {actions.length ? (
-          <button type="button" onClick={() => setMore(true)} aria-label="More" className="grid h-11 w-11 place-items-center rounded-full text-lg text-muted">
-            ···
-          </button>
-        ) : null}
+        <button type="button" onClick={() => setMore(true)} aria-label="More" className="grid h-11 w-11 place-items-center rounded-full text-lg text-muted">
+          ···
+        </button>
       </header>
       {note ? <p className="shrink-0 border-b border-line px-3 py-2 text-sm text-muted">{note}</p> : null}
-      <ChatThread {...chat} fill />
+      <ChatThread {...chat} wallpaper={wallpaper} fill />
       {more ? (
         <Sheet label={title} onClose={() => setMore(false)}>
           <div className="grid gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setMore(false);
+                setSharedOpen(true);
+              }}
+              className="h-11 w-full rounded-lg border border-line text-sm"
+            >
+              Shared in this chat
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMore(false);
+                setWallOpen(true);
+              }}
+              className="h-11 w-full rounded-lg border border-line text-sm"
+            >
+              Wallpaper
+            </button>
             {actions.map((action) => (
               <button
                 key={action.label}
@@ -1307,6 +1350,27 @@ export function ChatScreen({
             ))}
           </div>
         </Sheet>
+      ) : null}
+      {sharedOpen ? (
+        <SharedInChat
+          meId={chat.meId}
+          thread={chat.thread}
+          onClose={() => setSharedOpen(false)}
+          onOpenPlace={chat.onOpenPlace}
+          onOpenTrail={chat.onOpenTrail}
+          onOpenHere={chat.onOpenHere}
+        />
+      ) : null}
+      {wallOpen ? (
+        <WallpaperScreen
+          meId={chat.meId}
+          thread={chat.thread}
+          onClose={() => setWallOpen(false)}
+          onSaved={(image) => {
+            setWallpaper(image);
+            setWallOpen(false);
+          }}
+        />
       ) : null}
     </div>,
     document.body,

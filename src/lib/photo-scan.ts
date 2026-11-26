@@ -82,3 +82,8 @@ export function rememberAdded(uris: string[]) {
   const state = read();
   write({ ...state, added: [...state.added, ...uris].slice(-2000) });
 }
+
+/** Don't offer these photos again, even though they were never added to the map. */
+export function skipSuggested(uris: string[]) {
+  rememberAdded(uris);
+}
