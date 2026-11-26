@@ -260,6 +260,25 @@ function AtlasShell() {
   const [profile, setProfile] = useState<Profile>({ name: "", photo: "", markerIcon: "", markerColor: "" });
   const [offline, setOffline] = useState(false);
   const [pendingSync, setPendingSync] = useState(0);
+  // Changes saved on the phone but not uploaded yet: keep trying every 30 s.
+  // On weak signal the phone often still says it's online, so waiting for
+  // the "back online" event alone could leave them stuck until the next add.
+  useEffect(() => {
+    if (!pendingSync) return;
+    const retry = () => {
+      if (document.visibilityState !== "visible" && !nativeApp) return;
+      void flushVault()
+        .then(() => readVault())
+        .then((snap) => setPendingSync(snap.pending))
+        .catch(() => {});
+    };
+    const timer = window.setInterval(retry, 30_000);
+    document.addEventListener("visibilitychange", retry);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", retry);
+    };
+  }, [pendingSync]);
   const [passedNote, setPassedNote] = useState<string | null>(null);
   const [addedFlash, setAddedFlash] = useState<Mark | null>(null);
   const [pops, setPops] = useState<BadgeView[]>([]);
