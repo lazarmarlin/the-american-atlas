@@ -59,6 +59,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Saving photos to the gallery on Android 9 and older (newer ones need no permission). -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <!-- Lets the app install its own updates (src/lib/app-update.ts). Android still asks first. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Lets the app ask to run unrestricted so location keeps coming with the screen off (src/lib/power.ts). -->

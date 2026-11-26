@@ -6,7 +6,9 @@ import { milesBetween } from "@/lib/nearby";
 import { readGps } from "@/lib/photo-file";
 import { categoryName } from "@/lib/place-kinds";
 import { pushBack } from "@/lib/sheet-back";
-import { cacheBoard, cacheThread, cachedBoard, cachedThread } from "@/lib/chat-cache";
+import { cacheBoard, cachePhoto, cacheThread, cachedBoard, cachedPhoto, cachedThread } from "@/lib/chat-cache";
+import { savePhoto } from "@/lib/save-photo";
+import { Copy, Download, Map as MapIcon, MapPinPlus, Maximize2, Trash2, Undo2, Users, X } from "lucide-react";
 import { TripSketch, tripDates } from "@/components/trip-recap";
 
 const PHOTO_LINK = /^https?:\/\/(?:photos\.app\.goo\.gl|photos\.google\.com|goo\.gl\/photos)\/\S+$/i;
@@ -108,6 +110,8 @@ export function ChatThread({
   const [menu, setMenu] = useState<ChatMessage | null>(null);
   const [picking, setPicking] = useState<ChatMessage | null>(null);
   const [viewing, setViewing] = useState<{ id: string; thumb: string; image: string | null } | null>(null);
+  const [savedNote, setSavedNote] = useState<string | null>(null);
+  useEffect(() => setSavedNote(null), [viewing?.id]);
   const [attach, setAttach] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [query, setQuery] = useState("");
@@ -224,10 +228,12 @@ export function ChatThread({
     try {
       // Where and when it was taken, so whoever adds it to the map gets the place suggested.
       const gps = readGps(await file.arrayBuffer());
-      const image = await shrinkChatPhoto(file, 640, 0.7);
-      if (image.length > 150000) throw new Error("Use a smaller photo");
-      const thumb = await shrinkChatPhoto(file, 200, 0.6);
-      if (thumb.length > 38000) throw new Error("Use a smaller photo");
+      // Big enough to look sharp on a phone screen (the old 640 px / 200 px ones were blurry).
+      let image = await shrinkChatPhoto(file, 1600, 0.82);
+      if (image.length > 690000) image = await shrinkChatPhoto(file, 1280, 0.75);
+      if (image.length > 690000) throw new Error("Use a smaller photo");
+      let thumb = await shrinkChatPhoto(file, 540, 0.75);
+      if (thumb.length > 115000) thumb = await shrinkChatPhoto(file, 400, 0.65);
       const id = newId();
       const extra = { lat: gps?.lat ?? null, lon: gps?.lon ?? null, takenAt: gps?.takenAt ?? file.lastModified ?? null };
       optimistic({ id, kind: "photo", body: "", thumb, place: null, ...extra });
@@ -376,7 +382,7 @@ export function ChatThread({
               >
                 {row.kind === "photo" && row.thumb ? (
                   <button type="button" onClick={() => view(row)} className="block w-full" aria-label="See the photo">
-                    <img src={row.thumb} alt="" className="max-h-48 w-full rounded-md object-cover" />
+                    <ChatImage thread={thread} meId={meId} id={row.id} thumb={row.thumb} />
                   </button>
                 ) : null}
                 {row.kind === "photo" && row.lat != null ? <span className="mt-1 block text-xs text-faint">Has a location</span> : null}
@@ -517,53 +523,74 @@ export function ChatThread({
       ) : null}
 
       {menu ? (
-        <Sheet label="Message" heldOpen={menuHeld.current} onClose={() => setMenu(null)}>
-          {menu.kind === "photo" ? (
-            <>
-              <button type="button" onClick={() => view(menu)} className="h-11 w-full rounded-lg border border-line text-sm">
-                See full size
-              </button>
-              <button
-                type="button"
+        <Sheet label="Message" heldOpen={menuHeld.current} onClose={() => setMenu(null)} bare>
+          {/* The message itself, so it's clear which one this is about. */}
+          <div className="mb-3 flex items-center gap-3 rounded-xl bg-elevated/60 p-2.5">
+            {menu.kind === "photo" && menu.thumb ? <img src={menu.thumb} alt="" className="size-12 shrink-0 rounded-lg object-cover" /> : null}
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs text-faint">
+                {menu.fromId === meId ? "You" : menu.fromName} · {stampText(menu.at)}
+              </p>
+              <p className="truncate text-sm">
+                {menu.kind === "photo" ? "Photo" : menu.kind === "place" ? menu.place?.name : menu.kind === "trip" ? menu.trip?.name : menu.body}
+              </p>
+            </div>
+          </div>
+          <div className="overflow-hidden rounded-xl border border-line">
+            {menu.kind === "photo" ? (
+              <>
+                <MenuRow icon={<Maximize2 className="size-[18px]" />} label="See full size" onClick={() => view(menu)} />
+                <MenuRow
+                  icon={<Download className="size-[18px]" />}
+                  label="Save to my phone"
+                  onClick={() => {
+                    const target = menu;
+                    setMenu(null);
+                    loadThreadPhoto({ data: { thread, id: target.id } })
+                      .then((loaded) => savePhoto(loaded.image || target.thumb))
+                      .then(setNote)
+                      .catch((err) => setNote(err instanceof Error ? err.message : "Couldn't save it."));
+                  }}
+                />
+                <MenuRow
+                  icon={<MapPinPlus className="size-[18px]" />}
+                  label="Add to a place on my map"
+                  onClick={() => {
+                    setQuery("");
+                    setPicking(menu);
+                    setMenu(null);
+                  }}
+                />
+              </>
+            ) : null}
+            {menu.kind === "place" && menu.place && onOpenPlace ? (
+              <MenuRow
+                icon={<MapIcon className="size-[18px]" />}
+                label="Show on map"
                 onClick={() => {
-                  setQuery("");
-                  setPicking(menu);
                   setMenu(null);
+                  onOpenPlace(menu.place as ChatPlace);
                 }}
-                className="mt-2 h-11 w-full rounded-lg border border-line text-sm"
-              >
-                Add to a place on my map
-              </button>
-            </>
-          ) : null}
-          {menu.kind === "place" && menu.place && onOpenPlace ? (
-            <button
-              type="button"
-              onClick={() => {
-                setMenu(null);
-                onOpenPlace(menu.place as ChatPlace);
-              }}
-              className="h-11 w-full rounded-lg border border-line text-sm"
-            >
-              Show on map
-            </button>
-          ) : null}
-          {menu.kind === "text" || menu.kind === "link" ? (
-            <button
-              type="button"
-              onClick={() => {
-                void navigator.clipboard?.writeText(menu.body).catch(() => {});
-                setMenu(null);
-                setNote("Copied.");
-              }}
-              className="h-11 w-full rounded-lg border border-line text-sm"
-            >
-              Copy
-            </button>
-          ) : null}
-          <button type="button" onClick={() => void remove(menu)} className="mt-2 h-11 w-full rounded-lg border border-line text-sm text-accent">
-            {menu.fromId === meId ? "Unsend for everyone" : "Delete for me"}
-          </button>
+              />
+            ) : null}
+            {menu.kind === "text" || menu.kind === "link" ? (
+              <MenuRow
+                icon={<Copy className="size-[18px]" />}
+                label="Copy"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(menu.body).catch(() => {});
+                  setMenu(null);
+                  setNote("Copied.");
+                }}
+              />
+            ) : null}
+            <MenuRow
+              danger
+              icon={menu.fromId === meId ? <Undo2 className="size-[18px]" /> : <Trash2 className="size-[18px]" />}
+              label={menu.fromId === meId ? "Unsend for everyone" : "Delete for me"}
+              onClick={() => void remove(menu)}
+            />
+          </div>
         </Sheet>
       ) : null}
 
@@ -597,10 +624,33 @@ export function ChatThread({
 
       {viewing ? createPortal(
         <div className="screen-top fixed inset-0 z-[60] flex flex-col bg-black" role="dialog" aria-label="Photo">
-          <div className="flex justify-end p-2">
-            <button type="button" onClick={() => setViewing(null)} className="h-11 rounded-lg border border-white/30 px-4 text-sm text-white">
-              Close
+          <div className="flex items-center justify-between gap-2 bg-gradient-to-b from-black/70 to-transparent px-2 pb-2">
+            <button
+              type="button"
+              onClick={() => setViewing(null)}
+              aria-label="Close"
+              className="grid h-11 w-11 place-items-center rounded-full bg-white/10 text-white backdrop-blur"
+            >
+              <X className="size-5" />
             </button>
+            <div className="flex items-center gap-2">
+              {savedNote ? <span className="max-w-48 text-right text-xs text-white/80">{savedNote}</span> : null}
+              <button
+                type="button"
+                disabled={!viewing.image}
+                onClick={() => {
+                  if (!viewing.image) return;
+                  setSavedNote(null);
+                  savePhoto(viewing.image)
+                    .then(setSavedNote)
+                    .catch((err) => setSavedNote(err instanceof Error ? err.message : "Couldn't save it."));
+                }}
+                aria-label="Save the photo"
+                className="grid h-11 w-11 place-items-center rounded-full bg-white/10 text-white backdrop-blur disabled:opacity-40"
+              >
+                <Download className="size-5" />
+              </button>
+            </div>
           </div>
           <div className="flex min-h-0 flex-1 items-center justify-center p-2">
             <img
@@ -640,8 +690,11 @@ export function Sheet({
   onClose,
   children,
   heldOpen = false,
+  bare = false,
 }: {
   label: string;
+  /** No heading: the content brings its own (the message menu). */
+  bare?: boolean;
   onClose: () => void;
   children: React.ReactNode;
   /**
@@ -660,14 +713,17 @@ export function Sheet({
         armed.current = true;
       }, 120);
     };
-    window.addEventListener("pointerup", lift, { once: true });
-    window.addEventListener("pointercancel", lift, { once: true });
-    window.addEventListener("touchend", lift, { once: true });
+    // Capture phase: the sheet itself swallows this lift, so a normal
+    // listener on window would never hear it (and the menu would stay locked).
+    const opts = { once: true, capture: true } as const;
+    window.addEventListener("pointerup", lift, opts);
+    window.addEventListener("pointercancel", lift, opts);
+    window.addEventListener("touchend", lift, opts);
     return () => {
       window.clearTimeout(timer);
-      window.removeEventListener("pointerup", lift);
-      window.removeEventListener("pointercancel", lift);
-      window.removeEventListener("touchend", lift);
+      window.removeEventListener("pointerup", lift, true);
+      window.removeEventListener("pointercancel", lift, true);
+      window.removeEventListener("touchend", lift, true);
     };
   }, []);
   const swallow = (event: React.SyntheticEvent) => {
@@ -682,11 +738,16 @@ export function Sheet({
       onClickCapture={swallow}
       onPointerUpCapture={swallow}
     >
-      <div role="dialog" aria-label={label} className="w-full max-w-sm rounded-card border border-line bg-surface p-3" onClick={(event) => event.stopPropagation()}>
-        <p className="mb-2 text-xs tracking-widest text-faint uppercase">{label}</p>
+      <div
+        role="dialog"
+        aria-label={label}
+        className={"w-full max-w-sm border border-line bg-surface p-3 " + (bare ? "rounded-2xl shadow-2xl" : "rounded-card")}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {bare ? null : <p className="mb-2 text-xs tracking-widest text-faint uppercase">{label}</p>}
         {children}
-        <button type="button" onClick={onClose} className="mt-2 h-11 w-full rounded-lg border border-line text-sm">
-          Close
+        <button type="button" onClick={onClose} className={"mt-2 h-11 w-full text-sm " + (bare ? "rounded-xl text-muted" : "rounded-lg border border-line")}>
+          {bare ? "Cancel" : "Close"}
         </button>
       </div>
     </div>,
@@ -904,7 +965,7 @@ export function MessageBoard({
         {note ? <p className="text-sm text-accent">{note}</p> : null}
         {rows === null && !note ? <p className="text-sm text-muted">Loading…</p> : null}
         {rows && rows.length === 0 ? <p className="text-sm text-muted">No friends yet. A chat shows up here once you add one.</p> : null}
-        <ul className="grid gap-2">
+        <ul className="grid gap-1">
           {rows?.map((row) => {
             const n = row.thread.kind === "friend" ? unread.friends[row.thread.id] : unread.groups[row.thread.id];
             return (
@@ -912,17 +973,29 @@ export function MessageBoard({
                 <button
                   type="button"
                   onClick={() => setOpen(row)}
-                  className="flex w-full items-center gap-3 rounded-lg border border-line px-3 py-2 text-left"
+                  className={
+                    "flex w-full items-center gap-3 rounded-2xl px-2.5 py-2.5 text-left transition-colors active:bg-elevated " +
+                    (n ? "bg-surface shadow-sm" : "")
+                  }
                 >
+                  <BoardAvatar row={row} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm">{row.title}</span>
-                    <span className="block truncate text-xs text-faint">{row.preview}</span>
-                  </span>
-                  {n ? (
-                    <span className="grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1 text-[10px] font-medium text-accent-ink">
-                      {n > 99 ? "99+" : n}
+                    <span className="flex items-baseline gap-2">
+                      <span className={"min-w-0 flex-1 truncate text-[15px] " + (n ? "font-semibold" : "font-medium")}>{row.title}</span>
+                      {row.at ? <span className={"shrink-0 text-[11px] " + (n ? "text-accent" : "text-faint")}>{agoText(row.at)}</span> : null}
                     </span>
-                  ) : null}
+                    <span className="mt-0.5 flex items-center gap-2">
+                      <span className={"min-w-0 flex-1 truncate text-[13px] " + (n ? "text-ink" : "text-muted")}>
+                        {row.mine && row.preview ? <span className="text-faint">You: </span> : null}
+                        {row.preview || (row.thread.kind === "group" ? "Trip chat" : "Say hi 👋")}
+                      </span>
+                      {n ? (
+                        <span className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-accent px-1.5 text-[10px] font-semibold text-accent-ink">
+                          {n > 99 ? "99+" : n}
+                        </span>
+                      ) : null}
+                    </span>
+                  </span>
                 </button>
               </li>
             );
@@ -959,4 +1032,118 @@ function stampText(ms: number) {
     ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}),
   });
   return `${date} · ${time}`;
+}
+
+/** One action in the message menu: an icon, a label, a divider between rows. */
+function MenuRow({ icon, label, onClick, danger = false }: { icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={"flex h-12 w-full items-center gap-3 border-b border-line px-3.5 text-left text-[15px] last:border-b-0 active:bg-elevated " + (danger ? "text-accent" : "")}
+    >
+      <span className={danger ? "text-accent" : "text-muted"}>{icon}</span>
+      {label}
+    </button>
+  );
+}
+
+const sharpCache = new Map<string, string>();
+
+/**
+ * A photo in a chat bubble: the small preview straight away, then the full
+ * photo (saved on the phone after the first time) once it's on screen, so
+ * it isn't blurry.
+ */
+function ChatImage({ thread, meId, id, thumb }: { thread: Thread; meId: string; id: string; thumb: string }) {
+  const [sharp, setSharp] = useState<string | null>(() => sharpCache.get(id) ?? null);
+  const box = useRef<HTMLImageElement>(null);
+  useEffect(() => {
+    if (sharp || !box.current) return;
+    let dead = false;
+    const load = async () => {
+      const saved = await cachedPhoto(meId, id);
+      const image = saved ?? (await loadThreadPhoto({ data: { thread, id } }).then((row) => row.image).catch(() => null));
+      if (!image || dead) return;
+      sharpCache.set(id, image);
+      if (!saved) void cachePhoto(meId, id, image);
+      setSharp(image);
+    };
+    const seen = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        seen.disconnect();
+        void load();
+      }
+    }, { rootMargin: "300px" });
+    seen.observe(box.current);
+    return () => {
+      dead = true;
+      seen.disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+  return <img ref={box} src={sharp ?? thumb} alt="" className="max-h-72 w-full rounded-md object-cover" />;
+}
+
+function initials(name: string) {
+  const parts = name.replace(/[^\p{L}\p{N} ]/gu, " ").trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? "?") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
+
+/** A steady color per person, so the same friend always looks the same. */
+function tint(key: string) {
+  let h = 0;
+  for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return `hsl(${h} 45% 42%)`;
+}
+
+function Face({ photo, name, className }: { photo?: string; name: string; className: string }) {
+  if (photo) return <img src={photo} alt="" className={"rounded-full object-cover " + className} />;
+  return (
+    <span className={"grid place-items-center rounded-full font-semibold text-white " + className} style={{ background: tint(name) }}>
+      {initials(name)}
+    </span>
+  );
+}
+
+/** The friend's picture, or a little stack of faces for a trip chat. */
+function BoardAvatar({ row }: { row: BoardItem }) {
+  const photos = row.photos ?? [];
+  if (row.thread.kind !== "group") return <Face photo={photos[0]} name={row.title} className="size-12 shrink-0 text-base" />;
+  if (photos.length < 2) {
+    return (
+      <span className="relative size-12 shrink-0" aria-hidden>
+        <span className="grid size-12 place-items-center rounded-full text-white" style={{ background: tint(row.title) }}>
+          <Users className="size-5" />
+        </span>
+        {row.members ? (
+          <span className="absolute -right-1 -bottom-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-elevated px-1 text-[9px] text-muted ring-2 ring-bg">
+            {row.members}
+          </span>
+        ) : null}
+      </span>
+    );
+  }
+  return (
+    <span className="relative size-12 shrink-0" aria-hidden>
+      <Face photo={photos[0]} name={row.title} className="absolute top-0 left-0 size-8 text-xs ring-2 ring-bg" />
+      <Face photo={photos[1]} name={`${row.title} 2`} className="absolute right-0 bottom-0 size-8 text-xs ring-2 ring-bg" />
+      {row.members && row.members > 2 ? (
+        <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-elevated px-1 text-[9px] text-muted ring-2 ring-bg">
+          {row.members}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** "now", "5m", "3h", "Tue", "Nov 2" — the short times a chat list uses. */
+function agoText(ms: number) {
+  const gap = Date.now() - ms;
+  if (gap < 60000) return "now";
+  if (gap < 3600000) return `${Math.floor(gap / 60000)}m`;
+  if (dayOf(ms) === dayOf(Date.now())) return timeText(ms);
+  if (dayOf(ms) === dayOf(Date.now() - 86400000)) return "Yesterday";
+  if (gap < 6 * 86400000) return new Date(ms).toLocaleDateString(undefined, { weekday: "short" });
+  return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric", ...(new Date(ms).getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}) });
 }

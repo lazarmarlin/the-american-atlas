@@ -286,8 +286,8 @@ function parseSend(input: unknown) {
     const taken = num(row.takenAt, 1e13);
     return {
       ...base,
-      thumb: jpeg(row.thumb, 40000, "That thumbnail is too large"),
-      image: jpeg(row.image, 160000, "Use a smaller photo"),
+      thumb: jpeg(row.thumb, 120000, "That thumbnail is too large"),
+      image: jpeg(row.image, 700000, "Use a smaller photo"),
       lat: num(row.lat, 90),
       lon: num(row.lon, 180),
       takenAt: taken && taken > 0 ? Math.round(taken) : null,
@@ -467,7 +467,18 @@ export type BoardItem = {
   title: string;
   preview: string;
   at: number;
+  /** Profile pictures: the friend's, or up to three people in a trip chat. */
+  photos?: string[];
+  /** The newest message is yours ("You: …"). */
+  mine?: boolean;
+  kind?: string;
+  members?: number;
 };
+
+function goodPhoto(photo: string | null | undefined) {
+  const value = photo ?? "";
+  return value.startsWith("https://") || value.startsWith("data:image/") ? value : "";
+}
 
 /** Every friend and trip chat, newest message first. Chats with nothing yet stay at the bottom. */
 export const messageBoard = createServerFn({ method: "GET" })
@@ -476,17 +487,17 @@ export const messageBoard = createServerFn({ method: "GET" })
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
     const me = context.userId;
-    const friends = await sql<{ id: string; name: string }>`
-      select f.friend_id as id, coalesce(nullif(p.name, ''), nullif(u.name, ''), 'Friend') as name
+    const friends = await sql<{ id: string; name: string; photo: string }>`
+      select f.friend_id as id, coalesce(nullif(p.name, ''), nullif(u.name, ''), 'Friend') as name, coalesce(p.photo, '') as photo
       from friendships f
       left join profiles p on p.user_id = f.friend_id
       left join "user" u on u.id = f.friend_id
       where f.user_id = ${me}
     `;
-    const direct = await sql<{ other_id: string; kind: string; body: string; created_at: unknown }>`
-      select distinct on (other_id) other_id, kind, body, created_at
+    const direct = await sql<{ other_id: string; from_id: string; kind: string; body: string; created_at: unknown }>`
+      select distinct on (other_id) other_id, from_id, kind, body, created_at
       from (
-        select case when from_id = ${me} then to_id else from_id end as other_id, kind, body, created_at
+        select case when from_id = ${me} then to_id else from_id end as other_id, from_id, kind, body, created_at
         from messages m
         where (m.from_id = ${me} or m.to_id = ${me})
           and not exists (select 1 from message_hidden h where h.user_id = ${me} and h.message_id = m.id)
@@ -499,8 +510,8 @@ export const messageBoard = createServerFn({ method: "GET" })
       join chat_group_members m on m.group_id = g.id and m.user_id = ${me}
     `;
     const groupLast = groups.length
-      ? await sql<{ group_id: string; kind: string; body: string; created_at: unknown }>`
-          select distinct on (group_id) group_id, kind, body, created_at
+      ? await sql<{ group_id: string; from_id: string; kind: string; body: string; created_at: unknown }>`
+          select distinct on (group_id) group_id, from_id, kind, body, created_at
           from group_messages m
           where m.group_id = any(${groups.map((g) => g.id)}::text[])
             and not exists (select 1 from message_hidden h where h.user_id = ${me} and h.message_id = m.id)
@@ -508,6 +519,21 @@ export const messageBoard = createServerFn({ method: "GET" })
         `
       : [];
     const lastGroup = new Map(groupLast.map((row) => [row.group_id, row]));
+    const memberRows = groups.length
+      ? await sql<{ group_id: string; user_id: string; photo: string }>`
+          select m.group_id, m.user_id, coalesce(p.photo, '') as photo
+          from chat_group_members m left join profiles p on p.user_id = m.user_id
+          where m.group_id = any(${groups.map((g) => g.id)}::text[]) and m.user_id <> ${me}
+        `
+      : [];
+    const members = new Map<string, { photos: string[]; count: number }>();
+    for (const row of memberRows) {
+      const entry = members.get(row.group_id) ?? { photos: [], count: 0 };
+      entry.count += 1;
+      const photo = goodPhoto(row.photo);
+      if (photo && entry.photos.length < 3) entry.photos.push(photo);
+      members.set(row.group_id, entry);
+    }
     const items: BoardItem[] = [
       ...friends.map((friend) => {
         const last = lastDirect.get(friend.id);
@@ -516,6 +542,9 @@ export const messageBoard = createServerFn({ method: "GET" })
           title: friend.name || "Friend",
           preview: last ? preview(last.kind, last.body) : "No messages yet",
           at: last ? toMs(last.created_at) : 0,
+          photos: goodPhoto(friend.photo) ? [goodPhoto(friend.photo)] : [],
+          mine: last?.from_id === me,
+          kind: last?.kind,
         };
       }),
       ...groups.map((group) => {
@@ -525,6 +554,10 @@ export const messageBoard = createServerFn({ method: "GET" })
           title: group.name,
           preview: last ? preview(last.kind, last.body) : "No messages yet",
           at: last ? toMs(last.created_at) : 0,
+          photos: members.get(group.id)?.photos ?? [],
+          members: (members.get(group.id)?.count ?? 0) + 1,
+          mine: last?.from_id === me,
+          kind: last?.kind,
         };
       }),
     ];
