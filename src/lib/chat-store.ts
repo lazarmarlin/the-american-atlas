@@ -1,9 +1,11 @@
 /**
- * Unread messages and thumbs-up, checked every so often while the app runs
- * (also in the background while tracking keeps it awake). New ones get a
- * phone notification unless you're looking at that conversation.
+ * Unread messages and thumbs-up, checked every so often while the app runs.
+ * New ones get a phone notification unless you're looking at that
+ * conversation. (In the background the phone app checks natively instead.)
  */
 import { create } from "zustand";
+import { nativeApp } from "@/lib/native";
+import { useSettings } from "@/lib/atlas-settings";
 import { isQuiet } from "@/lib/chat-look";
 import { notifyMessage } from "@/lib/live-notify";
 import { startOutbox } from "@/lib/chat-outbox";
@@ -91,7 +93,14 @@ export function startChatChecks(userId?: string) {
   const stopOutbox = userId ? startOutbox(userId) : () => {};
   // Native check first, so the first refresh can already notify through it.
   void (userId ? startMessageWatch(userId, [...seenIds()]) : Promise.resolve()).finally(() => void useChat.getState().refresh());
-  const tick = () => void useChat.getState().refresh();
+  const tick = () => {
+    // The phone app in the background while tracking: its own native check
+    // notifies every minute (MessageWatch), so asking from here as well was a
+    // second request every 45 s for nothing.
+    const settings = useSettings.getState();
+    if (nativeApp && document.visibilityState !== "visible" && (settings.trackTravel || settings.shareOnly)) return;
+    void useChat.getState().refresh();
+  };
   timer = window.setInterval(tick, 45_000);
   const onShow = () => {
     if (document.visibilityState === "visible") tick();

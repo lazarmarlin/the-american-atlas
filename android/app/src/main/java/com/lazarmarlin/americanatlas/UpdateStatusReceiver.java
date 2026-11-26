@@ -29,12 +29,15 @@ public class UpdateStatusReceiver extends BroadcastReceiver {
             return;
         }
         if (status != PackageInstaller.STATUS_SUCCESS) {
-            String message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
-            if (status == PackageInstaller.STATUS_FAILURE_ABORTED) message = "";
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .edit()
-                .putString("error", message == null || message.isEmpty() ? (status == PackageInstaller.STATUS_FAILURE_ABORTED ? "" : "The update didn't install.") : message)
-                .apply();
+            boolean aborted = status == PackageInstaller.STATUS_FAILURE_ABORTED;
+            String message = aborted ? "" : intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
+            if (!aborted && (message == null || message.isEmpty())) message = "The update didn't install.";
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("error", message).putBoolean("aborted", aborted).apply();
+            // A file Android refused won't install next time either: fetch it again.
+            if (!aborted) {
+                java.io.File apk = new java.io.File(new java.io.File(context.getCacheDir(), "updates"), "american-atlas-ready.apk");
+                if (apk.exists()) apk.delete();
+            }
         }
     }
 }

@@ -1133,7 +1133,7 @@ export function PhotosPanel({
           {open.takenAt ? new Date(open.takenAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "No date on the photo"}
           {open.tripId && tripNames.get(open.tripId) ? ` · ${tripNames.get(open.tripId)}` : ""}
         </p>
-        {note ? <p className="mt-2 px-2 text-sm text-accent">{note}</p> : null}
+        {note ? <p className="mt-2 px-2 text-sm text-muted">{note}</p> : null}
         <div className="mt-3 flex items-center gap-2 rounded-lg border border-line px-3 py-2">
           <p className="min-w-0 flex-1 text-sm">
             <span className="block text-xs text-faint">Who can see it</span>
@@ -1361,7 +1361,7 @@ export function PhotoViewer({
           {photos.length > 1 ? ` · ${index + 1} of ${photos.length}` : ""}
           {photo.shared || photo.sharedWith?.length ? " · Shared" : ""}
         </p>
-        {note ? <p className="mt-1 text-center text-xs text-accent">{note}</p> : null}
+        {note ? <p className="mt-1 text-center text-xs text-muted">{note}</p> : null}
         {photos.length > 1 ? (
           <div className="mt-2 flex gap-2">
             <button type="button" onClick={() => step(-1)} className="h-11 flex-1 rounded-lg border border-line text-sm">

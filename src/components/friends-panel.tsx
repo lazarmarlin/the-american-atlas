@@ -881,7 +881,7 @@ export function FriendsPanel({
               );
             })}
           </ul>
-          {groupNote ? <p className="mt-2 text-sm text-accent">{groupNote}</p> : null}
+          {groupNote ? <p className="mt-2 text-sm text-muted">{groupNote}</p> : null}
           <button
             type="button"
             disabled={!groupName.trim() || !groupPick.length}

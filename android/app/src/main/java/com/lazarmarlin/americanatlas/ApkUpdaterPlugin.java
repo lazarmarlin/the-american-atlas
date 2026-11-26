@@ -199,7 +199,8 @@ public class ApkUpdaterPlugin extends Plugin {
         android.content.SharedPreferences prefs = getContext().getSharedPreferences(UpdateStatusReceiver.PREFS, android.content.Context.MODE_PRIVATE);
         JSObject out = new JSObject();
         out.put("message", prefs.getString("error", ""));
-        prefs.edit().remove("error").apply();
+        out.put("aborted", prefs.getBoolean("aborted", false));
+        prefs.edit().remove("error").remove("aborted").apply();
         call.resolve(out);
     }
 

@@ -4,7 +4,8 @@
  *
  * Distance only counts once you've moved 200 m in a straight line from the
  * last counted spot, so GPS wobble at a stop never adds up; a jump of more
- * than 25 miles (tracking was off, GPS lost) is skipped rather than counted.
+ * than 25 miles (tracking was off, GPS lost) is skipped rather than counted,
+ * and so is a fix older than the last counted one.
  *
  * Each device keeps its own running total per day and uploads the totals, not
  * increments, so a retried upload can never double count. The recap adds up
@@ -61,6 +62,8 @@ type Log = { totals: Record<string, number>; dirty: string[] };
 let userId: string | null = null;
 let log: Log = { totals: {}, dirty: [] };
 let anchor: { lat: number; lon: number } | null = null;
+/** When the anchor's fix was taken: an older fix after it (a position the phone had cached) isn't counted. */
+let anchorT = 0;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
 const storageKey = (id: string) => `atlas.drive-log.${id}`;
@@ -114,6 +117,7 @@ export function switchDriveLog(next: string | null) {
   if (next === userId) return;
   userId = next;
   anchor = null;
+  anchorT = 0;
   log = { totals: {}, dirty: [] };
   if (!next) return;
   try {
@@ -132,15 +136,20 @@ export function logDrive(fixes: { lat: number; lon: number; t?: number }[]) {
   let changed = false;
   for (const fix of fixes) {
     if (!Number.isFinite(fix.lat) || !Number.isFinite(fix.lon)) continue;
+    const t = fix.t ?? Date.now();
+    // Going back to where you were a moment ago and forward again would count that road three times.
+    if (t < anchorT) continue;
     if (!anchor) {
       anchor = { lat: fix.lat, lon: fix.lon };
+      anchorT = t;
       continue;
     }
     const step = miles(anchor, fix);
     if (step * 1609.344 < STEP_METERS) continue;
     anchor = { lat: fix.lat, lon: fix.lon };
+    anchorT = t;
     if (step > JUMP_MILES) continue;
-    const day = localDay(fix.t ?? Date.now());
+    const day = localDay(t);
     log.totals[day] = (log.totals[day] ?? 0) + step;
     if (!log.dirty.includes(day)) log.dirty.push(day);
     changed = true;

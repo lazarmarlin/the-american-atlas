@@ -1,8 +1,8 @@
-import { useEffect } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   allowInstalls,
   checkForUpdate,
+  checkInstallOutcome,
   installReadyUpdate,
   installUpdate,
   lastInstallError,
@@ -37,7 +37,7 @@ function DownloadBar({ percent, size }: { percent: number; size: number }) {
   );
 }
 export function UpdatePrompt({ hold = false }: { hold?: boolean }) {
-  const { available, later, status, percent, message, ready, background } = useUpdate();
+  const { available, later, status, percent, message, ready, background, failed } = useUpdate();
   const [countdown, setCountdown] = useState<number | null>(null);
   const [visible, setVisible] = useState(() => typeof document === "undefined" || document.visibilityState === "visible");
   useEffect(() => {
@@ -45,7 +45,7 @@ export function UpdatePrompt({ hold = false }: { hold?: boolean }) {
     document.addEventListener("visibilitychange", onShow);
     return () => document.removeEventListener("visibilitychange", onShow);
   }, []);
-  const [failed, setFailed] = useState<string | null>(null);
+  const setFailed = (text: string | null) => useUpdate.setState({ failed: text });
 
   useEffect(() => {
     if (!nativeApp) return;
@@ -60,20 +60,23 @@ export function UpdatePrompt({ hold = false }: { hold?: boolean }) {
       setCountdown(null);
       return;
     }
-    setCountdown(5);
+    let left = 5;
+    setCountdown(left);
     const timer = window.setInterval(() => {
-      setCountdown((n) => {
-        if (n == null) return n;
-        if (n <= 1) {
-          window.clearInterval(timer);
-          if (document.visibilityState === "visible") void installReadyUpdate();
-          return 0;
-        }
-        return n - 1;
-      });
+      left -= 1;
+      setCountdown(Math.max(0, left));
+      if (left > 0) return;
+      window.clearInterval(timer);
+      if (document.visibilityState === "visible") void installReadyUpdate();
     }, 1000);
     return () => window.clearInterval(timer);
   }, [ready, later, hold, visible, status]);
+
+  // Back in the app while it still says "installing": Android's screen was
+  // closed without updating, or the install failed. Find out which.
+  useEffect(() => {
+    if (status === "installing" && visible) void checkInstallOutcome();
+  }, [status, visible]);
 
   useEffect(() => {
     if (!nativeApp) return;
@@ -170,7 +173,7 @@ export function UpdatePrompt({ hold = false }: { hold?: boolean }) {
             <p className="text-xs text-muted">
               Your places and settings stay.
             </p>
-            {message ? <p className="mt-1 text-sm text-accent">{message}</p> : null}
+            {message ? <p className="mt-1 text-sm text-muted">{message}</p> : null}
             {status === "downloading" ? (
               <DownloadBar percent={percent} size={available.size} />
             ) : (

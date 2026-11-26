@@ -10,7 +10,10 @@ import { create } from "zustand";
 import { nativeApp } from "@/lib/native";
 
 const RELEASES = "https://api.github.com/repos/lazarmarlin/the-american-atlas/releases/latest";
-const CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
+/** Looked for when the app comes to the front, at most this often (one small request). */
+const CHECK_EVERY_MS = 60 * 60 * 1000;
+/** A check that failed (no signal) is tried again after this long instead of the full wait. */
+const RETRY_AFTER_MS = 5 * 60 * 1000;
 
 type UpdaterPlugin = {
   canInstall(): Promise<{ allowed: boolean }>;
@@ -18,7 +21,7 @@ type UpdaterPlugin = {
   download(options: { url: string }): Promise<{ bytes: number }>;
   ready(): Promise<{ ready: boolean }>;
   installReady(): Promise<void>;
-  lastError(): Promise<{ message: string }>;
+  lastError(): Promise<{ message: string; aborted?: boolean }>;
   openInstallSettings(): Promise<void>;
   install(options: { url: string }): Promise<void>;
   addListener(
@@ -43,6 +46,8 @@ type State = {
   background: boolean;
   percent: number;
   message: string | null;
+  /** Why the last install didn't go through, to show once. */
+  failed: string | null;
   checkedAt: number;
 };
 
@@ -55,6 +60,7 @@ export const useUpdate = create<State>(() => ({
   background: false,
   percent: 0,
   message: null,
+  failed: null,
   checkedAt: 0,
 }));
 
@@ -107,6 +113,7 @@ export async function checkForUpdate(force = false) {
     useUpdate.setState({
       status: force ? "error" : "idle",
       message: force ? (err instanceof Error ? err.message : "Couldn't check for updates.") : null,
+      checkedAt: Date.now() - CHECK_EVERY_MS + RETRY_AFTER_MS,
     });
   }
 }
@@ -199,11 +206,45 @@ async function downloadQuietly(update: UpdateInfo) {
   }
 }
 
+let installWatch = 0;
+
+/**
+ * The install didn't replace the app (cancelled on Android's screen, or it
+ * failed): stop saying "installing", and leave it until the next launch
+ * instead of trying again every few seconds.
+ */
+async function installGaveUp(why: string | null) {
+  window.clearTimeout(installWatch);
+  if (useUpdate.getState().status !== "installing") return;
+  // A download that won't install (cut short, wrong build) is fetched again next time.
+  if (why) useUpdate.setState({ ready: false, failed: why });
+  useUpdate.setState({ status: "idle", later: true, message: null });
+}
+
+/** While "installing" shows: has Android said it didn't go through? */
+export async function checkInstallOutcome() {
+  if (useUpdate.getState().status !== "installing") return;
+  try {
+    const { message, aborted } = await Updater.lastError();
+    if (message || aborted) await installGaveUp(message || null);
+  } catch {
+    // Still installing, as far as we know.
+  }
+}
+
 /** Install the downloaded update now (the app closes and reopens). */
 export async function installReadyUpdate() {
+  if (useUpdate.getState().status === "installing") return;
   try {
     await Updater.installReady();
     useUpdate.setState({ status: "installing", message: null });
+    // Normally the app is replaced within seconds and none of this runs.
+    // A refusal (bad file, cancelled) usually comes back within seconds.
+    window.setTimeout(() => void checkInstallOutcome(), 15_000);
+    window.clearTimeout(installWatch);
+    installWatch = window.setTimeout(() => {
+      void checkInstallOutcome().then(() => installGaveUp(null));
+    }, 120_000);
   } catch (err) {
     const text = err instanceof Error ? err.message : "";
     if (text === "needs-permission") useUpdate.setState({ status: "permission", message: null });
@@ -215,7 +256,8 @@ export async function installReadyUpdate() {
 /** A failed install from last time, to show once. */
 export async function lastInstallError() {
   try {
-    return (await Updater.lastError()).message || null;
+    const { message } = await Updater.lastError();
+    return message || null;
   } catch {
     return null;
   }

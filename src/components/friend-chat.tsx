@@ -1726,7 +1726,7 @@ export function MessageBoard({
         />
       </form>
       <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3">
-        {note ? <p className="mb-2 text-sm text-accent">{note}</p> : null}
+        {note ? <p className="mb-2 text-sm text-muted">{note}</p> : null}
         {hits ? (
           hits.length ? (
             <ul className="mb-3 grid grid-cols-[minmax(0,1fr)] gap-1">

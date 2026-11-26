@@ -320,7 +320,7 @@ export function SettingsPage({
                 .then(() => signOut())
                 .catch(() => setSigningOut(false));
             }}
-            className="mt-3 text-sm text-faint underline-offset-4 hover:underline disabled:no-underline"
+            className="mt-3 h-11 w-full rounded-lg border border-line text-sm text-muted disabled:text-faint"
           >
             {signingOut ? "Signing out…" : "Sign out"}
           </button>
@@ -385,18 +385,15 @@ export function SettingsPage({
         </p>
         <GhostHours hours={ghostHours} onChange={setGhostHours} />
         <GhostColors color={ghostColor} onChange={setGhostColor} />
-        <button
-          type="button"
-          aria-pressed={keepGhost}
-          onClick={() => {
+        <SwitchRow
+          label="Keep the live trail on your account"
+          on={keepGhost}
+          onToggle={() => {
             const next = !keepGhost;
             setKeepGhost(next);
             if (!next) void clearGhostCache().catch(() => {});
           }}
-          className={"mt-3 h-12 w-full rounded-lg border text-sm " + (keepGhost ? "border-ink bg-elevated" : "border-line")}
-        >
-          {keepGhost ? "Live trail kept on your account" : "Keep the live trail on your account"}
-        </button>
+        />
         <p className="mt-2 text-sm text-muted">
           Keeps the last 24 hours with your account.
         </p>
@@ -457,14 +454,7 @@ export function SettingsPage({
         <p className="mt-1 text-sm text-muted">
           Tap a place on the map to add it instantly.
         </p>
-        <button
-          type="button"
-          aria-pressed={fastAdd}
-          onClick={() => setFastAdd(!fastAdd)}
-          className={"mt-3 h-12 w-full rounded-lg border text-sm " + (fastAdd ? "border-ink bg-elevated" : "border-line")}
-        >
-          {fastAdd ? "Fast add on" : "Fast add off"}
-        </button>
+        <SwitchRow label="Fast add" on={fastAdd} onToggle={() => setFastAdd(!fastAdd)} />
       </section>
 
       {nativeApp ? <NotificationsSection /> : null}
@@ -475,17 +465,14 @@ export function SettingsPage({
           <p className="mt-1 text-sm text-muted">
             Places you visited on this date in past years.
           </p>
-          <button
-            type="button"
-            aria-pressed={remindOn}
-            onClick={() => {
+          <SwitchRow
+            label="Reminders"
+            on={remindOn}
+            onToggle={() => {
               setMemoryReminders(!remindOn);
               setRemindOn(!remindOn);
             }}
-            className={"mt-3 h-12 w-full rounded-lg border text-sm " + (remindOn ? "border-ink bg-elevated" : "border-line")}
-          >
-            {remindOn ? "Reminders on" : "Reminders off"}
-          </button>
+          />
         </section>
       ) : null}
       </>
@@ -542,24 +529,8 @@ export function SettingsPage({
             <PhotoFinder marks={marks} trip={trip} onSaved={onPhotosSaved} onRemoved={onPhotoRemoved} />
           </div>
           <p className="mt-6 text-sm text-muted">Photo pins on the map</p>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              aria-pressed={showPhotos}
-              onClick={() => setShowPhotos(!showPhotos)}
-              className={"h-12 rounded-lg border text-sm " + (showPhotos ? "border-ink bg-elevated" : "border-line text-muted")}
-            >
-              {showPhotos ? "Your photos: shown" : "Your photos: hidden"}
-            </button>
-            <button
-              type="button"
-              aria-pressed={showFriendPhotos}
-              onClick={() => setShowFriendPhotos(!showFriendPhotos)}
-              className={"h-12 rounded-lg border text-sm " + (showFriendPhotos ? "border-ink bg-elevated" : "border-line text-muted")}
-            >
-              {showFriendPhotos ? "Friends' photos: shown" : "Friends' photos: hidden"}
-            </button>
-          </div>
+          <SwitchRow label="Your photos" on={showPhotos} onToggle={() => setShowPhotos(!showPhotos)} tight />
+          <SwitchRow label="Friends' photos" on={showFriendPhotos} onToggle={() => setShowFriendPhotos(!showFriendPhotos)} tight />
         </section>
       ) : null}
 
@@ -631,26 +602,12 @@ export function SettingsPage({
 
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Parks</h2>
-        <button
-          type="button"
-          aria-pressed={showParks}
-          onClick={() => setShowParks(!showParks)}
-          className={"mt-3 h-12 w-full rounded-lg border text-sm " + (showParks ? "border-ink bg-elevated" : "border-line")}
-        >
-          {showParks ? "Parks on" : "Parks off"}
-        </button>
+        <SwitchRow label="Show parks" on={showParks} onToggle={() => setShowParks(!showParks)} />
       </section>
 
       <section className="mt-8">
         <h2 className="font-serif text-2xl">Cities and towns</h2>
-        <button
-          type="button"
-          aria-pressed={showTowns}
-          onClick={() => setShowTowns(!showTowns)}
-          className={"mt-3 h-12 w-full rounded-lg border text-sm " + (showTowns ? "border-ink bg-elevated" : "border-line")}
-        >
-          {showTowns ? "Towns on" : "Towns off"}
-        </button>
+        <SwitchRow label="Show cities and towns" on={showTowns} onToggle={() => setShowTowns(!showTowns)} />
         <div className="mt-3 grid grid-cols-3 gap-2">
           {BORDER_COLORS.map((color) => (
             <button
@@ -675,14 +632,7 @@ export function SettingsPage({
         <p className="mt-1 text-sm text-muted">
           Moving the map into another state switches to it.
         </p>
-        <button
-          type="button"
-          aria-pressed={followState}
-          onClick={() => setFollowState(!followState)}
-          className={"mt-3 h-12 w-full rounded-lg border text-sm " + (followState ? "border-ink bg-elevated" : "border-line")}
-        >
-          {followState ? "Follow the map: on" : "Follow the map: off"}
-        </button>
+        <SwitchRow label="Follow the map" on={followState} onToggle={() => setFollowState(!followState)} />
       </section>
 
       <section className="mt-8">
@@ -690,14 +640,7 @@ export function SettingsPage({
         <p className="mt-1 text-sm text-muted">
           Tap one to add it. Driving through adds it too.
         </p>
-        <button
-          type="button"
-          aria-pressed={showReservations}
-          onClick={() => setShowReservations(!showReservations)}
-          className={"mt-3 h-12 w-full rounded-lg border text-sm " + (showReservations ? "border-ink bg-elevated" : "border-line")}
-        >
-          {showReservations ? "Reservations on" : "Reservations off"}
-        </button>
+        <SwitchRow label="Show reservations" on={showReservations} onToggle={() => setShowReservations(!showReservations)} />
         <div className="mt-3 grid grid-cols-3 gap-2">
           {BORDER_COLORS.map((color) => (
             <button
@@ -1089,19 +1032,33 @@ function ChatLooks({ meId }: { meId: string }) {
 }
 
 /** Settings › Tracking › Driving: spoken announcements, Drive mode on by itself, heading-up map. */
-function DrivingSettings() {
-  const { voice, autoDrive, headingUp, set } = useDrive();
-  const switchRow = (label: string, hint: string, on: boolean, toggle: () => void) => (
-    <button type="button" role="switch" aria-checked={on} onClick={toggle} className="flex min-h-12 w-full items-center gap-3 py-1 text-left">
+/**
+ * An on/off setting: its name, and a switch (ink when on). `bare`: no box of
+ * its own (it sits in a card with others). `tight`: a smaller gap above.
+ */
+function SwitchRow({ label, hint, on, onToggle, bare = false, tight = false }: { label: string; hint?: string; on: boolean; onToggle: () => void; bare?: boolean; tight?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={onToggle}
+      className={"flex min-h-12 w-full items-center gap-3 text-left " + (bare ? "py-1" : (tight ? "mt-2" : "mt-3") + " rounded-lg border border-line px-3 py-1.5")}
+    >
       <span className="min-w-0 flex-1">
         <span className="block text-sm">{label}</span>
-        <span className="block text-xs text-faint">{hint}</span>
+        {hint ? <span className="block text-xs text-faint">{hint}</span> : null}
       </span>
       <span className={"flex h-7 w-12 shrink-0 items-center rounded-full p-0.5 transition-colors " + (on ? "bg-ink" : "bg-line")}>
         <span className={"size-6 rounded-full shadow-sm transition-transform " + (on ? "translate-x-5 bg-bg" : "translate-x-0 bg-muted")} />
       </span>
     </button>
   );
+}
+
+function DrivingSettings() {
+  const { voice, autoDrive, headingUp, set } = useDrive();
+  const switchRow = (label: string, hint: string, on: boolean, toggle: () => void) => <SwitchRow label={label} hint={hint} on={on} onToggle={toggle} bare />;
   return (
     <section className="mt-8">
       <h2 className="font-serif text-2xl">Driving</h2>
