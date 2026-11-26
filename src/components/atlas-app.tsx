@@ -212,6 +212,16 @@ function hereHint(fix: Fix | null, marks: Mark[], stops: GpsStop[]) {
   return stop?.label || "Your current spot";
 }
 
+/**
+ * Whether a place's point says which county you were in. Not for roads,
+ * scenic drives or big areas (parks, forests, reservations, refuges, shores,
+ * lakes): their point is just the middle, often a county you never set foot in.
+ */
+const AREA_CATEGORIES = new Set(["county", "route", "drive", "park", "reservation", "forest", "refuge", "seashore", "lake", "unesco"]);
+function countyFromPoint(mark: Mark) {
+  return !AREA_CATEGORIES.has(mark.category);
+}
+
 export function AtlasApp() {
   const { user, isPending } = useCurrentUserState();
   if (isPending) return <AtlasSplash label="Opening the atlas…" />;
@@ -290,7 +300,20 @@ function AtlasShell() {
   const [viewBase, setViewBase] = useState<number | null>(null);
   const [hiddenKinds, setHiddenKinds] = useState<string[]>([]);
   const [visitedOnly, setVisitedOnly] = useState(false);
-  const [typesOpen, setTypesOpen] = useState(true);
+  /** How far down the map the card and chips at the top reach, so the whole-country view fits below them. */
+  const topOverlay = useRef<HTMLDivElement>(null);
+  const [topInset, setTopInset] = useState(0);
+  useEffect(() => {
+    const node = topOverlay.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const measure = () => setTopInset(Math.round(node.offsetTop + node.offsetHeight));
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(node);
+    return () => watch.disconnect();
+  }, []);
+  // Closed when the atlas opens: the list covers the map.
+  const [typesOpen, setTypesOpen] = useState(false);
   const [headerOpen, setHeaderOpen] = useState(true);
   const settingsRoute = useSettingsRoute();
   const settingsOpen = settingsRoute.page !== null;
@@ -768,7 +791,7 @@ function AtlasShell() {
   addRef.current = add;
 
   async function addCountyFor(mark: Mark, day: string | null = null) {
-    if (mark.lat == null || mark.lon == null || !mark.state || mark.category === "county") return;
+    if (mark.lat == null || mark.lon == null || !mark.state || !countyFromPoint(mark)) return;
     const rows = (await loadCounties(mark.state)) as CountyRec[];
     const hit = countyContaining(mark.lat, mark.lon, rows);
     if (!hit || marksRef.current.some((item) => item.id === hit.id)) return;
@@ -783,7 +806,7 @@ function AtlasShell() {
     void (async () => {
       const byState = new Map<string, Mark[]>();
       for (const mark of saved) {
-        if (mark.category === "county" || mark.lat == null || mark.lon == null || !mark.state) continue;
+        if (mark.lat == null || mark.lon == null || !mark.state || !countyFromPoint(mark)) continue;
         const list = byState.get(mark.state) ?? [];
         list.push(mark);
         byState.set(mark.state, list);
@@ -2213,6 +2236,7 @@ function AtlasShell() {
               fitTo={fitTo}
               spotlight={spot}
               tripRoutes={tripRoutes?.routes ?? EMPTY_ROUTES}
+              topInset={topInset}
               groupSpots={groupDots}
               onGroupStop={(id) => setGroupPick(group?.spots.find((s) => s.id === id) ?? null)}
               onAway={setMapAway}
@@ -2563,7 +2587,7 @@ function AtlasShell() {
             }}
           />
         ) : null}
-        <div className={"pointer-events-none absolute top-safe left-safe z-10 flex flex-col items-start gap-2 " + (driving ? "hidden" : "")}>
+        <div ref={topOverlay} className={"pointer-events-none absolute top-safe left-safe z-10 flex flex-col items-start gap-2 " + (driving ? "hidden" : "")}>
           {sendPlace ? <SendPlaceSheet mark={sendPlace} onClose={() => setSendPlace(null)} /> : null}
           {hereOpen ? (
             <SendToSheet

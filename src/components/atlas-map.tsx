@@ -76,6 +76,8 @@ type Props = {
   onView: (zoom: number, base: number | null) => void;
   /** Bumped to fly back out to the whole country (Android back). */
   homeTick?: number;
+  /** How far down the map the overlays at the top reach: the whole-country view fits below them. */
+  topInset?: number;
   /** Bumped to fit the chosen state again (Android back from zoomed in). */
   focusTick?: number;
   /** Fit the view to these points ([lon, lat]) each time the tick changes. */
@@ -283,6 +285,7 @@ export function AtlasMap({
   onFriend,
   onView,
   homeTick = 0,
+  topInset = 0,
   focusTick = 0,
   fitTo = null,
   onAway,
@@ -1455,7 +1458,7 @@ export function AtlasMap({
       baseRef.current = null;
       applyFilters(map);
       propsRef.current.onView(map.getZoom(), null);
-      map.fitBounds(USA, { padding: 28, duration: duration() });
+      map.fitBounds(USA, { padding: usaPadding(), duration: duration() });
     }
   }, [ready, selected, stateAbbr, states, you]);
 
@@ -1550,12 +1553,42 @@ export function AtlasMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusTick, ready]);
 
+  // The whole country, below the card and chips at the top and above the buttons at the bottom.
+  const insetRef = useRef(topInset);
+  insetRef.current = topInset;
+  const usaPadding = useCallback(() => {
+    const map = mapRef.current;
+    const height = map?.getContainer().clientHeight ?? 0;
+    const bottom = 64;
+    // Leave the country at least 110 px, even on a short map.
+    const top = Math.max(28, Math.min(insetRef.current + 10, height - bottom - 110));
+    return { top, bottom, left: 18, right: 18 };
+  }, []);
+  // Opening: fit it that way once the overlays are measured, until you move the map yourself.
+  const touched = useRef(false);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const mark = (event: { originalEvent?: unknown }) => {
+      if (event.originalEvent) touched.current = true;
+    };
+    map.on("movestart", mark);
+    return () => {
+      map.off("movestart", mark);
+    };
+  }, [ready]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map || !topInset || touched.current || viewRef.current.stateAbbr || selectedRef.current) return;
+    map.fitBounds(USA, { padding: usaPadding(), duration: 0 });
+  }, [topInset, ready, usaPadding]);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || !homeTick) return;
     baseRef.current = null;
     applyFilters(map);
-    map.fitBounds(USA, { padding: 28, duration: duration() });
+    map.fitBounds(USA, { padding: usaPadding(), duration: duration() });
   }, [homeTick, ready]);
 
   useEffect(() => {
