@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Send, Share2 } from "lucide-react";
+import { SendImageSheet } from "@/components/chat-send";
 import { flushDriveLog } from "@/lib/drive-log";
 import { formatMiles } from "@/lib/ghost-trail";
 import { nativeApp } from "@/lib/native";
@@ -169,6 +171,8 @@ export function RecapPanel({ name, marks = [], onOpenPlace }: { name: string; ma
     };
   }, [period]);
 
+  const [sending, setSending] = useState(false);
+
   async function share() {
     if (!recap) return;
     setBusy(true);
@@ -259,14 +263,33 @@ export function RecapPanel({ name, marks = [], onOpenPlace }: { name: string; ma
             Miles count while tracking is on
             {recap.driveDays ? `, over ${plural(recap.driveDays, "day", "days")}` : ""}.
           </p>
-          <button
-            type="button"
-            disabled={busy || !!empty}
-            onClick={() => void share()}
-            className="mt-4 h-11 w-full rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
-          >
-            {busy ? "Making the card…" : "Share as a card"}
-          </button>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              disabled={busy || !!empty}
+              onClick={() => setSending(true)}
+              className="flex h-11 items-center justify-center gap-2 rounded-lg border border-ink bg-elevated text-sm disabled:border-line disabled:text-faint"
+            >
+              <Send className="size-4" aria-hidden />
+              Send to a friend
+            </button>
+            <button
+              type="button"
+              disabled={busy || !!empty}
+              onClick={() => void share()}
+              className="flex h-11 items-center justify-center gap-2 rounded-lg border border-line text-sm disabled:text-faint"
+            >
+              <Share2 className="size-4" aria-hidden />
+              {busy ? "Making it…" : "Share card"}
+            </button>
+          </div>
+          {sending ? (
+            <SendImageSheet
+              label={`Send your ${range.title}`}
+              makeImage={() => drawCard(recap, range.label, name)}
+              onClose={() => setSending(false)}
+            />
+          ) : null}
           {empty ? (
             <p className="mt-2 text-sm text-muted">
               Nothing here yet. Add a place or drive with tracking on.

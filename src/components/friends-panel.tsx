@@ -1,3 +1,4 @@
+import { ChevronLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { BadgeIcon } from "@/components/badge-icon";
 import {
@@ -201,7 +202,26 @@ export function FriendsPanel({
     }
   }
 
+  /** How many at the top of the list are new (they were unread when the Friends tab opened). */
+  const [newLikes, setNewLikes] = useState(0);
+  // New thumbs-up: opening the Friends tab shows them straight away, which
+  // also counts as seen, so the count clears without another tap.
+  const likesWaiting = unread.likes;
+  useEffect(() => {
+    if (!likesWaiting || likesOpen) return;
+    setNewLikes(likesWaiting);
+    setLikesOpen(true);
+    recentLikes()
+      .then((rows) => {
+        setLikes(rows);
+        void useChat.getState().refresh();
+      })
+      .catch(() => setLikes([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [likesWaiting]);
+
   function showLikes() {
+    if (likesOpen) setNewLikes(0);
     setLikesOpen((open) => !open);
     recentLikes()
       .then((rows) => {
@@ -355,7 +375,8 @@ export function FriendsPanel({
   if (openId) {
     return (
       <div className="px-2 pb-4">
-        <button type="button" onClick={onClose} className="h-11 px-2 text-sm text-muted">
+        <button type="button" onClick={onClose} className="-ml-1 flex h-11 items-center gap-0.5 rounded-full pr-3 pl-1 text-sm text-muted active:bg-elevated">
+          <ChevronLeft className="size-5" aria-hidden />
           All friends
         </button>
         {!page ? (
@@ -672,9 +693,15 @@ export function FriendsPanel({
               <p className="mt-2 text-sm text-muted">Loading…</p>
             ) : likes.length ? (
               <ul className="mt-2 grid gap-1">
-                {likes.map((like) => (
-                  <li key={`${like.fromId}:${like.target}`} className="rounded-lg border border-line px-3 py-2 text-sm">
-                    👍 <span className="text-ink">{like.from}</span> <span className="text-muted">liked {like.label}</span>
+                {likes.map((like, i) => (
+                  <li
+                    key={`${like.fromId}:${like.target}`}
+                    className={"flex items-center gap-2 rounded-lg border px-3 py-2 text-sm " + (i < newLikes ? "border-accent/60 bg-accent/10" : "border-line")}
+                  >
+                    <span className="min-w-0 flex-1">
+                      👍 <span className="text-ink">{like.from}</span> <span className="text-muted">liked {like.label}</span>
+                    </span>
+                    {i < newLikes ? <span className="shrink-0 text-[10px] font-semibold tracking-wider text-accent uppercase">New</span> : null}
                   </li>
                 ))}
               </ul>

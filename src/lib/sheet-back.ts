@@ -5,6 +5,8 @@
  * when it closed something. Only when nothing is left to close does back
  * leave the app (src/routes/__root.tsx).
  */
+import { useEffect, useRef } from "react";
+
 type Handler = () => boolean;
 
 const stack: Handler[] = [];
@@ -23,4 +25,22 @@ export function hideCoveringSheet() {
     if (stack[i]!()) return true;
   }
   return false;
+}
+
+/**
+ * Back closes this screen. Registered once, when the screen opens, so it keeps
+ * its place in line: re-registering on every redraw (a new onClose each time)
+ * used to move it above things opened on top of it later, like the message
+ * menu, so back closed the wrong thing.
+ */
+export function useBackClose(onClose: () => void, active = true) {
+  const latest = useRef(onClose);
+  latest.current = onClose;
+  useEffect(() => {
+    if (!active) return;
+    return pushBack(() => {
+      latest.current();
+      return true;
+    });
+  }, [active]);
 }
