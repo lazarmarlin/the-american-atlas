@@ -3,9 +3,10 @@
  * see-through they are, wallpaper strength or a plain color, text size, a
  * private name, quiet, and a shared color pair.
  */
+import { ScreenHeader } from "@/components/screen-header";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { BellOff, ChevronLeft, ChevronRight, Image, Plus, SunMedium, Users } from "lucide-react";
+import { BellOff, ChevronRight, Image, Plus, SunMedium, Users } from "lucide-react";
 import { WallpaperScreen } from "@/components/chat-wallpaper";
 import { LOOK_DEFAULT, writeLook, type ChatLook } from "@/lib/chat-look";
 import type { Thread } from "@/lib/messages";
@@ -58,13 +59,7 @@ export function ChatLookScreen({
   const sizes = { sm: "text-[13px]", md: "text-[15px]", lg: "text-[18px]" } as const;
   return createPortal(
     <div role="dialog" aria-label="Chat settings" className="screen-top fixed inset-0 z-[70] flex flex-col bg-bg text-ink">
-      <header className="flex shrink-0 items-center gap-1 border-b border-line px-2 pb-2">
-        <button type="button" onClick={onClose} className="-ml-1 flex h-11 items-center gap-0.5 rounded-full pr-3 pl-1 text-sm text-muted active:bg-elevated">
-          <ChevronLeft className="size-5" aria-hidden="true" />
-          Chat
-        </button>
-        <p className="min-w-0 flex-1 truncate pr-2 text-right font-serif text-lg">{look.nick || name}</p>
-      </header>
+      <ScreenHeader title="Chat settings" subtitle={look.nick || name} onBack={onClose} backLabel="Back to the chat" />
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-8">
         {/* What the chat will look like. */}
         <div

@@ -3,6 +3,7 @@
  * the atlas, a few simple filters, and a switch that shows the same picture
  * on the other person's phone.
  */
+import { ScreenHeader } from "@/components/screen-header";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { cacheWall, cachedWall } from "@/lib/chat-cache";
@@ -201,12 +202,7 @@ export function WallpaperScreen({
 
   return createPortal(
     <div role="dialog" aria-label="Chat wallpaper" className="screen-top fixed inset-0 z-[70] flex flex-col bg-bg">
-      <header className="flex shrink-0 items-center gap-2 border-b border-line px-2 py-2">
-        <button type="button" onClick={onClose} className="h-11 px-2 text-sm text-muted">
-          ‹ Chat
-        </button>
-        <p className="min-w-0 flex-1 truncate text-right font-serif text-lg">Wallpaper</p>
-      </header>
+      <ScreenHeader title="Wallpaper" onBack={onClose} backLabel="Back to the chat" />
       <div
         className="relative min-h-0 flex-1 bg-elevated"
         style={preview ? { backgroundImage: `linear-gradient(rgba(10,10,10,0.45), rgba(10,10,10,0.62)), url(${preview})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
@@ -283,12 +279,7 @@ export function WallpaperScreen({
       </div>
       {picking ? (
         <div className="screen-top fixed inset-0 z-[80] flex flex-col bg-bg" role="dialog" aria-label="Choose a photo">
-          <header className="flex items-center gap-2 border-b border-line px-2 py-2">
-            <button type="button" onClick={() => setPicking(false)} className="h-11 px-2 text-sm text-muted">
-              ‹ Wallpaper
-            </button>
-            <p className="font-serif text-lg">Your photos</p>
-          </header>
+          <ScreenHeader title="Your photos" onBack={() => setPicking(false)} backLabel="Back to wallpaper" />
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
             {photos === null ? <p className="text-sm text-muted">Loading…</p> : null}
             {photos && !photos.length ? <p className="text-sm text-muted">No photos on your atlas yet.</p> : null}

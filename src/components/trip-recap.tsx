@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ScreenHeader } from "@/components/screen-header";
 import { createPortal } from "react-dom";
 import { useBackClose } from "@/lib/sheet-back";
 import { listFriends, type FriendRow } from "@/lib/friends";
@@ -203,15 +204,7 @@ export function TripRecap({
   useBackClose(onClose);
   return createPortal(
     <div role="dialog" aria-label={`${trip.name} recap`} className="screen-top fixed inset-0 z-40 flex flex-col bg-bg">
-      <header className="flex shrink-0 items-center gap-2 border-b border-line bg-surface px-2 pb-2">
-        <button type="button" onClick={onClose} aria-label="Back" className="grid h-11 w-11 place-items-center rounded-full text-xl text-ink">
-          ‹
-        </button>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs tracking-widest text-faint uppercase">{justEnded ? "Trip ended" : "Trip recap"}</p>
-          <p className="truncate font-serif text-xl leading-tight">{trip.name}</p>
-        </div>
-      </header>
+      <ScreenHeader eyebrow={justEnded ? "Trip ended" : "Trip recap"} title={trip.name} onBack={onClose} />
       <div className="safe-bottom min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {card ? (
           <>

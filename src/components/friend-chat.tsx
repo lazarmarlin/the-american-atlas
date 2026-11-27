@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { ScreenHeader } from "@/components/screen-header";
 import { createPortal } from "react-dom";
 import { useChat } from "@/lib/chat-store";
 import { deleteMessage, emptyReactions, listThread, votePoll, loadThreadPhoto, messageBoard, searchChats, sendToThread, setThreadPin, toggleReaction, type BoardItem, type ChatDay, type ChatHere, type ChatHit, type ChatMessage, type ChatPlace, type ChatPoll, type ChatTrail, type ReactionMark, type Thread } from "@/lib/messages";
@@ -1676,12 +1677,7 @@ function BubbleSettings({
   useBackClose(onClose);
   return createPortal(
     <div role="dialog" aria-label="Chat settings" className="screen-top fixed inset-0 z-[70] flex flex-col bg-bg">
-      <header className="flex shrink-0 items-center gap-2 border-b border-line px-2 py-2">
-        <button type="button" onClick={onClose} className="h-11 px-2 text-sm text-muted">
-          ‹ Chat
-        </button>
-        <p className="min-w-0 flex-1 truncate text-right font-serif text-lg">Settings</p>
-      </header>
+      <ScreenHeader title="Settings" onBack={onClose} backLabel="Back to the chat" />
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         <TheirBubbles meId={meId} thread={thread} name={name} color={color} onChange={onChange} />
       </div>
@@ -1758,18 +1754,17 @@ export function ChatScreen({
       className="fixed inset-x-0 z-40 flex flex-col bg-bg"
       style={{ top: area.top, height: area.height || "100dvh" }}
     >
-      <header className="screen-top flex shrink-0 items-center gap-2 border-b border-line bg-surface px-2 pb-2">
-        <button type="button" onClick={onClose} aria-label="Back" className="grid h-11 w-11 place-items-center rounded-full text-xl text-ink">
-          ‹
-        </button>
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-serif text-xl leading-tight">{nickOf(chat.meId, chat.thread.kind, chat.thread.id, title)}</p>
-          {subtitle ? <p className="truncate text-xs text-muted">{subtitle}</p> : null}
-        </div>
-        <button type="button" onClick={() => setMore(true)} aria-label="More" className="grid h-11 w-11 place-items-center rounded-full text-[1.7rem] leading-none tracking-widest text-ink">
-          ···
-        </button>
-      </header>
+      <ScreenHeader
+        className="screen-top"
+        title={nickOf(chat.meId, chat.thread.kind, chat.thread.id, title)}
+        subtitle={subtitle || undefined}
+        onBack={onClose}
+        right={
+          <button type="button" onClick={() => setMore(true)} aria-label="More" className="grid h-11 w-11 place-items-center rounded-full text-[1.7rem] leading-none tracking-widest text-ink active:bg-elevated">
+            ···
+          </button>
+        }
+      />
       {note ? <p className="shrink-0 border-b border-line px-3 py-2 text-sm text-muted">{note}</p> : null}
       <ChatThread {...chat} wallpaper={wallpaper} look={look} fill />
       {more ? (
@@ -1957,12 +1952,7 @@ export function MessageBoard({
   }
   return createPortal(
     <div role="dialog" aria-label="Messages" className="screen-top fixed inset-0 z-40 flex flex-col bg-bg">
-      <header className="flex shrink-0 items-center gap-2 border-b border-line bg-surface px-2 pb-2">
-        <button type="button" onClick={onClose} aria-label="Back" className="grid h-11 w-11 place-items-center rounded-full text-xl text-ink">
-          ‹
-        </button>
-        <p className="font-serif text-xl leading-tight">Messages</p>
-      </header>
+      <ScreenHeader title="Messages" onBack={onClose} />
       <form
         className="px-3 pt-3"
         onSubmit={(event) => {
