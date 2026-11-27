@@ -61,30 +61,37 @@ final class MessageWatch {
     private MessageWatch() {}
 
     /**
-     * Push works (the server has its key and this phone's token): no minute-by-minute
-     * check while tracking, and the WorkManager check is only a safety net.
+     * The server has a Firebase key. The minute-by-minute check stays on until a
+     * poke actually arrives (pushHeard): a key alone does not mean the phone is
+     * getting them, and turning the check off then left messages for an hour.
      */
     static boolean pushOn(Context ctx) {
         return prefs(ctx.getApplicationContext()).getBoolean("pushOn", false);
     }
 
+    static boolean pushHeard(Context ctx) {
+        return prefs(ctx.getApplicationContext()).getBoolean("pushHeard", false);
+    }
+
     static void setPushOn(Context ctx, boolean on) {
         Context app = ctx.getApplicationContext();
-        boolean was = pushOn(app);
-        prefs(app).edit().putBoolean("pushOn", on).apply();
-        if (was == on) return;
-        if (on) {
-            AlarmManager alarms = app.getSystemService(AlarmManager.class);
-            if (alarms != null) alarms.cancel(MessageAlarm.intent(app));
-        }
-        // The background check's pace changes (hourly with push, every 15 minutes without).
+        SharedPreferences.Editor edit = prefs(app).edit().putBoolean("pushOn", on);
+        if (!on) edit.putBoolean("pushHeard", false);
+        edit.apply();
         WorkManager.getInstance(app).cancelUniqueWork(WORK);
         start(app);
     }
 
-    /** When the last poke arrived (for Settings › Notifications). */
+    /** A poke woke this phone. Remember when, and on the first one drop the frequent alarm. */
     static void notePoke(Context ctx) {
-        prefs(ctx.getApplicationContext()).edit().putLong("lastPoke", System.currentTimeMillis()).apply();
+        Context app = ctx.getApplicationContext();
+        boolean first = !pushHeard(app);
+        prefs(app).edit().putLong("lastPoke", System.currentTimeMillis()).putBoolean("pushHeard", true).putBoolean("pushOn", true).apply();
+        if (!first) return;
+        AlarmManager alarms = app.getSystemService(AlarmManager.class);
+        if (alarms != null) alarms.cancel(MessageAlarm.intent(app));
+        WorkManager.getInstance(app).cancelUniqueWork(WORK);
+        start(app);
     }
 
     static long lastPoke(Context ctx) {
@@ -94,6 +101,9 @@ final class MessageWatch {
     static void showPushTest(Context ctx) {
         post(ctx.getApplicationContext(), "push-test:" + System.currentTimeMillis(), "Push works", "This came through Firebase, so new messages will show even with the app closed.", "");
     }
+
+    /** The chat on screen, so a poke doesn't buzz for a message you're reading. */
+    static volatile String openThread = "";
 
     /** A new token from Firebase: back to checking on our own until the app registers it. */
     static void notePushToken(Context ctx, String token) {
@@ -125,7 +135,7 @@ final class MessageWatch {
 
     static synchronized void stop(Context ctx) {
         Context app = ctx.getApplicationContext();
-        prefs(app).edit().remove("token").putBoolean("pushOn", false).apply();
+        prefs(app).edit().remove("token").putBoolean("pushOn", false).putBoolean("pushHeard", false).apply();
         WorkManager.getInstance(app).cancelUniqueWork(WORK);
         AlarmManager alarms = app.getSystemService(AlarmManager.class);
         if (alarms != null) alarms.cancel(MessageAlarm.intent(app));
@@ -143,7 +153,7 @@ final class MessageWatch {
      */
     static void scheduleNext(Context ctx) {
         Context app = ctx.getApplicationContext();
-        if (!configured(app) || !(foreground || tracking(app)) || pushOn(app)) return;
+        if (!configured(app) || !(foreground || tracking(app)) || (pushOn(app) && pushHeard(app))) return;
         AlarmManager alarms = app.getSystemService(AlarmManager.class);
         if (alarms == null) return;
         long every = EVERY_MS;
@@ -157,12 +167,12 @@ final class MessageWatch {
         final Context app = ctx.getApplicationContext();
         if (!configured(app)) return;
         Constraints online = new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build();
-        // With push, this is only in case one gets lost.
-        long minutes = pushOn(app) ? 60 : 15;
+        // A missed poke is still found within 15 minutes, not an hour.
+        long minutes = 15;
         PeriodicWorkRequest work = new PeriodicWorkRequest.Builder(MessageCheckWorker.class, minutes, TimeUnit.MINUTES)
             .setConstraints(online)
             .build();
-        WorkManager.getInstance(app).enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.KEEP, work);
+        WorkManager.getInstance(app).enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.UPDATE, work);
         scheduleNext(app);
     }
 
@@ -181,11 +191,7 @@ final class MessageWatch {
             conn.setRequestProperty("Authorization", "Bearer " + token);
             conn.setRequestProperty("Accept", "application/json");
             int status = conn.getResponseCode();
-            if (status == 401) {
-                // Signed out, or the token was replaced: the app sets a new one when it opens.
-                p.edit().remove("token").apply();
-                return;
-            }
+            if (status == 401) return;
             if (status != 200) return;
             StringBuilder text = new StringBuilder();
             try (BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"))) {
@@ -226,6 +232,8 @@ final class MessageWatch {
             String[] item = fresh.get(i);
             String thread = item.length > 3 ? item[3] : "";
             if (quietIds(p).contains(thread)) continue;
+            // In that chat already: no banner. Still marked seen below.
+            if (foreground && !openThread.isEmpty() && openThread.equals(thread)) continue;
             post(app, "m:" + item[0], item[1], item[2], thread);
         }
         for (String[] item : items) ids.add(item[0]);
@@ -252,13 +260,10 @@ final class MessageWatch {
                 manager.createNotificationChannel(channel);
             }
         }
-        Intent open = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
-        PendingIntent tap = null;
-        if (open != null) {
-            open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            if (thread != null && !thread.isEmpty()) open.putExtra(EXTRA_THREAD, thread);
-            tap = PendingIntent.getActivity(ctx, key.hashCode(), open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        }
+        Intent open = new Intent(ctx, MainActivity.class);
+        open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        if (thread != null && !thread.isEmpty()) open.putExtra(EXTRA_THREAD, thread);
+        PendingIntent tap = PendingIntent.getActivity(ctx, key.hashCode(), open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         NotificationCompat.Builder n = new NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_atlas)
             .setColor(0xFFE2B15A)

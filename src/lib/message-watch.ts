@@ -20,6 +20,7 @@ const Watch = registerPlugin<{
   pushToken(): Promise<{ token: string | null; reason?: string }>;
   setPushOn(options: { on: boolean }): Promise<void>;
   pushStatus(): Promise<{ on: boolean; lastPoke: number; firebase: boolean }>;
+  setOpen(options: { thread: string }): Promise<void>;
 }>("MessageWatch");
 
 export type PushState = {
@@ -47,29 +48,45 @@ export async function refreshPush() {
 }
 
 let pushTokenNow: string | null = null;
+let pushReady = false;
 
 /**
  * Push (Firebase): register this phone's token with the account. When the
- * server can send, the native side stops checking every minute and relies on
- * pokes (with an hourly check as a safety net). Anything missing (a build
- * without Firebase, no Play services, the server's key not set) leaves the
- * old checks running.
+ * server can send, a poke wakes the phone. The minute-by-minute check stays
+ * until one of those pokes arrives. Anything missing (a build without
+ * Firebase, no Play services, the server's key not set) leaves the old
+ * checks running.
  */
 async function startPush() {
   try {
-    const { token } = await Watch.pushToken();
+    const { token, reason } = await Watch.pushToken();
     if (!token) {
       await Watch.setPushOn({ on: false });
+      if (reason === "not-set-up") pushReady = true;
       return;
     }
     const [{ registerPush }, { deviceId }] = await Promise.all([import("@/lib/push"), import("@/lib/drive-log")]);
     const { sending } = await registerPush({ data: { token, deviceId: deviceId() } });
     pushTokenNow = token;
+    pushReady = true;
     await Watch.setPushOn({ on: sending });
   } catch {
-    // An older app (no pushToken) or offline: the regular checks carry on.
+    // Offline, or an older app: try again on the next check. The regular checks stay on.
+    pushReady = false;
     await Watch.setPushOn({ on: false }).catch(() => undefined);
   }
+}
+
+/** Register this phone for push if the last try didn't stick (no signal the first time). */
+export async function ensurePush() {
+  if (!nativeApp || !ready || pushReady) return;
+  await startPush();
+}
+
+/** Which chat is on screen, so a poke doesn't buzz for a message you're reading. */
+export function setWatchOpen(thread: string) {
+  if (!nativeApp) return;
+  void Watch.setOpen({ thread }).catch(() => undefined);
 }
 
 let ready = false;
@@ -112,6 +129,7 @@ export async function setQuietThreads(quiet: string[]) {
 export async function stopMessageWatch() {
   if (!nativeApp) return;
   ready = false;
+  pushReady = false;
   // Signed out: this phone stops getting pokes for that account.
   const token = pushTokenNow;
   pushTokenNow = null;

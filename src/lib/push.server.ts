@@ -96,7 +96,7 @@ export async function sendPokes(userIds: string[], what: "message" | "like" | "t
   const sql = await getSql();
   let rows: { token: string }[];
   try {
-    rows = await sql<{ token: string }>`select token from push_tokens where user_id = any(${ids})`;
+    rows = await sql<{ token: string }>`select token from push_tokens where user_id = any(${ids}::text[])`;
   } catch (err) {
     report.problems.push(`The phone list couldn't be read (${err instanceof Error ? err.message : "database error"}). The push_tokens migration may not have run.`);
     return report;
@@ -124,7 +124,7 @@ export async function sendPokes(userIds: string[], what: "message" | "like" | "t
               token,
               data: { kind: "poke", what },
               // Wakes the phone even when it's asleep; collapses repeats into one.
-              android: { priority: "high", ...(what === "test" ? {} : { collapse_key: "atlas-poke" }), ttl: "3600s" },
+              android: { priority: "HIGH", ...(what === "test" ? {} : { collapse_key: "atlas-poke" }), ttl: "3600s" },
             },
           }),
         });
@@ -150,7 +150,7 @@ export async function sendPokes(userIds: string[], what: "message" | "like" | "t
       }
     }),
   );
-  if (dead.length) await sql`delete from push_tokens where token = any(${dead})`;
+  if (dead.length) await sql`delete from push_tokens where token = any(${dead}::text[])`;
   return report;
 }
 
@@ -164,7 +164,7 @@ export async function pokeUsers(userIds: string[], kind: "message" | "like" = "m
   const work = sendPokes(userIds, kind).then((report) => {
     if (report.problems.length) console.warn("push:", report.problems.join(" | "));
   });
-  await Promise.race([work.catch((err) => console.warn("push failed:", err)), new Promise((resolve) => setTimeout(resolve, 4000))]);
+  await Promise.race([work.catch((err) => console.warn("push failed:", err)), new Promise((resolve) => setTimeout(resolve, 8000))]);
 }
 
 /**

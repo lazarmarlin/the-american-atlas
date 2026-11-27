@@ -9,7 +9,7 @@ import { useSettings } from "@/lib/atlas-settings";
 import { isQuiet } from "@/lib/chat-look";
 import { notifyMessage } from "@/lib/live-notify";
 import { startOutbox } from "@/lib/chat-outbox";
-import { showThroughWatch, startMessageWatch } from "@/lib/message-watch";
+import { ensurePush, setWatchOpen, showThroughWatch, startMessageWatch } from "@/lib/message-watch";
 import { unreadSummary, type Thread, type UnreadSummary } from "@/lib/messages";
 
 const SEEN_KEY = "atlas-notified-messages";
@@ -47,7 +47,11 @@ let accountId = "";
 export const useChat = create<ChatState>((set, get) => ({
   summary: EMPTY,
   open: null,
-  setOpen: (thread) => set({ open: thread ? keyOf(thread) : null }),
+  setOpen: (thread) => {
+    const key = thread ? keyOf(thread) : "";
+    set({ open: key || null });
+    setWatchOpen(key);
+  },
   total: () => {
     const s = get().summary;
     return Object.values(s.friends).reduce((a, b) => a + b, 0) + Object.values(s.groups).reduce((a, b) => a + b, 0) + s.likes;
@@ -99,6 +103,7 @@ export function startChatChecks(userId?: string) {
     // second request every 45 s for nothing.
     const settings = useSettings.getState();
     if (nativeApp && document.visibilityState !== "visible" && (settings.trackTravel || settings.shareOnly)) return;
+    void ensurePush();
     void useChat.getState().refresh();
   };
   timer = window.setInterval(tick, 45_000);

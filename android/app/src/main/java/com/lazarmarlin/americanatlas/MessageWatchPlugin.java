@@ -128,10 +128,17 @@ public class MessageWatchPlugin extends Plugin {
         out.put("on", MessageWatch.pushOn(getContext()));
         out.put("lastPoke", MessageWatch.lastPoke(getContext()));
         out.put("firebase", !com.google.firebase.FirebaseApp.getApps(getContext()).isEmpty());
-        call.resolve(out);
+        call.resolve();
     }
 
-    /** The server took the token and can send: lean on push instead of checking every minute. */
+    /** The chat on screen, so a poke doesn't notify for it. Empty when none is open. */
+    @PluginMethod
+    public void setOpen(PluginCall call) {
+        MessageWatch.openThread = call.getString("thread", "");
+        call.resolve();
+    }
+
+    /** The server took the token and can send: lean on push once a poke arrives. */
     @PluginMethod
     public void setPushOn(PluginCall call) {
         MessageWatch.setPushOn(getContext(), Boolean.TRUE.equals(call.getBoolean("on", false)));
