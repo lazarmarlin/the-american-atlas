@@ -113,7 +113,14 @@ export function BoardsPage({
     setBusy(true);
     setNote(null);
     try {
-      setOpen(await createBoard({ data: { kind } }));
+      const made = await createBoard({ data: { kind } });
+      if (made.kind !== kind) {
+        // An older server that doesn't know this kind yet (the app updated first) made something else: undo it.
+        await deleteBoard({ data: { id: made.id } }).catch(() => undefined);
+        setNote(`${BOARD_KINDS.find((k) => k.id === kind)?.name ?? "That board"} needs the latest version of the app's server. Publish the update, then try again.`);
+        return;
+      }
+      setOpen(made);
       void refresh();
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Couldn't make that.");

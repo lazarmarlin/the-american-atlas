@@ -18,10 +18,28 @@ import { makeCuller, type Box } from "@/lib/map-cull";
 import { seenAgo } from "@/lib/live-share";
 import type { Feature } from "geojson";
 
-/** Your marker: full size at zoom 5.7 and in, about half by a whole-continent view. */
-const AVATAR_SIZE = ["interpolate", ["linear"], ["zoom"], 1.5, 0.48, 3.5, 0.68, 5.7, 1] as unknown as number;
+/**
+ * Your marker: full size at zoom 5.7 and in, about half by a whole-continent
+ * view. Times its "k": below 1 when it's close to another marker on screen,
+ * so the two shrink instead of overlapping (spreadAvatars).
+ */
+const SHRINK = ["coalesce", ["get", "k"], 1];
+const AVATAR_SIZE = ["interpolate", ["linear"], ["zoom"], 1.5, ["*", 0.48, SHRINK], 3.5, ["*", 0.68, SHRINK], 5.7, ["*", 1, SHRINK]] as unknown as number;
 /** Friends': the same curve, a touch smaller. */
-const AVATAR_SIZE_FRIEND = ["interpolate", ["linear"], ["zoom"], 1.5, 0.44, 3.5, 0.62, 5.7, 0.92] as unknown as number;
+const AVATAR_SIZE_FRIEND = ["interpolate", ["linear"], ["zoom"], 1.5, ["*", 0.44, SHRINK], 3.5, ["*", 0.62, SHRINK], 5.7, ["*", 0.92, SHRINK]] as unknown as number;
+/** A marker at icon-size 1 is this wide on screen (MARKER_PIXELS at pixel ratio 2). */
+const AVATAR_PX = 42;
+/** The zoom part of the curves above. */
+function avatarScale(zoom: number) {
+  if (zoom >= 5.7) return 1;
+  if (zoom >= 3.5) return 0.68 + ((zoom - 3.5) / 2.2) * 0.32;
+  if (zoom >= 1.5) return 0.48 + ((zoom - 1.5) / 2) * 0.2;
+  return 0.48;
+}
+/** Markers close together shrink to no less than this. */
+const SHRINK_MIN = 0.5;
+/** And if they'd still overlap at that size, they're nudged apart ("o", in icon units). */
+const NUDGE = ["coalesce", ["get", "o"], ["literal", [0, 0]]] as unknown as [number, number];
 
 function viewBox(map: MlMap): Box {
   const b = map.getBounds();
@@ -979,6 +997,7 @@ export function AtlasMap({
             // Full size from about the zoom of a few states; smaller as the map zooms out, so it
             // doesn't tower over the whole country.
             "icon-size": AVATAR_SIZE,
+            "icon-offset": NUDGE,
             "icon-anchor": "center",
             "icon-allow-overlap": true,
             "icon-ignore-placement": true,
@@ -991,6 +1010,7 @@ export function AtlasMap({
           layout: {
             "icon-image": ["get", "icon"],
             "icon-size": AVATAR_SIZE_FRIEND,
+            "icon-offset": NUDGE,
             "icon-anchor": "center",
             "icon-allow-overlap": true,
             "icon-ignore-placement": true,
@@ -1854,6 +1874,13 @@ export function AtlasMap({
   // app's slower updates), so it moves with the ghost trail's head. While driving
   // the camera glides with it instead of jumping every few seconds.
   const dotShown = useRef<[number, number] | null>(null);
+  // Markers close together on screen shrink (k below 1) instead of overlapping: yours and each friend's.
+  const youK = useRef(1);
+  const youO = useRef<[number, number]>([0, 0]);
+  const friendO = useRef(new Map<string, [number, number]>());
+  const friendK = useRef(new Map<string, number>());
+  const friendFeatures = useRef<GeoJSON.Feature[]>([]);
+  const spreadSoon = useRef<() => void>(() => undefined);
   const dotAnim = useRef(0);
   const dotAt = useRef(0);
   const dotOn = useRef(false);
@@ -1961,9 +1988,10 @@ export function AtlasMap({
     dotShown.current = coords;
     source.setData(
       coords
-        ? { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: coords } }] }
+        ? { type: "FeatureCollection", features: [{ type: "Feature", properties: { k: youK.current, o: youO.current }, geometry: { type: "Point", coordinates: coords } }] }
         : { type: "FeatureCollection", features: [] },
     );
+    spreadSoon.current();
   }, []);
   const glideTo = useCallback(
     (lon: number, lat: number) => {
@@ -2057,12 +2085,127 @@ export function AtlasMap({
       }
       features.push({
         type: "Feature" as const,
-        properties: { id: pin.id, name: pin.name, icon: imageId, stale: pin.live === false },
+        properties: { id: pin.id, name: pin.name, icon: imageId, stale: pin.live === false, k: friendK.current.get(pin.id) ?? 1, o: friendO.current.get(pin.id) ?? [0, 0] },
         geometry: { type: "Point" as const, coordinates: [pin.lon, pin.lat] },
       });
     }
     (map.getSource("friend-people") as GeoJSONSource).setData({ type: "FeatureCollection", features });
+    friendFeatures.current = features as GeoJSON.Feature[];
+    spreadSoon.current();
   }, [friendPins, ready]);
+
+  // How much each marker shrinks: as much as it takes for it and its nearest neighbour on screen not
+  // to overlap (both shrink), no less than half size. Looked at when the map settles, friends move,
+  // or your marker moves (at most twice a second).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    let timer = 0;
+    let lastRun = 0;
+    const spread = () => {
+      timer = 0;
+      lastRun = performance.now();
+      const scale = avatarScale(map.getZoom());
+      const marks: { id: string; x: number; y: number; size: number }[] = [];
+      const you = dotShown.current;
+      if (you) {
+        const p = map.project(you);
+        marks.push({ id: "", x: p.x, y: p.y, size: AVATAR_PX * scale });
+      }
+      for (const f of friendFeatures.current) {
+        const [lon, lat] = (f.geometry as GeoJSON.Point).coordinates;
+        const p = map.project([lon, lat]);
+        marks.push({ id: String(f.properties?.id), x: p.x, y: p.y, size: AVATAR_PX * 0.92 * scale });
+      }
+      const k = new Map<string, number>();
+      for (const m of marks) k.set(m.id, 1);
+      for (let i = 0; i < marks.length; i++)
+        for (let j = i + 1; j < marks.length; j++) {
+          const a = marks[i];
+          const b = marks[j];
+          const d = Math.hypot(a.x - b.x, a.y - b.y);
+          const fit = (2 * Math.max(0, d - 2)) / (a.size + b.size);
+          if (fit >= 1) continue;
+          const shrink = Math.max(SHRINK_MIN, fit);
+          k.set(a.id, Math.min(k.get(a.id) ?? 1, shrink));
+          k.set(b.id, Math.min(k.get(b.id) ?? 1, shrink));
+        }
+      // Still overlapping at the smallest size (nearly on top of each other): nudge apart just enough.
+      const shift = marks.map(() => [0, 0]);
+      for (let round = 0; round < 6; round++) {
+        let moved = false;
+        for (let i = 0; i < marks.length; i++)
+          for (let j = i + 1; j < marks.length; j++) {
+            const a = marks[i];
+            const b = marks[j];
+            const need = (a.size * (k.get(a.id) ?? 1) + b.size * (k.get(b.id) ?? 1)) / 2 + 2;
+            let dx = b.x + shift[j][0] - (a.x + shift[i][0]);
+            let dy = b.y + shift[j][1] - (a.y + shift[i][1]);
+            let d = Math.hypot(dx, dy);
+            if (d >= need) continue;
+            if (d < 0.5) {
+              // Right on top of each other: spread them round in a circle.
+              const angle = ((j * 2.399) % (2 * Math.PI)) + i;
+              dx = Math.cos(angle);
+              dy = Math.sin(angle);
+              d = 1;
+            }
+            const push = (need - d) / 2;
+            shift[i][0] -= (dx / d) * push;
+            shift[i][1] -= (dy / d) * push;
+            shift[j][0] += (dx / d) * push;
+            shift[j][1] += (dy / d) * push;
+            moved = true;
+          }
+        if (!moved) break;
+      }
+      // icon-offset is in pixels at icon-size 1 (the map multiplies it by icon-size).
+      const offsetOf = (i: number, base: number) => {
+        const size = base * scale * (k.get(marks[i].id) ?? 1);
+        return [Math.round((shift[i][0] / size) * 2) / 2, Math.round((shift[i][1] / size) * 2) / 2] as [number, number];
+      };
+      const same = (a: [number, number], b: [number, number]) => a[0] === b[0] && a[1] === b[1];
+      // Only redraw if something changed by a noticeable amount.
+      const round = (v: number) => Math.round(v * 20) / 20;
+      const youIndex = marks.findIndex((m) => m.id === "");
+      const nextYou = round(k.get("") ?? 1);
+      const nextYouO = youIndex >= 0 ? offsetOf(youIndex, 1) : ([0, 0] as [number, number]);
+      let friendsChanged = false;
+      for (const f of friendFeatures.current) {
+        const id = String(f.properties?.id);
+        const next = round(k.get(id) ?? 1);
+        const index = marks.findIndex((m) => m.id === id);
+        const nextO = index >= 0 ? offsetOf(index, 0.92) : ([0, 0] as [number, number]);
+        if ((friendK.current.get(id) ?? 1) !== next || !same(friendO.current.get(id) ?? [0, 0], nextO)) {
+          friendK.current.set(id, next);
+          friendO.current.set(id, nextO);
+          if (f.properties) {
+            f.properties.k = next;
+            f.properties.o = nextO;
+          }
+          friendsChanged = true;
+        }
+      }
+      if (friendsChanged) (map.getSource("friend-people") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: friendFeatures.current });
+      if (nextYou !== youK.current || !same(nextYouO, youO.current)) {
+        youK.current = nextYou;
+        youO.current = nextYouO;
+        const at = dotShown.current;
+        if (at) (map.getSource("you") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: [{ type: "Feature", properties: { k: nextYou, o: nextYouO }, geometry: { type: "Point", coordinates: at } }] });
+      }
+    };
+    spreadSoon.current = () => {
+      if (timer) return;
+      timer = window.setTimeout(spread, Math.max(0, 500 - (performance.now() - lastRun)));
+    };
+    map.on("moveend", spread);
+    spread();
+    return () => {
+      map.off("moveend", spread);
+      window.clearTimeout(timer);
+      spreadSoon.current = () => undefined;
+    };
+  }, [ready]);
 
   const photoKeys = useRef(new Map<string, string>());
   useEffect(() => {

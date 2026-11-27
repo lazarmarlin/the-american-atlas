@@ -800,6 +800,8 @@ export const createBoard = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: unknown) => {
     const row = (input ?? {}) as Record<string, unknown>;
+    // A kind this server doesn't know (an app newer than the server) is refused, not quietly made a to-do list.
+    if (row.kind != null && !ALL_KINDS.includes(row.kind as BoardKind)) throw new Error("That kind of board needs the latest version of the server. Publish the update, then try again.");
     const kind = kindOf(row.kind);
     const title = String(row.title ?? "").trim().slice(0, 60) || NAMES[kind];
     return { kind, title };
@@ -864,6 +866,8 @@ export const deleteBoard = createServerFn({ method: "POST" })
     await sql`delete from boards where id = ${data.id}`;
     // A city squares game goes with its board.
     await sql`delete from square_visits where board_id = ${data.id}`.catch(() => undefined);
+    await sql`delete from square_pauses where board_id = ${data.id}`.catch(() => undefined);
+    await sql`delete from square_cards where board_id = ${data.id}`.catch(() => undefined);
     await sql`delete from square_games where board_id = ${data.id}`.catch(() => undefined);
     return { ok: true };
   });
