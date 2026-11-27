@@ -1195,6 +1195,33 @@ function AtlasShell() {
   // Coming up ahead: unvisited places in the direction you're going (Drive
   // mode, or the voice set to Everything). At most every half mile or minute.
   const [ahead, setAhead] = useState<Ahead[]>([]);
+  // Which car you're in (Drive mode): a small line, tap to switch. From the car-care boards.
+  const [cars, setCars] = useState<import("@/lib/boards").MyCar[]>([]);
+  const [carMenu, setCarMenu] = useState(false);
+  useEffect(() => {
+    if (!driving || !user?.id) {
+      setCarMenu(false);
+      return;
+    }
+    let live = true;
+    void import("@/lib/boards")
+      .then(({ myCars }) => myCars())
+      .then((rows) => live && setCars(rows))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [driving, user?.id]);
+  async function pickCar(row: import("@/lib/boards").MyCar) {
+    setCarMenu(false);
+    setCars((cur) => cur.map((car) => ({ ...car, driving: car.boardId === row.boardId && car.carId === row.carId })));
+    try {
+      const { driveCar } = await import("@/lib/boards");
+      await driveCar({ data: { boardId: row.boardId, carId: row.carId, today: localDay(Date.now()) } });
+    } catch {
+      // Shown as picked; the next look puts it right.
+    }
+  }
   // Weather ahead (Drive mode): the next hour along the way you're going.
   const [weather, setWeather] = useState<WeatherAhead | null>(null);
   const weatherSaid = useRef("");
@@ -2697,6 +2724,29 @@ function AtlasShell() {
                     {nextUp.miles < 1 ? "<1" : Math.round(nextUp.miles)}
                     <span className="ml-0.5 font-sans text-xs text-muted">mi</span>
                   </span>
+                </div>
+              ) : null}
+              {cars.length ? (
+                <div className="border-t border-line">
+                  <button type="button" onClick={() => setCarMenu((v) => !v)} aria-expanded={carMenu} className="flex w-full items-center gap-2 px-4 py-1.5 text-left text-xs text-muted">
+                    <Car className="size-3.5 shrink-0" aria-hidden />
+                    <span className="min-w-0 flex-1 truncate">{cars.find((car) => car.driving) ? `Driving ${cars.find((car) => car.driving)?.name}` : cars.length === 1 ? `Driving ${cars[0].name}?` : "Which car are you in?"}</span>
+                    {cars.length > 1 || !cars.some((car) => car.driving) ? <span className="shrink-0 text-faint">{carMenu ? "Close" : "Change"}</span> : null}
+                  </button>
+                  {carMenu ? (
+                    <div className="flex flex-wrap gap-1.5 px-4 pb-2">
+                      {cars.map((car) => (
+                        <button
+                          key={`${car.boardId}:${car.carId}`}
+                          type="button"
+                          onClick={() => void pickCar(car)}
+                          className={"h-9 rounded-full px-3 text-sm " + (car.driving ? "bg-ink text-bg" : "border border-line text-muted")}
+                        >
+                          {car.name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               {weather ? (

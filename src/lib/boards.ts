@@ -24,6 +24,8 @@ export type BoardItem = {
   everyMonths?: number | null;
   lastMiles?: number | null;
   lastDate?: string | null;
+  /** Car care: which car it's for (none: the first one). */
+  carId?: string | null;
   /** Split costs: cents, who paid, who it was for (empty: everyone). A payment settles up between two people. */
   amount?: number | null;
   paidBy?: string | null;
@@ -34,8 +36,20 @@ export type BoardDoc = {
   start: string | null;
   end: string | null;
   items: BoardItem[];
-  /** Car care: an odometer reading and the day it was taken. */
-  car?: { odometer: number; at: string } | null;
+  /** Car care: the cars, each with an odometer reading and who drives it when. */
+  cars?: BoardCar[];
+};
+
+/**
+ * A car on a car-care board. Miles tracking logs count toward it on the days
+ * someone said "I'm driving this one" (drivers), from its odometer reading on.
+ */
+export type BoardCar = {
+  id: string;
+  name: string;
+  odometer: number | null;
+  at: string | null;
+  drivers: { user: string; from: string; to: string | null }[];
 };
 export type BoardCard = { id: string; title: string; kind: BoardKind };
 export type BoardPerson = { id: string; name: string };
@@ -46,8 +60,9 @@ export type BoardInfo = BoardCard & {
   total: number;
   start: string | null;
   end: string | null;
-  /** Car care: how many are due or nearly due. Split: the total spent, in cents. */
+  /** Car care: how many are due or nearly due, and how many cars. Split: the total spent, in cents. */
   due?: number;
+  cars?: number;
   spent?: number;
 };
 export type BoardOpen = BoardCard & {
@@ -56,8 +71,8 @@ export type BoardOpen = BoardCard & {
   updatedAt: number;
   /** Everyone on the board (the owner first). */
   people?: BoardPerson[];
-  /** Car care: miles tracked since the odometer reading. */
-  milesSince?: number;
+  /** Car care: miles tracked since each car's odometer reading, by car id. */
+  carMiles?: Record<string, number>;
   /** Who's looking (to say "You"). */
   me?: string;
 };
@@ -78,6 +93,7 @@ const GROUP_RE = /^cg-[a-z0-9]{6,24}$/;
 
 const NAMES: Record<BoardKind, string> = { todo: "To-do", pack: "Packing list", trip: "Trip plan", wish: "Wish list", car: "Car care", split: "Split costs" };
 const PLACE_RE = /^[\w:._ -]{1,140}$/;
+const CAR_RE = /^car-[a-z0-9]{1,16}$/;
 
 type Sql = Awaited<ReturnType<typeof import("@/lib/db").getSql>>;
 
@@ -135,11 +151,28 @@ export function cleanDoc(value: unknown): BoardDoc {
       out.among = (Array.isArray(raw.among) ? raw.among : []).map(String).filter((who) => USER_RE.test(who)).slice(0, 40);
       if (raw.payment) out.payment = true;
     }
+    if (CAR_RE.test(String(raw.carId ?? ""))) out.carId = String(raw.carId);
     items.push(out);
   }
-  const car = row.car as Record<string, unknown> | null | undefined;
-  const odometer = car ? whole(car.odometer, 3000000) : null;
-  return { start: day(row.start), end: day(row.end), items, ...(car && odometer != null && day(car.at) ? { car: { odometer, at: day(car.at) as string } } : {}) };
+  const cars: BoardCar[] = [];
+  for (const raw of Array.isArray(row.cars) ? row.cars.slice(0, 8) : []) {
+    const car = (raw ?? {}) as Record<string, unknown>;
+    const id = String(car.id ?? "");
+    if (!CAR_RE.test(id) || cars.some((c) => c.id === id)) continue;
+    const drivers = (Array.isArray(car.drivers) ? car.drivers.slice(-60) : []).flatMap((entry) => {
+      const d = (entry ?? {}) as Record<string, unknown>;
+      const user = String(d.user ?? "");
+      const from = day(d.from);
+      return USER_RE.test(user) && from ? [{ user, from, to: day(d.to) }] : [];
+    });
+    cars.push({ id, name: String(car.name ?? "").trim().slice(0, 40), odometer: whole(car.odometer, 3000000), at: day(car.at), drivers });
+  }
+  // Boards from before there could be more than one car.
+  const legacy = row.car as Record<string, unknown> | null | undefined;
+  if (!cars.length && legacy && whole(legacy.odometer, 3000000) != null && day(legacy.at)) {
+    cars.push({ id: "car-1", name: "", odometer: whole(legacy.odometer, 3000000), at: day(legacy.at), drivers: [] });
+  }
+  return { start: day(row.start), end: day(row.end), items, ...(cars.length ? { cars } : {}) };
 }
 
 /**
@@ -174,12 +207,12 @@ export function mergeDoc(base: BoardDoc, mine: BoardDoc, theirs: BoardDoc): Boar
   }
   // Added by them since I loaded it.
   for (const them of theirs.items) if (!mineIds.has(them.id) && !baseById.has(them.id)) items.push(them);
-  const car = same(mine.car, base.car) ? theirs.car : mine.car;
+  const cars = same(mine.cars, base.cars) ? theirs.cars : mine.cars;
   return {
     start: mine.start !== base.start ? mine.start : theirs.start,
     end: mine.end !== base.end ? mine.end : theirs.end,
     items: items.slice(0, 80),
-    ...(car ? { car } : {}),
+    ...(cars?.length ? { cars } : {}),
   };
 }
 
@@ -264,19 +297,101 @@ async function tickWish(sql: Sql, boardId: string, ownerId: string, doc: BoardDo
   return { doc: next, ticked };
 }
 
-/** Car care: miles the owner's phones tracked since the odometer reading. */
-async function milesSince(sql: Sql, ownerId: string, doc: BoardDoc) {
-  if (!doc.car) return 0;
-  const rows = await sql<{ miles: number | null }>`
-    select coalesce(sum(miles), 0)::float as miles from drive_days where user_id = ${ownerId} and day > ${doc.car.at}::date
-  `;
-  return Math.round(Number(rows[0]?.miles) || 0);
+/**
+ * Car care: miles tracked since each car's odometer reading. A car counts
+ * the days someone said they were driving it. Until anyone has said so, the
+ * first car gets all of the owner's tracked miles (one car, nothing to pick).
+ */
+async function carMiles(sql: Sql, ownerId: string, doc: BoardDoc): Promise<Record<string, number>> {
+  const cars = doc.cars ?? [];
+  const out: Record<string, number> = {};
+  const picked = cars.some((car) => car.drivers.length);
+  for (const [index, car] of cars.entries()) {
+    out[car.id] = 0;
+    if (!car.at || car.odometer == null) continue;
+    if (!picked) {
+      if (index !== 0) continue;
+      const rows = await sql<{ miles: number | null }>`
+        select coalesce(sum(miles), 0)::float as miles from drive_days where user_id = ${ownerId} and day > ${car.at}::date
+      `;
+      out[car.id] = Math.round(Number(rows[0]?.miles) || 0);
+      continue;
+    }
+    let miles = 0;
+    for (const spell of car.drivers) {
+      // Days after the reading, within this spell of driving it.
+      const from = spell.from > car.at ? spell.from : nextDay(car.at);
+      if (spell.to && spell.to < from) continue;
+      const rows = spell.to
+        ? await sql<{ miles: number | null }>`
+            select coalesce(sum(miles), 0)::float as miles from drive_days where user_id = ${spell.user} and day >= ${from}::date and day <= ${spell.to}::date
+          `
+        : await sql<{ miles: number | null }>`
+            select coalesce(sum(miles), 0)::float as miles from drive_days where user_id = ${spell.user} and day >= ${from}::date
+          `;
+      miles += Number(rows[0]?.miles) || 0;
+    }
+    out[car.id] = Math.round(miles);
+  }
+  return out;
+}
+
+/**
+ * "I'm driving this one": my spell in any other car on the board ends
+ * yesterday (or is dropped if it only started today), and one starts today
+ * in this car.
+ */
+export function withDriver(doc: BoardDoc, carId: string, me: string, today: string, owner?: string): BoardDoc {
+  const yesterday = prevDay(today);
+  let start = doc.cars ?? [];
+  // Until now the first car got all of the owner's miles: keep those counted for it.
+  if (owner && start[0]?.at && !start.some((car) => car.drivers.length)) {
+    start = start.map((car, i) => (i === 0 ? { ...car, drivers: [{ user: owner, from: nextDay(car.at as string), to: null }] } : car));
+  }
+  const cars = start.map((car) => {
+    const drivers = car.drivers.flatMap((spell) => {
+      if (spell.user !== me || spell.to) return [spell];
+      if (car.id === carId) return [spell];
+      return spell.from >= today ? [] : [{ ...spell, to: yesterday }];
+    });
+    if (car.id === carId && !drivers.some((spell) => spell.user === me && !spell.to)) drivers.push({ user: me, from: today, to: null });
+    return { ...car, drivers };
+  });
+  return { ...doc, cars };
+}
+
+/** The car someone is driving now on this board, if they've said. */
+export function drivingCar(doc: BoardDoc, me: string) {
+  return (doc.cars ?? []).find((car) => car.drivers.some((spell) => spell.user === me && !spell.to)) ?? null;
+}
+
+function prevDay(value: string) {
+  const d = new Date(`${value}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+export function nextDay(value: string) {
+  const d = new Date(`${value}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** The car a job is for (a job without one belongs to the first car). */
+export function jobCar(doc: BoardDoc, item: BoardItem) {
+  const cars = doc.cars ?? [];
+  return cars.find((car) => car.id === item.carId) ?? cars[0] ?? null;
+}
+
+/** A car's odometer now: the reading plus the miles tracked for it since. */
+export function carOdometer(car: BoardCar | null, miles: Record<string, number> | undefined) {
+  return car && car.odometer != null ? car.odometer + (miles?.[car.id] ?? 0) : null;
 }
 
 /** How many car jobs are due within 300 miles or 3 weeks. */
-export function carDue(doc: BoardDoc, since: number, now = Date.now()) {
-  const odometer = doc.car ? doc.car.odometer + since : null;
+export function carDue(doc: BoardDoc, miles: Record<string, number>, now = Date.now()) {
   return doc.items.filter((item) => {
+    const odometer = carOdometer(jobCar(doc, item), miles);
     const byMiles = item.everyMiles && odometer != null ? (item.lastMiles ?? 0) + item.everyMiles - odometer <= 300 : false;
     const byDate =
       item.everyMonths && item.lastDate
@@ -332,7 +447,10 @@ async function dressed(
   }
   const out: BoardOpen = { id, title: board.title, kind, role, doc: next, updatedAt: at, me };
   if (kind === "split" || kind === "wish") out.people = await boardPeople(sql, id, board.owner_id);
-  if (kind === "car") out.milesSince = await milesSince(sql, board.owner_id, next);
+  if (kind === "car") {
+    out.carMiles = await carMiles(sql, board.owner_id, next);
+    out.people = await boardPeople(sql, id, board.owner_id);
+  }
   return out;
 }
 
@@ -377,7 +495,7 @@ export const listBoards = createServerFn({ method: "GET" })
       const kind = kindOf(row.kind);
       let extra: Partial<BoardInfo> = {};
       if (kind === "wish") doc = (await tickWish(sql, row.id, row.owner_id, doc)).doc;
-      if (kind === "car") extra = { due: carDue(doc, await milesSince(sql, row.owner_id, doc)) };
+      if (kind === "car") extra = { due: carDue(doc, await carMiles(sql, row.owner_id, doc)), cars: doc.cars?.length ?? 0 };
       if (kind === "split") extra = { spent: spentOf(doc) };
       out.push({
         id: row.id,
@@ -515,4 +633,58 @@ export const sendBoardTo = createServerFn({ method: "POST" })
       await pokeUsers(to, "message");
     }
     return { id: messageId, board: card };
+  });
+
+export type MyCar = { boardId: string; carId: string; name: string; driving: boolean };
+
+/** Every car on the car-care boards you can change, and which one you're driving (Drive mode). */
+export const myCars = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<MyCar[]> => {
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    const rows = await sql<{ id: string; title: string; doc: unknown }>`
+      select b.id, b.title, b.doc from boards b
+      where b.kind = 'car' and (b.owner_id = ${context.userId} or exists (select 1 from board_shares s where s.board_id = b.id and s.user_id = ${context.userId} and s.role = 'edit'))
+      order by b.updated_at desc
+      limit 20
+    `;
+    const out: MyCar[] = [];
+    for (const row of rows) {
+      const doc = readDoc(row.doc);
+      for (const car of doc.cars ?? []) {
+        out.push({ boardId: row.id, carId: car.id, name: car.name || row.title, driving: car.drivers.some((spell) => spell.user === context.userId && !spell.to) });
+      }
+    }
+    return out;
+  });
+
+/** Say which car you're in now: its miles count from today. Leaves every other car of yours. */
+export const driveCar = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    const row = (input ?? {}) as Record<string, unknown>;
+    const boardId = String(row.boardId ?? "");
+    const carId = String(row.carId ?? "");
+    const today = day(row.today);
+    if (!BOARD_RE.test(boardId) || !CAR_RE.test(carId) || !today) throw new Error("Unknown car");
+    return { boardId, carId, today };
+  })
+  .handler(async ({ context, data }) => {
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    const { role } = await loadAccess(sql, context.userId, data.boardId);
+    if (role === "check") throw new Error("You can't change that board.");
+    // Out of whatever car you were in on your other boards.
+    const rows = await sql<{ id: string; doc: unknown; owner_id: string }>`
+      select b.id, b.doc, b.owner_id from boards b
+      where b.kind = 'car' and (b.owner_id = ${context.userId} or exists (select 1 from board_shares s where s.board_id = b.id and s.user_id = ${context.userId} and s.role = 'edit'))
+    `;
+    for (const row of rows) {
+      const doc = readDoc(row.doc);
+      const next =
+        row.id === data.boardId ? withDriver(doc, data.carId, context.userId, data.today, row.owner_id) : withDriver(doc, "car-none", context.userId, data.today);
+      if (JSON.stringify(next) !== JSON.stringify(doc)) await sql`update boards set doc = ${JSON.stringify(next)}::jsonb, updated_at = now() where id = ${row.id}`;
+    }
+    return { ok: true };
   });

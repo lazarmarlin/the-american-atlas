@@ -19,6 +19,11 @@ import {
   openBoard,
   saveBoard,
   sendBoardTo,
+  carOdometer,
+  drivingCar,
+  jobCar,
+  withDriver,
+  type BoardCar,
   type BoardDoc,
   type BoardInfo,
   type BoardItem,
@@ -249,11 +254,7 @@ function BoardList({ title, rows, onOpen }: { title: string; rows: BoardInfo[]; 
                   <span className="mt-0.5 block truncate text-xs text-muted">
                     {row.kind === "trip" && row.start ? `${dayLabel(row.start)}${days ? ` · ${days} ${days === 1 ? "day" : "days"}` : ""} · ` : ""}
                     {row.kind === "car"
-                      ? row.total
-                        ? row.due
-                          ? `${row.due} due soon`
-                          : `${row.total} ${row.total === 1 ? "job" : "jobs"} · nothing due`
-                        : "Nothing tracked yet"
+                      ? `${(row.cars ?? 0) > 1 ? `${row.cars} cars · ` : ""}${row.total ? (row.due ? `${row.due} due soon` : "nothing due") : "nothing tracked yet"}`
                       : row.kind === "split"
                         ? `${money(row.spent ?? 0)} spent`
                         : progressWords(row.kind, row.done, row.total)}
@@ -299,6 +300,10 @@ function BoardEditor({
   const [showDone, setShowDone] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Car care: the car being looked at (default: the one I'm driving, else the first).
+  const [carPick, setCarPick] = useState<string | null>(null);
+  const cars = board.doc.cars ?? [];
+  const car = cars.find((row) => row.id === carPick) ?? (board.me ? drivingCar(board.doc, board.me) : null) ?? cars[0] ?? null;
 
   // What the server last said: changes are sent as "from this, to this", so
   // the server can merge them with anyone else's.
@@ -434,7 +439,14 @@ function BoardEditor({
           <TripDates board={board} canEdit={canEdit} days={days} onDates={(doc) => write({ ...latest.current, doc: { ...latest.current.doc, ...doc } })} />
         ) : null}
         {board.kind === "car" ? (
-          <Odometer board={board} canEdit={canEdit} onCar={(car) => write({ ...latest.current, doc: { ...latest.current.doc, car } })} />
+          <CarPanel
+            board={board}
+            car={car}
+            canEdit={canEdit}
+            onPick={setCarPick}
+            onCars={(next) => write({ ...latest.current, doc: { ...latest.current.doc, cars: next } })}
+            onDoc={(doc) => write({ ...latest.current, doc })}
+          />
         ) : board.kind === "split" ? (
           <SplitSummary board={board} canEdit={canEdit} onSettle={(from, to, cents) => add("Paid back", { amount: cents, paidBy: from, among: [to], payment: true })} />
         ) : (
@@ -454,7 +466,7 @@ function BoardEditor({
       {/* The list. */}
       {!items.length ? <p className="mx-4 mt-5 text-sm text-muted">{look.empty}</p> : null}
       {board.kind === "car" ? (
-        <CarJobs board={board} canEdit={canEdit} onSave={update} onRemove={remove} />
+        <CarJobs board={board} car={car} canEdit={canEdit} onSave={update} onRemove={remove} />
       ) : board.kind === "split" ? (
         <SplitList board={board} canEdit={canEdit} onSave={update} onRemove={remove} />
       ) : board.kind === "trip" ? (
@@ -501,7 +513,7 @@ function BoardEditor({
 
       {/* Adding. */}
       {canEdit && board.kind === "wish" ? <WishPicker board={board} onAdd={add} /> : null}
-      {canEdit && board.kind === "car" ? <CarAdd board={board} onAdd={add} /> : null}
+      {canEdit && board.kind === "car" && car ? <CarAdd board={board} car={car} onAdd={add} /> : null}
       {canEdit && board.kind === "split" ? <SplitAdd board={board} onAdd={add} /> : null}
       {canEdit && board.kind !== "wish" && board.kind !== "car" && board.kind !== "split" ? (
         <div className="mx-4 mt-4">
@@ -963,8 +975,13 @@ const todayDay = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
-function estOdometer(board: BoardOpen) {
-  return board.doc.car ? board.doc.car.odometer + (board.milesSince ?? 0) : null;
+function carId() {
+  return `car-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** The jobs for one car (jobs from before there were several cars belong to the first). */
+function jobsFor(board: BoardOpen, car: BoardCar | null) {
+  return board.doc.items.filter((item) => jobCar(board.doc, item)?.id === car?.id);
 }
 
 type JobState = { tone: "ok" | "soon" | "over" | "unknown"; line: string; used: number };
@@ -996,81 +1013,225 @@ function everyWords(item: BoardItem) {
   return parts.length ? `Every ${parts.join(" or ")}` : "";
 }
 
-function Odometer({ board, canEdit, onCar }: { board: BoardOpen; canEdit: boolean; onCar: (car: { odometer: number; at: string }) => void }) {
-  const est = estOdometer(board);
+/** The cars as tabs, the chosen one's odometer, and who's driving it. */
+function CarPanel({
+  board,
+  car,
+  canEdit,
+  onPick,
+  onCars,
+  onDoc,
+}: {
+  board: BoardOpen;
+  car: BoardCar | null;
+  canEdit: boolean;
+  onPick: (id: string) => void;
+  onCars: (cars: BoardCar[]) => void;
+  onDoc: (doc: BoardDoc) => void;
+}) {
+  const cars = board.doc.cars ?? [];
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
-  const due = board.doc.items.filter((item) => {
+  const [name, setName] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [removing, setRemoving] = useState(false);
+  const names = new Map((board.people ?? []).map((person) => [person.id, person.name]));
+  const est = carOdometer(car, board.carMiles);
+  const jobs = jobsFor(board, car);
+  const due = jobs.filter((item) => {
     const tone = jobState(item, est).tone;
     return tone === "over" || tone === "soon";
   }).length;
-  const save = () => {
+  const meDriving = !!car && !!board.me && car.drivers.some((spell) => spell.user === board.me && !spell.to);
+  const others = car ? [...new Set(car.drivers.filter((spell) => !spell.to && spell.user !== board.me).map((spell) => names.get(spell.user) ?? "Someone"))] : [];
+
+  const patchCar = (patch: Partial<BoardCar>) => car && onCars(cars.map((row) => (row.id === car.id ? { ...row, ...patch } : row)));
+
+  function addCar() {
+    const label = newName.trim().slice(0, 40);
+    if (!label) return;
+    const id = carId();
+    let list = cars;
+    // Until now one car got all the miles; keep counting them for it.
+    if (list.length && !list.some((row) => row.drivers.length) && list[0].at) {
+      const owner = board.people?.[0]?.id ?? board.me;
+      if (owner) list = list.map((row, i) => (i === 0 ? { ...row, drivers: [{ user: owner, from: nextDayOf(row.at as string), to: null }] } : row));
+    }
+    onCars([...list, { id, name: label, odometer: null, at: null, drivers: [] }]);
+    onPick(id);
+    setAdding(false);
+    setNewName("");
+  }
+
+  function saveReading() {
     const n = Math.round(Number(value.replace(/[^\d.]/g, "")));
-    if (!Number.isFinite(n) || n <= 0 || n > 3_000_000) return;
-    onCar({ odometer: n, at: todayDay() });
+    if (!car || !Number.isFinite(n) || n <= 0 || n > 3_000_000) return;
+    patchCar({ odometer: n, at: todayDay(), ...(name.trim() ? { name: name.trim().slice(0, 40) } : {}) });
     setEditing(false);
-  };
+  }
+
   return (
     <div className="mt-4">
-      {editing || (!board.doc.car && canEdit) ? (
+      {/* The cars. */}
+      <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+        {cars.map((row, index) => {
+          const on = row.id === car?.id;
+          const mine = !!board.me && row.drivers.some((spell) => spell.user === board.me && !spell.to);
+          return (
+            <button
+              key={row.id}
+              type="button"
+              aria-pressed={on}
+              onClick={() => onPick(row.id)}
+              className={"flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm " + (on ? "bg-ink text-bg" : "border border-line text-muted")}
+            >
+              {mine ? <span className={"size-1.5 rounded-full " + (on ? "bg-bg" : "bg-ink")} aria-label="You're driving it" /> : null}
+              {row.name || (index === 0 ? board.title : `Car ${index + 1}`)}
+            </button>
+          );
+        })}
+        {canEdit && cars.length < 8 ? (
+          <button type="button" onClick={() => setAdding(true)} className="flex h-9 shrink-0 items-center gap-1 rounded-full border border-dashed border-line px-3 text-sm text-muted">
+            <Plus className="size-3.5" />
+            {cars.length ? "Car" : "Add a car"}
+          </button>
+        ) : null}
+      </div>
+      {adding ? (
         <form
-          className="flex items-center gap-2"
+          className="mt-2 flex gap-2"
           onSubmit={(event) => {
             event.preventDefault();
-            save();
+            addCar();
           }}
         >
-          <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-xl border border-line bg-bg/60 px-3">
-            <Gauge className="size-4 shrink-0 text-faint" />
-            <input
-              inputMode="numeric"
-              value={value}
-              onChange={(event) => setValue(event.target.value)}
-              placeholder="What's the odometer now?"
-              className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-faint"
-            />
-            <span className="text-xs text-faint">mi</span>
-          </div>
-          <button type="submit" className="h-11 shrink-0 rounded-lg bg-ink px-4 text-sm text-bg">
-            Save
+          <input autoFocus value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Its name: Subaru, the truck…" className="h-11 min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 text-base outline-none placeholder:text-faint" />
+          <button type="submit" disabled={!newName.trim()} className="h-11 shrink-0 rounded-lg bg-ink px-4 text-sm text-bg disabled:bg-elevated disabled:text-faint">
+            Add
           </button>
         </form>
-      ) : board.doc.car && est != null ? (
-        <div className="flex items-center gap-3">
-          <Gauge className="size-5 shrink-0 text-muted" />
-          <div className="min-w-0 flex-1">
-            <p className="text-lg leading-tight tabular-nums">~{est.toLocaleString()} mi</p>
-            <p className="text-xs text-faint">
-              {board.doc.car.odometer.toLocaleString()} on {dayLabel(board.doc.car.at)}
-              {board.milesSince ? ` + ${board.milesSince.toLocaleString()} tracked` : ""}
-            </p>
-          </div>
-          {canEdit ? (
-            <button
-              type="button"
-              onClick={() => {
-                setValue(String(est));
-                setEditing(true);
+      ) : null}
+
+      {car ? (
+        <div className="mt-3">
+          {editing || (car.odometer == null && canEdit) ? (
+            <form
+              className="grid gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                saveReading();
               }}
-              className="h-9 shrink-0 rounded-full border border-line px-3 text-xs text-muted"
             >
-              Update
-            </button>
+              {editing ? (
+                <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Name" aria-label="Car name" className="h-11 rounded-xl border border-line bg-bg/60 px-3 text-base outline-none" />
+              ) : null}
+              <div className="flex items-center gap-2">
+                <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-xl border border-line bg-bg/60 px-3">
+                  <Gauge className="size-4 shrink-0 text-faint" />
+                  <input inputMode="numeric" value={value} onChange={(event) => setValue(event.target.value)} placeholder="What's the odometer now?" className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-faint" />
+                  <span className="text-xs text-faint">mi</span>
+                </div>
+                <button type="submit" className="h-11 shrink-0 rounded-lg bg-ink px-4 text-sm text-bg">
+                  Save
+                </button>
+              </div>
+            </form>
+          ) : car.odometer != null && car.at && est != null ? (
+            <div className="flex items-center gap-3">
+              <Gauge className="size-5 shrink-0 text-muted" />
+              <div className="min-w-0 flex-1">
+                <p className="text-lg leading-tight tabular-nums">~{est.toLocaleString()} mi</p>
+                <p className="text-xs text-faint">
+                  {car.odometer.toLocaleString()} on {dayLabel(car.at)}
+                  {board.carMiles?.[car.id] ? ` + ${board.carMiles[car.id].toLocaleString()} tracked` : ""}
+                </p>
+              </div>
+              {canEdit ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setValue(String(est));
+                    setName(car.name);
+                    setEditing(true);
+                  }}
+                  className="h-9 shrink-0 rounded-full border border-line px-3 text-xs text-muted"
+                >
+                  Update
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-sm text-muted">No odometer reading yet.</p>
+          )}
+
+          {/* Whose miles count for it. */}
+          {canEdit && board.me && cars.length > 1 ? (
+            meDriving ? (
+              <p className="mt-3 flex items-center gap-2 text-sm">
+                <span className="size-2 rounded-full bg-ink" aria-hidden="true" />
+                You're driving this one; your tracked miles count for it.
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={() => board.me && onDoc(withDriver(board.doc, car.id, board.me, todayDay(), board.people?.[0]?.id))}
+                className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-line text-sm"
+              >
+                I'm driving this one
+              </button>
+            )
+          ) : null}
+          {others.length ? <p className="mt-1.5 text-xs text-faint">{others.join(", ")} {others.length === 1 ? "drives" : "drive"} it too.</p> : null}
+
+          <p className="mt-3 text-sm">{jobs.length ? (due ? `${due} ${due === 1 ? "job" : "jobs"} due soon` : "Nothing due soon") : "Nothing to track yet"}</p>
+
+          {canEdit && cars.length > 1 ? (
+            removing ? (
+              <div className="mt-2 flex gap-2">
+                <button type="button" onClick={() => setRemoving(false)} className="h-10 flex-1 rounded-lg border border-line text-sm">
+                  Keep it
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const first = cars[0]?.id === car.id;
+                    const items = board.doc.items.filter((item) => (item.carId ? item.carId !== car.id : !first));
+                    onDoc({ ...board.doc, cars: cars.filter((row) => row.id !== car.id), items });
+                    setRemoving(false);
+                  }}
+                  className="h-10 flex-1 rounded-lg border border-accent text-sm text-accent"
+                >
+                  Remove it and its jobs
+                </button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setRemoving(true)} className="mt-1 h-9 text-xs text-faint">
+                Remove this car
+              </button>
+            )
           ) : null}
         </div>
-      ) : (
-        <p className="text-sm text-muted">No odometer reading yet.</p>
-      )}
-      <p className="mt-3 text-sm">{board.doc.items.length ? (due ? `${due} ${due === 1 ? "job" : "jobs"} due soon` : "Nothing due soon") : "Nothing to track yet"}</p>
+      ) : !cars.length && !adding ? (
+        <p className="mt-2 text-sm text-muted">Add your car to start.</p>
+      ) : null}
     </div>
   );
 }
 
-function CarJobs({ board, canEdit, onSave, onRemove }: { board: BoardOpen; canEdit: boolean; onSave: (id: string, patch: Partial<BoardItem>) => void; onRemove: (id: string) => void }) {
-  const est = estOdometer(board);
+function nextDayOf(value: string) {
+  const d = new Date(`${value}T12:00:00`);
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function CarJobs({ board, car, canEdit, onSave, onRemove }: { board: BoardOpen; car: BoardCar | null; canEdit: boolean; onSave: (id: string, patch: Partial<BoardItem>) => void; onRemove: (id: string) => void }) {
+  const est = carOdometer(car, board.carMiles);
   const [open, setOpen] = useState<string | null>(null);
   const order = { over: 0, soon: 1, unknown: 2, ok: 3 } as const;
-  const rows = board.doc.items.map((item) => ({ item, state: jobState(item, est) })).sort((a, b) => order[a.state.tone] - order[b.state.tone]);
+  const rows = jobsFor(board, car)
+    .map((item) => ({ item, state: jobState(item, est) }))
+    .sort((a, b) => order[a.state.tone] - order[b.state.tone]);
   if (!rows.length) return null;
   return (
     <ul className="mx-4 mt-4 grid gap-2">
@@ -1158,9 +1319,9 @@ function JobEditor({ item, onSave, onRemove }: { item: BoardItem; onSave: (patch
   );
 }
 
-function CarAdd({ board, onAdd }: { board: BoardOpen; onAdd: (line: string, extra: Partial<BoardItem>) => void }) {
+function CarAdd({ board, car, onAdd }: { board: BoardOpen; car: BoardCar; onAdd: (line: string, extra: Partial<BoardItem>) => void }) {
   const [text, setText] = useState("");
-  const have = new Set(board.doc.items.map((item) => item.text.toLowerCase()));
+  const have = new Set(jobsFor(board, car).map((item) => item.text.toLowerCase()));
   const ideas = CAR_JOBS.filter((job) => !have.has(job.text.toLowerCase()));
   return (
     <div className="mx-4 mt-4">
@@ -1168,7 +1329,7 @@ function CarAdd({ board, onAdd }: { board: BoardOpen; onAdd: (line: string, extr
         className="flex items-center gap-1 rounded-full border border-line bg-surface py-1 pr-1 pl-4 focus-within:border-muted/60"
         onSubmit={(event) => {
           event.preventDefault();
-          onAdd(text, {});
+          onAdd(text, { carId: car.id });
           setText("");
         }}
       >
@@ -1185,7 +1346,7 @@ function CarAdd({ board, onAdd }: { board: BoardOpen; onAdd: (line: string, extr
               <button
                 key={job.text}
                 type="button"
-                onClick={() => onAdd(job.text, { everyMiles: job.everyMiles, everyMonths: job.everyMonths })}
+                onClick={() => onAdd(job.text, { everyMiles: job.everyMiles, everyMonths: job.everyMonths, carId: car.id })}
                 className="flex h-9 shrink-0 items-center gap-1 rounded-full border border-line bg-surface px-3 text-sm text-muted active:bg-elevated"
               >
                 <Plus className="size-3.5" />
