@@ -885,7 +885,12 @@ function PushCard() {
         setNote(report.problems.join(" ") || "Google didn't take it.");
       }
     } catch (err) {
-      setNote(err instanceof Error ? err.message : "Couldn't run the test.");
+      const text = err instanceof Error ? err.message : "";
+      setNote(
+        /fetch|network|load failed/i.test(text)
+          ? "The server didn't answer properly (it may have crashed, or still be deploying). Open traveltrack.grok.me/api/push-status in a browser to see how push stands on the server."
+          : text || "Couldn't run the test.",
+      );
     } finally {
       setBusy(false);
     }

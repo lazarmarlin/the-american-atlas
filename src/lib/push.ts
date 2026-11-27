@@ -43,5 +43,13 @@ export const testPush = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const { sendPokes } = await import("@/lib/push.server");
-    return sendPokes([context.userId], "test");
+    // Always an answer (never a hang the app can't read), whatever goes wrong.
+    try {
+      return await Promise.race([
+        sendPokes([context.userId], "test"),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Timed out talking to Google")), 15_000)),
+      ]);
+    } catch (err) {
+      return { configured: true, phones: 0, sent: 0, problems: [err instanceof Error ? err.message : "The test failed on the server."] };
+    }
   });

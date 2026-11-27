@@ -62,6 +62,7 @@ async function accessToken(acct: Account): Promise<string> {
   const key = await crypto.subtle.importKey("pkcs8", Buffer.from(pem, "base64"), { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
   const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(`${header}.${claims}`));
   const res = await fetch("https://oauth2.googleapis.com/token", {
+    signal: AbortSignal.timeout(6000),
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${header}.${claims}.${b64url(signature)}` }),
@@ -93,7 +94,13 @@ export async function sendPokes(userIds: string[], what: "message" | "like" | "t
   if (!ids.length) return report;
   const { getSql } = await import("@/lib/db");
   const sql = await getSql();
-  const rows = await sql<{ token: string }>`select token from push_tokens where user_id = any(${ids})`;
+  let rows: { token: string }[];
+  try {
+    rows = await sql<{ token: string }>`select token from push_tokens where user_id = any(${ids})`;
+  } catch (err) {
+    report.problems.push(`The phone list couldn't be read (${err instanceof Error ? err.message : "database error"}). The push_tokens migration may not have run.`);
+    return report;
+  }
   report.phones = rows.length;
   if (!rows.length) return report;
   let bearer: string;
@@ -109,6 +116,7 @@ export async function sendPokes(userIds: string[], what: "message" | "like" | "t
     rows.map(async ({ token }) => {
       try {
         const res = await fetch(url, {
+          signal: AbortSignal.timeout(6000),
           method: "POST",
           headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
           body: JSON.stringify({
@@ -157,4 +165,36 @@ export async function pokeUsers(userIds: string[], kind: "message" | "like" = "m
     if (report.problems.length) console.warn("push:", report.problems.join(" | "));
   });
   await Promise.race([work.catch((err) => console.warn("push failed:", err)), new Promise((resolve) => setTimeout(resolve, 4000))]);
+}
+
+/**
+ * What /api/push-status shows: whether this server has the push code and a
+ * readable key, and (with `signIn`) whether Google accepts the key. Nothing
+ * secret: the project id is in the app too.
+ */
+export async function pushStatus(signIn: boolean) {
+  const raw = env("FIREBASE_SERVICE_ACCOUNT");
+  const acct = serviceAccount();
+  const out: Record<string, unknown> = {
+    code: "push-3",
+    key: acct ? "ok" : raw ? "unreadable" : "missing",
+    project: acct?.project_id ?? null,
+  };
+  try {
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    const rows = await sql<{ n: number }>`select count(*)::int as n from push_tokens`;
+    out.phones = Number(rows[0]?.n) || 0;
+  } catch (err) {
+    out.phones = `error: ${err instanceof Error ? err.message.slice(0, 160) : "unknown"}`;
+  }
+  if (signIn && acct) {
+    try {
+      await accessToken(acct);
+      out.google = "ok";
+    } catch (err) {
+      out.google = err instanceof Error ? err.message : "failed";
+    }
+  }
+  return out;
 }
