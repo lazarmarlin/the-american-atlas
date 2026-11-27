@@ -17,7 +17,9 @@ import { Clock, Copy, Download, LogOut, Map as MapIcon, MapPinPlus, Maximize2, M
 import { TripSketch, tripDates } from "@/components/trip-recap";
 import { Images, ImageIcon, Settings } from "lucide-react";
 import { WallpaperScreen, wallpaperFor } from "@/components/chat-wallpaper";
-import { ArrowUp, Camera, LocateFixed, MapPinned, Mic, Plus, Route, Send } from "lucide-react";
+import { ArrowUp, Camera, ListTodo, LocateFixed, MapPinned, Mic, Plus, Route, Send } from "lucide-react";
+import { allowMic } from "@/lib/mic";
+import { BoardsPage } from "@/components/boards-page";
 import { ChatLookScreen, applyShared } from "@/components/chat-look";
 import { LOOK_DEFAULT, nickOf, readLook, useLookVersion, wallVeil, withAlpha, type ChatLook } from "@/lib/chat-look";
 import { loadTheme } from "@/lib/chat-theme";
@@ -49,6 +51,7 @@ function blurb(row: ChatMessage) {
   if (row.kind === "trail") return row.trail?.name || "A trail";
   if (row.kind === "here") return row.here?.label || "I'm here";
   if (row.kind === "day") return row.day ? `A day · ${row.day.day}` : "A day";
+  if (row.kind === "board") return row.board?.title || "A board";
   return row.body;
 }
 
@@ -128,6 +131,7 @@ export function ChatThread({
   onOpenPlace,
   onOpenTrail,
   onOpenHere,
+  onOpenBoard,
   you = null,
   wallpaper = null,
   look = LOOK_DEFAULT,
@@ -141,6 +145,7 @@ export function ChatThread({
   onOpenPlace?: (place: ChatPlace) => void;
   onOpenTrail?: (lines: [number, number][][]) => void;
   onOpenHere?: (lat: number, lon: number, label?: string) => void;
+  onOpenBoard?: (id: string) => void;
   /** Where you are, so "I'm here" can send the place you're in. */
   you?: Fix | null;
   /** A picture behind the messages. */
@@ -166,6 +171,7 @@ export function ChatThread({
   const [captionFor, setCaptionFor] = useState<File | null>(null);
   const [caption, setCaption] = useState("");
   const [trailsOpen, setTrailsOpen] = useState(false);
+  const [boardsOpen, setBoardsOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [query, setQuery] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
@@ -298,18 +304,19 @@ export function ChatThread({
 
   // Back closes whatever is on top: the photo, a picker, the menu.
   useEffect(() => {
-    if (!viewing && !picking && !menu && !attach && !sharing && !trailsOpen && !captionFor) return;
+    if (!viewing && !picking && !menu && !attach && !sharing && !trailsOpen && !captionFor && !boardsOpen) return;
     return pushBack(() => {
       if (viewing) setViewing(null);
       else if (picking) setPicking(null);
       else if (sharing) setSharing(false);
       else if (trailsOpen) setTrailsOpen(false);
+      else if (boardsOpen) setBoardsOpen(false);
       else if (captionFor) setCaptionFor(null);
       else if (attach) setAttach(false);
       else setMenu(null);
       return true;
     });
-  }, [viewing, picking, menu, attach, sharing, trailsOpen, captionFor]);
+  }, [viewing, picking, menu, attach, sharing, trailsOpen, captionFor, boardsOpen]);
 
   function optimistic(row: Omit<ChatMessage, "fromId" | "fromName" | "at">) {
     const full: ChatMessage = { ...row, fromId: meId, fromName: "You", at: Date.now() };
@@ -428,9 +435,11 @@ export function ChatThread({
     const token = ++recordToken.current;
     event.currentTarget.setPointerCapture(event.pointerId);
     try {
+      await allowMic();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (recordToken.current !== token) {
         stream.getTracks().forEach((track) => track.stop());
+        setNote("Hold the mic and keep holding while it starts.");
         return;
       }
       const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -438,7 +447,14 @@ export function ChatThread({
         : MediaRecorder.isTypeSupported("audio/mp4")
           ? "audio/mp4"
           : "";
-      const rec = mime ? new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 24000 }) : new MediaRecorder(stream);
+      let rec: MediaRecorder;
+      try {
+        rec = mime ? new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 24000 }) : new MediaRecorder(stream);
+      } catch {
+        stream.getTracks().forEach((track) => track.stop());
+        setNote("This phone can't record a voice note.");
+        return;
+      }
       const chunks: Blob[] = [];
       rec.ondataavailable = (item) => {
         if (item.data.size) chunks.push(item.data);
@@ -473,8 +489,9 @@ export function ChatThread({
       window.setTimeout(() => {
         if (recorder.current === rec && rec.state === "recording") rec.stop();
       }, 30_000);
-    } catch {
-      setNote("The mic needs permission.");
+    } catch (err) {
+      const denied = err instanceof DOMException ? err.name === "NotAllowedError" || err.name === "SecurityError" : err instanceof Error && /denied|permission/i.test(err.message);
+      setNote(denied ? "The mic needs permission. Allow the microphone for Atlas, then hold the button again." : "Couldn't start the microphone.");
     }
   }
 
@@ -885,6 +902,16 @@ export function ChatThread({
                   </div>
                 ) : null}
                 {row.kind === "voice" ? <VoiceNote thread={thread} id={row.id} seconds={Number(row.body) || 1} local={clips.current.get(row.id) ?? ""} /> : null}
+                {row.kind === "board" && row.board ? (
+                  <button type="button" onClick={() => onOpenBoard?.(row.board?.id ?? "")} className="block w-full py-1 text-left">
+                    <span className="flex items-center gap-2 text-accent">
+                      <ListTodo className="size-4" />
+                      <span className="text-xs tracking-widest uppercase">{row.board.kind === "pack" ? "Packing list" : row.board.kind === "trip" ? "Trip plan" : "To-do"}</span>
+                    </span>
+                    <span className="mt-0.5 block font-serif text-lg leading-tight">{row.board.title}</span>
+                    <span className="mt-1 block text-xs text-muted">Open the board</span>
+                  </button>
+                ) : null}
                 {row.kind === "text" ? <p className="break-words">{linkParts(row.body)}</p> : null}
               </div>
               {row.reactions && MARKS.some(([mark]) => row.reactions?.[mark]) ? (
@@ -1022,6 +1049,17 @@ export function ChatThread({
         )}
       </form>
 
+      {boardsOpen ? (
+        <BoardsPage
+          thread={thread}
+          onClose={() => setBoardsOpen(false)}
+          onSent={() => {
+            setBoardsOpen(false);
+            pullNow.current();
+          }}
+        />
+      ) : null}
+
       {attach ? (
         <Sheet label="Send" onClose={() => setAttach(false)} bare>
           {/* Where you are, sent in one tap. */}
@@ -1043,7 +1081,7 @@ export function ChatThread({
             </span>
             <Send className="size-4 shrink-0 text-muted" aria-hidden="true" />
           </button>
-          <div className="mt-2 grid grid-cols-3 gap-2">
+          <div className="mt-2 grid grid-cols-4 gap-2">
             {(
               [
                 [
@@ -1069,6 +1107,14 @@ export function ChatThread({
                   () => {
                     setAttach(false);
                     setTrailsOpen(true);
+                  },
+                ],
+                [
+                  "Board",
+                  <ListTodo key="i" className="size-5" />,
+                  () => {
+                    setAttach(false);
+                    setBoardsOpen(true);
                   },
                 ],
               ] as const
@@ -1148,7 +1194,7 @@ export function ChatThread({
                 {menu.fromId === meId ? "You" : menu.fromName} · {stampText(menu.at)}
               </p>
               <p className="truncate text-sm">
-                {menu.kind === "photo" ? (menu.body ? menu.body : "Photo") : menu.kind === "voice" ? "Voice note" : menu.kind === "place" ? menu.place?.name : menu.kind === "trip" ? menu.trip?.name : menu.kind === "trail" ? menu.trail?.name : menu.kind === "here" ? menu.here?.label : menu.kind === "day" ? "A day" : menu.body}
+                {menu.kind === "photo" ? (menu.body ? menu.body : "Photo") : menu.kind === "voice" ? "Voice note" : menu.kind === "place" ? menu.place?.name : menu.kind === "trip" ? menu.trip?.name : menu.kind === "trail" ? menu.trail?.name : menu.kind === "here" ? menu.here?.label : menu.kind === "day" ? "A day" : menu.kind === "board" ? menu.board?.title || "A board" : menu.body}
               </p>
             </div>
           </div>
@@ -1740,6 +1786,7 @@ export function ChatScreen({
           onOpenPlace={chat.onOpenPlace}
           onOpenTrail={chat.onOpenTrail}
           onOpenHere={chat.onOpenHere}
+          onOpenBoard={chat.onOpenBoard}
         />
       ) : null}
       {wallOpen ? (
@@ -1766,6 +1813,7 @@ export function MessageBoard({
   onOpenPlace,
   onOpenTrail,
   onOpenHere,
+  onOpenBoard,
   you = null,
   onClose,
   initial = null,
@@ -1776,6 +1824,7 @@ export function MessageBoard({
   onOpenPlace?: (place: ChatPlace, from?: Thread) => void;
   onOpenTrail?: (lines: [number, number][][]) => void;
   onOpenHere?: (lat: number, lon: number, label?: string) => void;
+  onOpenBoard?: (id: string) => void;
   you?: Fix | null;
   onClose: () => void;
   /** Open straight into this chat (back from a place it sent). */
@@ -1842,6 +1891,7 @@ export function MessageBoard({
         onAddToMap={onAddToMap}
         onOpenTrail={onOpenTrail}
         onOpenHere={onOpenHere}
+        onOpenBoard={onOpenBoard}
         you={you}
         onOpenPlace={
           onOpenPlace

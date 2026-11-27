@@ -33,6 +33,7 @@ export function SharedInChat({
   onOpenPlace,
   onOpenTrail,
   onOpenHere,
+  onOpenBoard,
 }: {
   meId: string;
   thread: Thread;
@@ -40,6 +41,7 @@ export function SharedInChat({
   onOpenPlace?: (place: ChatPlace) => void;
   onOpenTrail?: (lines: [number, number][][]) => void;
   onOpenHere?: (lat: number, lon: number, label?: string) => void;
+  onOpenBoard?: (id: string) => void;
 }) {
   const [rows, setRows] = useState<ChatMessage[] | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -91,7 +93,7 @@ export function SharedInChat({
         {rows && !shown.length ? <p className="text-sm text-muted">Nothing here yet.</p> : null}
         <ul className="grid gap-2">
           {shown.map((row) => (
-            <SharedRow key={row.id} row={row} onOpenPlace={onOpenPlace} onOpenTrail={onOpenTrail} onOpenHere={onOpenHere} onClose={onClose} />
+            <SharedRow key={row.id} row={row} onOpenPlace={onOpenPlace} onOpenTrail={onOpenTrail} onOpenHere={onOpenHere} onOpenBoard={onOpenBoard} onClose={onClose} />
           ))}
         </ul>
       </div>
@@ -105,12 +107,14 @@ function SharedRow({
   onOpenPlace,
   onOpenTrail,
   onOpenHere,
+  onOpenBoard,
   onClose,
 }: {
   row: ChatMessage;
   onOpenPlace?: (place: ChatPlace) => void;
   onOpenTrail?: (lines: [number, number][][]) => void;
   onOpenHere?: (lat: number, lon: number, label?: string) => void;
+  onOpenBoard?: (id: string) => void;
   onClose: () => void;
 }) {
   const title =
@@ -128,7 +132,9 @@ function SharedRow({
                 ? row.day?.day || "A day"
                 : row.kind === "voice"
                   ? "Voice note"
-                  : row.body.slice(0, 140);
+                  : row.kind === "board"
+                    ? row.board?.title || "A board"
+                    : row.body.slice(0, 140);
   const open = () => {
     if (row.kind === "place" && row.place && onOpenPlace) {
       onClose();
@@ -154,6 +160,9 @@ function SharedRow({
           visited: false,
         });
       } else onOpenHere?.(row.here.lat, row.here.lon, `${row.fromName} was here · ${row.here.label}`);
+    } else if (row.kind === "board" && row.board && onOpenBoard) {
+      onClose();
+      onOpenBoard(row.board.id);
     } else if (row.kind === "link") {
       window.open(row.body, "_blank", "noopener");
     }

@@ -8,6 +8,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import type { TripCard } from "@/lib/trips";
 import { trailCard, type ChatTrail } from "@/lib/trail-card";
+import type { BoardCard } from "@/lib/boards";
 
 export type ChatPlace = {
   id: string;
@@ -60,7 +61,7 @@ export type ChatMessage = {
   id: string;
   fromId: string;
   fromName: string;
-  kind: "text" | "link" | "photo" | "place" | "trip" | "trail" | "here" | "day" | "voice";
+  kind: "text" | "link" | "photo" | "place" | "trip" | "trail" | "here" | "day" | "voice" | "board";
   body: string;
   thumb: string;
   at: number;
@@ -72,6 +73,7 @@ export type ChatMessage = {
   trail?: ChatTrail | null;
   here?: ChatHere | null;
   day?: ChatDay | null;
+  board?: BoardCard | null;
   reply?: ChatReply | null;
   reactions?: ChatReaction;
   /** Stuck to the top of this chat. */
@@ -171,7 +173,7 @@ export async function namesFor(sql: Sql, ids: string[]) {
   return new Map(rows.map((row) => [row.id, row.name]));
 }
 
-const KINDS = ["link", "photo", "place", "trip", "trail", "here", "day", "voice"] as const;
+const KINDS = ["link", "photo", "place", "trip", "trail", "here", "day", "voice", "board"] as const;
 function kindOf(value: unknown): ChatMessage["kind"] {
   return (KINDS as readonly unknown[]).includes(value) ? (value as ChatMessage["kind"]) : "text";
 }
@@ -278,6 +280,7 @@ function quoteOf(kind: ChatMessage["kind"], body: string) {
   if (kind === "trail") return readTrail(body)?.name || "A trail";
   if (kind === "here") return readHere(body)?.label || "I'm here";
   if (kind === "day") return readDay(body)?.day || "A day";
+  if (kind === "board") return readBoard(body)?.title || "A board";
   return (body || "").slice(0, 80);
 }
 
@@ -296,6 +299,17 @@ function readHere(body: string): ChatHere | null {
     const row = JSON.parse(body) as ChatHere;
     if (!row || typeof row.label !== "string" || !Number.isFinite(row.lat) || !Number.isFinite(row.lon)) return null;
     return row;
+  } catch {
+    return null;
+  }
+}
+
+function readBoard(body: string): BoardCard | null {
+  try {
+    const row = JSON.parse(body) as BoardCard;
+    if (!row || typeof row.id !== "string" || typeof row.title !== "string") return null;
+    const kind = row.kind === "pack" || row.kind === "trip" ? row.kind : "todo";
+    return { id: row.id, title: row.title, kind };
   } catch {
     return null;
   }
@@ -434,7 +448,7 @@ export const listThread = createServerFn({ method: "POST" })
         fromId: row.from_id,
         fromName: names.get(row.from_id) ?? "Friend",
         kind,
-        body: kind === "place" || kind === "trip" || kind === "trail" || kind === "here" || kind === "day" ? "" : row.body || "",
+        body: kind === "place" || kind === "trip" || kind === "trail" || kind === "here" || kind === "day" || kind === "board" ? "" : row.body || "",
         thumb: have.has(row.id) ? "" : row.thumb || "",
         at,
         lat: row.lat ?? null,
@@ -445,6 +459,7 @@ export const listThread = createServerFn({ method: "POST" })
         trail: kind === "trail" ? readTrail(row.body) : null,
         here: kind === "here" ? readHere(row.body) : null,
         day: kind === "day" ? readDay(row.body) : null,
+        board: kind === "board" ? readBoard(row.body) : null,
         reply,
         reactions,
         pinned: row.id === pinId,
@@ -506,6 +521,12 @@ function parseSend(input: unknown) {
   if (kind === "day") {
     return { ...base, body: JSON.stringify(cleanDay(row.day)) };
   }
+  if (kind === "board") {
+    const card = (row.board ?? {}) as Record<string, unknown>;
+    const id = String(card.id ?? "");
+    if (!/^bd-[a-z0-9]{8,24}$/.test(id)) throw new Error("Unknown board");
+    return { ...base, body: JSON.stringify({ id, role: card.role === "edit" ? "edit" : "check" }) };
+  }
   if (kind === "place") {
     const place = (row.place ?? {}) as Record<string, unknown>;
     const poiId = String(place.id ?? "");
@@ -548,6 +569,12 @@ export const sendToThread = createServerFn({ method: "POST" })
         const real = await canonicalPlace(card.placeId, card.state || undefined);
         if (real) data = { ...data, body: JSON.stringify({ ...card, label: real.name, state: real.state }) };
       }
+    }
+    if (data.kind === "board") {
+      const card = JSON.parse(data.body) as { id: string; role: "check" | "edit" };
+      const { grantBoard } = await import("@/lib/boards");
+      const real = await grantBoard(sql, context.userId, card.id, data.thread, card.role === "edit" ? "edit" : "check");
+      data = { ...data, body: JSON.stringify(real) };
     }
     if (data.replyTo) {
       const found =
@@ -800,6 +827,8 @@ const preview = (kind: string, body: string) =>
               : "Sent a photo"
             : kind === "voice"
               ? "Voice note"
+            : kind === "board"
+              ? `Board: ${readBoard(body)?.title ?? ""}`.trim()
             : kind === "place"
               ? `Shared ${readPlace(body)?.name ?? "a place"}`
               : kind === "link"

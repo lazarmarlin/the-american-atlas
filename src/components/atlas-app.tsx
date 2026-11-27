@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Award, Car, ChartColumn, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleParking, CirclePlus, Compass, GripVertical, Images, Locate, LocateFixed, Mail, MapPinned, Navigation, Navigation2, Route as RouteIcon, Search, Settings, Users, Volume2, VolumeX, X } from "lucide-react";
+import { Award, Car, ChartColumn, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleParking, CirclePlus, Compass, GripVertical, Images, ListTodo, Locate, LocateFixed, Mail, MapPinned, Navigation, Navigation2, Route as RouteIcon, Search, Settings, Users, Volume2, VolumeX, X } from "lucide-react";
 import { useCurrentUser, useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
   loadMeta,
@@ -30,6 +30,7 @@ import { startChatChecks, useChat } from "@/lib/chat-store";
 import { onNotificationOpen } from "@/lib/message-watch";
 import { SendPlaceSheet, SendToSheet } from "@/components/chat-send";
 import { MessageBoard } from "@/components/friend-chat";
+import { BoardsPage } from "@/components/boards-page";
 import { StopsLog, type GroupSpot } from "@/components/stops-log";
 import { comingUp, type Ahead } from "@/lib/coming-up";
 import { useDrive } from "@/lib/drive-settings";
@@ -432,6 +433,8 @@ function AtlasShell() {
   const ghostLook = useGhost((s) => s.look);
   const [ghostOpen, setGhostOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
+  const [boardsOpen, setBoardsOpen] = useState(false);
+  const [boardFocus, setBoardFocus] = useState<string | null>(null);
   /** The map's bottom buttons tucked away behind the arrow (remembered on this phone). */
   const [toolsTucked, setToolsTucked] = useState(() => {
     try {
@@ -2845,6 +2848,21 @@ function AtlasShell() {
           {user?.id ? (
             <button
               type="button"
+              aria-label="Boards"
+              onClick={() => {
+                if (sheet > 8) setSheet(8);
+                setGhostOpen(false);
+                setBoardFocus(null);
+                setBoardsOpen(true);
+              }}
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line bg-surface/95 text-accent shadow-sm backdrop-blur-sm"
+            >
+              <ListTodo className="size-5" />
+            </button>
+          ) : null}
+          {user?.id ? (
+            <button
+              type="button"
               aria-label={unreadTotal ? `Messages, ${unreadTotal} new` : "Messages"}
               onClick={() => {
                 if (sheet > 8) setSheet(8);
@@ -2925,6 +2943,10 @@ function AtlasShell() {
               window.setTimeout(() => setSheetInstant(false), 80);
             }}
             you={tracker ?? you}
+            onOpenBoard={(id) => {
+              setBoardFocus(id);
+              setBoardsOpen(true);
+            }}
             onOpenPlace={(place, from) => {
               setMailOpen(false);
               setMailThread(null);
@@ -2967,6 +2989,15 @@ function AtlasShell() {
               };
               await savePhoto({ data: { ...row, image: photo.image } });
               setPhotos((prev) => [row, ...prev]);
+            }}
+          />
+        ) : null}
+        {boardsOpen && user?.id ? (
+          <BoardsPage
+            focusId={boardFocus}
+            onClose={() => {
+              setBoardsOpen(false);
+              setBoardFocus(null);
             }}
           />
         ) : null}
