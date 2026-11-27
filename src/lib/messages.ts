@@ -22,7 +22,20 @@ export type ChatPlace = {
   visited: boolean;
 };
 
-export type ChatReaction = { up: number; heart: number; pin: number; mine: ("up" | "heart" | "pin")[] };
+export type ReactionMark = "up" | "heart" | "pin" | "wave" | "been" | "car";
+export type ChatReaction = {
+  up: number;
+  heart: number;
+  pin: number;
+  wave: number;
+  been: number;
+  car: number;
+  mine: ReactionMark[];
+};
+
+export function emptyReactions(): ChatReaction {
+  return { up: 0, heart: 0, pin: 0, wave: 0, been: 0, car: 0, mine: [] };
+}
 
 export type ChatReply = { id: string; name: string; text: string };
 
@@ -47,7 +60,7 @@ export type ChatMessage = {
   id: string;
   fromId: string;
   fromName: string;
-  kind: "text" | "link" | "photo" | "place" | "trip" | "trail" | "here" | "day";
+  kind: "text" | "link" | "photo" | "place" | "trip" | "trail" | "here" | "day" | "voice";
   body: string;
   thumb: string;
   at: number;
@@ -78,6 +91,7 @@ const GROUP_RE = /^cg-[a-z0-9]{6,24}$/;
 const ID_RE = /^m-[a-z0-9]{6,24}$/;
 const PLACE_RE = /^[\w:._ -]{1,140}$/;
 const JPEG = /^data:image\/jpeg;base64,/;
+const AUDIO = /^data:audio\/[a-z0-9.+-]+(?:;[^,]*)?;base64,/i;
 const PHOTO_LINK = /^https?:\/\/(?:photos\.app\.goo\.gl|photos\.google\.com|goo\.gl\/photos)\/[^\s]+$/i;
 
 function parseThread(value: unknown): Thread {
@@ -157,7 +171,7 @@ export async function namesFor(sql: Sql, ids: string[]) {
   return new Map(rows.map((row) => [row.id, row.name]));
 }
 
-const KINDS = ["link", "photo", "place", "trip", "trail", "here", "day"] as const;
+const KINDS = ["link", "photo", "place", "trip", "trail", "here", "day", "voice"] as const;
 function kindOf(value: unknown): ChatMessage["kind"] {
   return (KINDS as readonly unknown[]).includes(value) ? (value as ChatMessage["kind"]) : "text";
 }
@@ -252,11 +266,12 @@ type Row = {
   created_at: unknown;
 };
 
-const MARKS = ["up", "heart", "pin"] as const;
+const MARKS = ["up", "heart", "pin", "wave", "been", "car"] as const;
 type Mark = (typeof MARKS)[number];
 
 function quoteOf(kind: ChatMessage["kind"], body: string) {
   if (kind === "photo") return body.trim().slice(0, 80) || "Photo";
+  if (kind === "voice") return "Voice note";
   if (kind === "link") return "Google Photos";
   if (kind === "place") return readPlace(body)?.name || "A place";
   if (kind === "trip") return readTrip(body)?.name || "A trip";
@@ -398,11 +413,12 @@ export const listThread = createServerFn({ method: "POST" })
       const kind = kindOf(row.kind);
       const at = toMs(row.created_at);
       const marks = reactionRows.filter((item) => item.message_id === row.id);
-      const reactions: ChatReaction = { up: 0, heart: 0, pin: 0, mine: [] };
+      const reactions = emptyReactions();
       for (const mark of marks) {
-        if (mark.mark === "up" || mark.mark === "heart" || mark.mark === "pin") {
-          reactions[mark.mark] += 1;
-          if (mark.user_id === context.userId) reactions.mine.push(mark.mark);
+        if (MARKS.includes(mark.mark as Mark)) {
+          const key = mark.mark as Mark;
+          reactions[key] += 1;
+          if (mark.user_id === context.userId) reactions.mine.push(key);
         }
       }
       const source = row.reply_to ? byId.get(row.reply_to) : undefined;
@@ -468,6 +484,12 @@ function parseSend(input: unknown) {
       takenAt: taken && taken > 0 ? Math.round(taken) : null,
       body: String(row.body ?? "").trim().slice(0, 140),
     };
+  }
+  if (kind === "voice") {
+    const audio = String(row.image ?? "");
+    if (!AUDIO.test(audio) || audio.length > 400000) throw new Error("That voice note is too long.");
+    const seconds = Math.max(1, Math.min(30, Math.round(Number(row.body) || 0)));
+    return { ...base, image: audio, body: String(seconds) };
   }
   if (kind === "trip") {
     return { ...base, body: JSON.stringify(cleanTripCard(row.trip)) };
@@ -647,6 +669,15 @@ export const toggleReaction = createServerFn({ method: "POST" })
       insert into message_reactions (message_id, user_id, mark) values (${data.id}, ${context.userId}, ${data.mark})
       on conflict do nothing
     `;
+    const ownerRows =
+      data.thread.kind === "group"
+        ? await sql<{ from_id: string }>`select from_id from group_messages where id = ${data.id}`
+        : await sql<{ from_id: string }>`select from_id from messages where id = ${data.id}`;
+    const owner = ownerRows[0]?.from_id;
+    if (owner && owner !== context.userId) {
+      const { pokeUsers } = await import("@/lib/push.server");
+      await pokeUsers([owner], "like");
+    }
     return { on: true as const };
   });
 
@@ -767,11 +798,50 @@ const preview = (kind: string, body: string) =>
             ? body.trim()
               ? `Photo: ${body.trim().slice(0, 80)}`
               : "Sent a photo"
+            : kind === "voice"
+              ? "Voice note"
             : kind === "place"
               ? `Shared ${readPlace(body)?.name ?? "a place"}`
               : kind === "link"
                 ? "Sent a Google Photos link"
                 : body.slice(0, 120);
+
+function reactionBody(mark: string, quote: string) {
+  const line =
+    mark === "been" ? "Been here" : mark === "wave" ? "Waved" : mark === "car" ? "On the road" : mark === "heart" ? "Loved this" : mark === "pin" ? "Pinned this" : "Liked this";
+  return quote && quote !== "Voice note" ? `${line} · ${quote}` : line;
+}
+
+/** Recent reactions on your messages, for the phone's own notification check. */
+export async function reactionNotices(me: string): Promise<{ id: string; title: string; body: string; thread: string }[]> {
+  const { getSql } = await import("@/lib/db");
+  const sql = await getSql();
+  try {
+    const rows = await sql<{ message_id: string; user_id: string; mark: string; body: string; kind: string; group_id: string | null }>`
+      select r.message_id, r.user_id, r.mark,
+        coalesce(m.body, g.body, '') as body,
+        coalesce(m.kind, g.kind, 'text') as kind,
+        g.group_id
+      from message_reactions r
+      left join messages m on m.id = r.message_id and m.from_id = ${me}
+      left join group_messages g on g.id = r.message_id and g.from_id = ${me}
+      where r.user_id <> ${me}
+        and r.created_at > now() - interval '12 hours'
+        and (m.id is not null or g.id is not null)
+      order by r.created_at desc
+      limit 8
+    `;
+    const names = await namesFor(sql, [...new Set(rows.map((row) => row.user_id))]);
+    return rows.map((row) => ({
+      id: `rx:${row.message_id}:${row.user_id}:${row.mark}`,
+      title: names.get(row.user_id) ?? "A friend",
+      body: reactionBody(row.mark, quoteOf(kindOf(row.kind), row.body)),
+      thread: row.group_id ? `group:${row.group_id}` : `friend:${row.user_id}`,
+    }));
+  } catch {
+    return [];
+  }
+}
 
 /** What's new since you last looked: messages per friend and group, and likes. */
 export const unreadSummary = createServerFn({ method: "GET" })

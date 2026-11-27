@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { useChat } from "@/lib/chat-store";
-import { deleteMessage, listThread, loadThreadPhoto, messageBoard, searchChats, sendToThread, setThreadPin, toggleReaction, type BoardItem, type ChatDay, type ChatHere, type ChatHit, type ChatMessage, type ChatPlace, type ChatTrail, type Thread } from "@/lib/messages";
+import { deleteMessage, emptyReactions, listThread, loadThreadPhoto, messageBoard, searchChats, sendToThread, setThreadPin, toggleReaction, type BoardItem, type ChatDay, type ChatHere, type ChatHit, type ChatMessage, type ChatPlace, type ChatTrail, type ReactionMark, type Thread } from "@/lib/messages";
 import { milesBetween, type Fix } from "@/lib/nearby";
 import { readGps } from "@/lib/photo-file";
 import { categoryName } from "@/lib/place-kinds";
@@ -17,7 +17,7 @@ import { Clock, Copy, Download, LogOut, Map as MapIcon, MapPinPlus, Maximize2, M
 import { TripSketch, tripDates } from "@/components/trip-recap";
 import { Images, ImageIcon, Settings } from "lucide-react";
 import { WallpaperScreen, wallpaperFor } from "@/components/chat-wallpaper";
-import { Camera, LocateFixed, MapPinned, Route, Send } from "lucide-react";
+import { Camera, LocateFixed, MapPinned, Mic, Route, Send } from "lucide-react";
 import { ChatLookScreen, applyShared } from "@/components/chat-look";
 import { LOOK_DEFAULT, nickOf, readLook, useLookVersion, wallVeil, withAlpha, type ChatLook } from "@/lib/chat-look";
 import { loadTheme } from "@/lib/chat-theme";
@@ -42,6 +42,7 @@ function newId() {
 
 function blurb(row: ChatMessage) {
   if (row.kind === "photo") return "Photo";
+  if (row.kind === "voice") return "Voice note";
   if (row.kind === "link") return "Google Photos";
   if (row.kind === "place") return row.place?.name || "A place";
   if (row.kind === "trip") return row.trip?.name || "A trip";
@@ -51,11 +52,14 @@ function blurb(row: ChatMessage) {
   return row.body;
 }
 
-const MARKS = [
+const MARKS: [ReactionMark, string][] = [
   ["up", "👍"],
   ["heart", "❤️"],
   ["pin", "📌"],
-] as const;
+  ["wave", "👋"],
+  ["been", "🏕️"],
+  ["car", "🚗"],
+];
 
 function shrinkChatPhoto(file: File, edge: number, quality: number) {
   return new Promise<string>((resolve, reject) => {
@@ -166,7 +170,18 @@ export function ChatThread({
   const [query, setQuery] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
   const photoInput = useRef<HTMLInputElement>(null);
-  const draftBox = useRef<HTMLInputElement>(null);
+  const draftBox = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const box = draftBox.current;
+    if (!box) return;
+    box.style.height = "auto";
+    box.style.height = `${Math.min(box.scrollHeight, 144)}px`;
+  }, [draft]);
+  const clips = useRef(new Map<string, string>());
+  const recorder = useRef<MediaRecorder | null>(null);
+  const recordToken = useRef(0);
+  const recordStarted = useRef(0);
+  const [recording, setRecording] = useState(false);
   const press = useRef<{ timer: number; x: number; y: number } | null>(null);
   /** The menu was opened by holding (not right-click): it waits for the finger to lift. */
   const menuHeld = useRef(false);
@@ -400,6 +415,80 @@ export function ChatThread({
     }
   }
 
+  async function sendVoice(audio: string, seconds: number) {
+    const id = newId();
+    clips.current.set(id, audio);
+    const message = optimistic({ id, kind: "voice", body: String(seconds), thumb: "", lat: null, lon: null, takenAt: null, place: null });
+    await deliver(message, { thread, id, kind: "voice", body: String(seconds), image: audio }, setNote);
+  }
+
+  async function beginVoice(event: ReactPointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    if (busy || recording) return;
+    const token = ++recordToken.current;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (recordToken.current !== token) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/mp4")
+          ? "audio/mp4"
+          : "";
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 24000 }) : new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      rec.ondataavailable = (item) => {
+        if (item.data.size) chunks.push(item.data);
+      };
+      rec.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        const send = recordToken.current === token;
+        recorder.current = null;
+        setRecording(false);
+        if (!send) return;
+        const seconds = Math.min(30, Math.max(1, Math.round((Date.now() - recordStarted.current) / 1000)));
+        const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
+        if (blob.size < 800) {
+          setNote("Hold a little longer.");
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          const audio = String(reader.result ?? "");
+          if (audio.length > 400000) {
+            setNote("That voice note is too long.");
+            return;
+          }
+          void sendVoice(audio, seconds);
+        };
+        reader.readAsDataURL(blob);
+      };
+      recorder.current = rec;
+      recordStarted.current = Date.now();
+      rec.start();
+      setRecording(true);
+      window.setTimeout(() => {
+        if (recorder.current === rec && rec.state === "recording") rec.stop();
+      }, 30_000);
+    } catch {
+      setNote("The mic needs permission.");
+    }
+  }
+
+  function endVoice(send: boolean) {
+    const rec = recorder.current;
+    if (!rec || rec.state !== "recording") {
+      recordToken.current += 1;
+      setRecording(false);
+      return;
+    }
+    if (!send || Date.now() - recordStarted.current < 400) recordToken.current += 1;
+    rec.stop();
+  }
+
   async function sendPlace(place: ChatPlaceOption) {
     setSharing(false);
     setAttach(false);
@@ -477,12 +566,12 @@ export function ChatThread({
     await deliver(message, { thread, id, kind: "trail", trail: { name, points: packed, day }, replyTo: quoting?.id }, setNote);
   }
 
-  async function react(message: ChatMessage, mark: "up" | "heart" | "pin") {
+  async function react(message: ChatMessage, mark: ReactionMark) {
     setMenu(null);
     setRows((prev) =>
       (prev ?? []).map((row) => {
         if (row.id !== message.id) return row;
-        const current = row.reactions ?? { up: 0, heart: 0, pin: 0, mine: [] };
+        const current = row.reactions ?? emptyReactions();
         const on = current.mine.includes(mark);
         return {
           ...row,
@@ -795,9 +884,10 @@ export function ChatThread({
                     ) : null}
                   </div>
                 ) : null}
+                {row.kind === "voice" ? <VoiceNote thread={thread} id={row.id} seconds={Number(row.body) || 1} local={clips.current.get(row.id) ?? ""} /> : null}
                 {row.kind === "text" ? <p className="break-words">{linkParts(row.body)}</p> : null}
               </div>
-              {row.reactions && (row.reactions.up || row.reactions.heart || row.reactions.pin) ? (
+              {row.reactions && MARKS.some(([mark]) => row.reactions?.[mark]) ? (
                 <div className="mt-0.5 flex gap-1 px-1">
                   {MARKS.map(([mark, glyph]) =>
                     row.reactions?.[mark] ? (
@@ -856,6 +946,7 @@ export function ChatThread({
           </button>
         </div>
       ) : null}
+      {recording ? <p className="px-3 pt-2 text-center text-xs text-accent">Recording… release to send. Up to 30 seconds.</p> : null}
       <form
         className={"flex items-end gap-2 px-3 " + (fill ? "border-t border-line bg-surface pt-2 safe-bottom" : "mt-2")}
         onSubmit={(event) => {
@@ -887,15 +978,34 @@ export function ChatThread({
             }
           }}
         />
-        <input
+        <textarea
           ref={draftBox}
+          rows={1}
           value={draft}
           onChange={(event) => setDraft(event.target.value.slice(0, 500))}
           onFocus={() => window.setTimeout(() => scroller.current?.scrollTo({ top: scroller.current.scrollHeight }), 300)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" || event.shiftKey) return;
+            event.preventDefault();
+            if (!draft.trim() || busy) return;
+            void sendText();
+            draftBox.current?.focus();
+          }}
           placeholder="Message"
           enterKeyHint="send"
-          className={"h-11 min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 text-ink outline-none placeholder:text-faint " + textClass}
+          className={"max-h-36 min-h-11 min-w-0 flex-1 resize-none overflow-y-auto rounded-lg border border-line bg-bg px-3 py-2.5 leading-snug text-ink outline-none placeholder:text-faint " + textClass}
         />
+        <button
+          type="button"
+          aria-label={recording ? "Release to send the voice note" : "Hold to record a voice note"}
+          disabled={busy}
+          onPointerDown={(event) => void beginVoice(event)}
+          onPointerUp={() => endVoice(true)}
+          onPointerCancel={() => endVoice(false)}
+          className={"grid h-11 w-11 shrink-0 touch-none place-items-center rounded-lg border " + (recording ? "border-accent text-accent" : "border-line text-muted")}
+        >
+          <Mic className="size-5" />
+        </button>
         <button
           type="submit"
           disabled={busy || !draft.trim()}
@@ -1032,12 +1142,12 @@ export function ChatThread({
                 {menu.fromId === meId ? "You" : menu.fromName} · {stampText(menu.at)}
               </p>
               <p className="truncate text-sm">
-                {menu.kind === "photo" ? (menu.body ? menu.body : "Photo") : menu.kind === "place" ? menu.place?.name : menu.kind === "trip" ? menu.trip?.name : menu.kind === "trail" ? menu.trail?.name : menu.kind === "here" ? menu.here?.label : menu.kind === "day" ? "A day" : menu.body}
+                {menu.kind === "photo" ? (menu.body ? menu.body : "Photo") : menu.kind === "voice" ? "Voice note" : menu.kind === "place" ? menu.place?.name : menu.kind === "trip" ? menu.trip?.name : menu.kind === "trail" ? menu.trail?.name : menu.kind === "here" ? menu.here?.label : menu.kind === "day" ? "A day" : menu.body}
               </p>
             </div>
           </div>
           <div className="overflow-hidden rounded-xl border border-line">
-            <div className="flex border-b border-line">
+            <div className="grid grid-cols-6 border-b border-line">
               {MARKS.map(([mark, glyph]) => (
                 <button key={mark} type="button" onClick={() => void react(menu, mark)} className="h-12 flex-1 text-lg">
                   {glyph}
@@ -1183,6 +1293,52 @@ export function ChatThread({
         document.body,
       ) : null}
     </div>
+  );
+}
+
+function VoiceNote({ thread, id, seconds, local }: { thread: Thread; id: string; seconds: number; local: string }) {
+  const [src, setSrc] = useState(local);
+  const [playing, setPlaying] = useState(false);
+  const audio = useRef<HTMLAudioElement>(null);
+  const label = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  async function toggle() {
+    const el = audio.current;
+    if (!el) return;
+    if (playing) {
+      el.pause();
+      setPlaying(false);
+      return;
+    }
+    let url = src;
+    if (!url) {
+      try {
+        const loaded = await loadThreadPhoto({ data: { thread, id } });
+        url = loaded.image;
+        setSrc(url);
+      } catch {
+        return;
+      }
+    }
+    el.src = url;
+    void el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+  }
+  return (
+    <span className="flex items-center gap-2 py-1">
+      <button
+        type="button"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          void toggle();
+        }}
+        aria-label={playing ? "Pause the voice note" : "Play the voice note"}
+        className="grid size-9 place-items-center rounded-full border border-line text-sm text-accent"
+      >
+        {playing ? "❚❚" : "▶"}
+      </button>
+      <span className="text-sm">{label}</span>
+      <audio ref={audio} onEnded={() => setPlaying(false)} className="hidden" />
+    </span>
   );
 }
 

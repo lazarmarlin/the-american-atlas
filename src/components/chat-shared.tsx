@@ -126,7 +126,9 @@ function SharedRow({
               ? row.trip?.name || "A trip"
               : row.kind === "day"
                 ? row.day?.day || "A day"
-                : row.body.slice(0, 140);
+                : row.kind === "voice"
+                  ? "Voice note"
+                  : row.body.slice(0, 140);
   const open = () => {
     if (row.kind === "place" && row.place && onOpenPlace) {
       onClose();

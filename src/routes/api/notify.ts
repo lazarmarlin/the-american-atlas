@@ -19,17 +19,20 @@ export const Route = createFileRoute("/api/notify")({
         const owner = await sql<{ user_id: string }>`select user_id from track_tokens where token_hash = ${await hashToken(token)}`;
         const me = owner[0]?.user_id;
         if (!me) return new Response(null, { status: 401 });
-        const { unreadFor } = await import("@/lib/messages");
-        const summary = await unreadFor(me);
+        const { unreadFor, reactionNotices } = await import("@/lib/messages");
+        const [summary, reactions] = await Promise.all([unreadFor(me), reactionNotices(me)]);
         return Response.json(
           {
             likes: summary.likes,
-            messages: summary.latest.map((m) => ({
-              id: m.id,
-              title: m.from,
-              body: m.preview,
-              thread: `${m.thread.kind}:${m.thread.id}`,
-            })),
+            messages: [
+              ...reactions,
+              ...summary.latest.map((m) => ({
+                id: m.id,
+                title: m.from,
+                body: m.preview,
+                thread: `${m.thread.kind}:${m.thread.id}`,
+              })),
+            ].slice(0, 8),
           },
           { headers: { "cache-control": "no-store" } },
         );
