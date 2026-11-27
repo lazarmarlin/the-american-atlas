@@ -17,7 +17,7 @@ import { Clock, Copy, Download, LogOut, Map as MapIcon, MapPinPlus, Maximize2, M
 import { TripSketch, tripDates } from "@/components/trip-recap";
 import { Images, ImageIcon, Settings } from "lucide-react";
 import { WallpaperScreen, wallpaperFor } from "@/components/chat-wallpaper";
-import { Camera, LocateFixed, MapPinned, Mic, Route, Send } from "lucide-react";
+import { ArrowUp, Camera, LocateFixed, MapPinned, Mic, Plus, Route, Send } from "lucide-react";
 import { ChatLookScreen, applyShared } from "@/components/chat-look";
 import { LOOK_DEFAULT, nickOf, readLook, useLookVersion, wallVeil, withAlpha, type ChatLook } from "@/lib/chat-look";
 import { loadTheme } from "@/lib/chat-theme";
@@ -947,8 +947,10 @@ export function ChatThread({
         </div>
       ) : null}
       {recording ? <p className="px-3 pt-2 text-center text-xs text-accent">Recording… release to send. Up to 30 seconds.</p> : null}
+      {/* One rounded box: + on the left, the text in the middle, and the mic (or
+          Send once there's text) on the right, so the text gets nearly the full width. */}
       <form
-        className={"flex items-end gap-2 px-3 " + (fill ? "border-t border-line bg-surface pt-2 safe-bottom" : "mt-2")}
+        className={"flex items-end gap-1 px-2 " + (fill ? "border-t border-line bg-surface pt-2 safe-bottom" : "mt-2")}
         onSubmit={(event) => {
           event.preventDefault();
           void sendText();
@@ -960,9 +962,9 @@ export function ChatThread({
           aria-label="Send a photo or a place"
           disabled={busy}
           onClick={() => setAttach(true)}
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-line text-lg text-muted"
+          className="grid h-11 w-10 shrink-0 place-items-center rounded-full text-muted active:bg-elevated"
         >
-          +
+          <Plus className="size-6" strokeWidth={1.75} />
         </button>
         <input
           ref={photoInput}
@@ -993,27 +995,31 @@ export function ChatThread({
           }}
           placeholder="Message"
           enterKeyHint="send"
-          className={"max-h-36 min-h-11 min-w-0 flex-1 resize-none overflow-y-auto rounded-lg border border-line bg-bg px-3 py-2.5 leading-snug text-ink outline-none placeholder:text-faint " + textClass}
+          className={"max-h-36 min-h-11 min-w-0 flex-1 resize-none overflow-y-auto rounded-[22px] border border-line bg-bg py-2.5 pl-4 pr-3 leading-snug text-ink outline-none placeholder:text-faint focus:border-muted/60 " + textClass}
         />
-        <button
-          type="button"
-          aria-label={recording ? "Release to send the voice note" : "Hold to record a voice note"}
-          disabled={busy}
-          onPointerDown={(event) => void beginVoice(event)}
-          onPointerUp={() => endVoice(true)}
-          onPointerCancel={() => endVoice(false)}
-          className={"grid h-11 w-11 shrink-0 touch-none place-items-center rounded-lg border " + (recording ? "border-accent text-accent" : "border-line text-muted")}
-        >
-          <Mic className="size-5" />
-        </button>
-        <button
-          type="submit"
-          disabled={busy || !draft.trim()}
-          onPointerDown={(event) => event.preventDefault()}
-          className="h-11 shrink-0 rounded-lg border border-ink bg-elevated px-3 text-sm disabled:border-line disabled:text-faint"
-        >
-          Send
-        </button>
+        {draft.trim() ? (
+          <button
+            type="submit"
+            aria-label="Send"
+            disabled={busy}
+            onPointerDown={(event) => event.preventDefault()}
+            className="grid size-11 shrink-0 place-items-center rounded-full bg-ink text-bg disabled:opacity-50"
+          >
+            <ArrowUp className="size-5" strokeWidth={2.25} />
+          </button>
+        ) : (
+          <button
+            type="button"
+            aria-label={recording ? "Release to send the voice note" : "Hold to record a voice note"}
+            disabled={busy}
+            onPointerDown={(event) => void beginVoice(event)}
+            onPointerUp={() => endVoice(true)}
+            onPointerCancel={() => endVoice(false)}
+            className={"grid size-11 shrink-0 touch-none place-items-center rounded-full " + (recording ? "bg-accent/15 text-accent" : "text-muted active:bg-elevated")}
+          >
+            <Mic className="size-5" />
+          </button>
+        )}
       </form>
 
       {attach ? (
