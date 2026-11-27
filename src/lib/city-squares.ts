@@ -15,7 +15,7 @@
  */
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
-import { MAX_SQUARES, SQUARE_SIZES, inGrid, maskFromText, packSquares, skipsFor, unpackSquares, type Grid } from "@/lib/city-grid";
+import { MAX_SQUARES, SQUARE_SIZES, type TravelMode, inGrid, maskFromText, packSquares, skipsFor, unpackSquares, type Grid } from "@/lib/city-grid";
 
 export type SquaresMode = "together" | "race";
 /** What's cut into squares: a city or town, a state park, or a national park. */
@@ -25,6 +25,8 @@ export type SquaresGame = {
   /** The place's name (a city, or a park). */
   city: string;
   place: SquaresPlace;
+  /** On foot, bike or car: squares only count at that speed or slower. */
+  travel: TravelMode;
   state: string;
   geoid: string;
   zoom: number;
@@ -89,8 +91,8 @@ async function open(sql: Sql, me: string, id: string) {
 }
 
 async function gameOf(sql: Sql, id: string): Promise<SquaresGame | null> {
-  const rows = await sql<{ city: string; place_kind: string; state: string; geoid: string; zoom: number; mode: string; x0: number; y0: number; w: number; h: number; mask: string; total: number; started: number }>`
-    select city, place_kind, state, geoid, zoom, mode, x0, y0, w, h, mask, total, (extract(epoch from started_at) * 1000)::float8 as started
+  const rows = await sql<{ city: string; place_kind: string; travel: string; state: string; geoid: string; zoom: number; mode: string; x0: number; y0: number; w: number; h: number; mask: string; total: number; started: number }>`
+    select city, place_kind, travel, state, geoid, zoom, mode, x0, y0, w, h, mask, total, (extract(epoch from started_at) * 1000)::float8 as started
     from square_games where board_id = ${id}
   `;
   const row = rows[0];
@@ -98,6 +100,7 @@ async function gameOf(sql: Sql, id: string): Promise<SquaresGame | null> {
   return {
     city: row.city,
     place: row.place_kind === "state" || row.place_kind === "national" ? row.place_kind : "city",
+    travel: row.travel === "foot" || row.travel === "bike" ? row.travel : "car",
     state: row.state,
     geoid: row.geoid,
     zoom: Number(row.zoom),
@@ -147,6 +150,7 @@ export const setupSquares = createServerFn({ method: "POST" })
       state: String(row.state ?? "").toUpperCase().slice(0, 2),
       zoom,
       mode: row.mode === "race" ? ("race" as const) : ("together" as const),
+      travel: row.travel === "foot" || row.travel === "bike" ? (row.travel as TravelMode) : ("car" as const),
       x0: int(row.x0),
       y0: int(row.y0),
       w,
@@ -167,8 +171,8 @@ export const setupSquares = createServerFn({ method: "POST" })
     if (total < 1) throw new Error("That city has no squares at this size. Try a smaller size.");
     if (total > MAX_SQUARES) throw new Error(`That's ${total.toLocaleString()} squares. Try a bigger size.`);
     const made = await sql<{ ok: boolean }>`
-      insert into square_games (board_id, geoid, city, place_kind, state, zoom, mode, x0, y0, w, h, mask, total)
-      values (${data.id}, ${data.geoid}, ${data.city}, ${data.place}, ${data.state}, ${data.zoom}, ${data.mode}, ${data.x0}, ${data.y0}, ${data.w}, ${data.h}, ${data.mask}, ${total})
+      insert into square_games (board_id, geoid, city, place_kind, travel, state, zoom, mode, x0, y0, w, h, mask, total)
+      values (${data.id}, ${data.geoid}, ${data.city}, ${data.place}, ${data.travel}, ${data.state}, ${data.zoom}, ${data.mode}, ${data.x0}, ${data.y0}, ${data.w}, ${data.h}, ${data.mask}, ${total})
       on conflict (board_id) do nothing
       returning true as ok
     `;
@@ -297,7 +301,7 @@ export const skipSquare = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-export type ActiveSquares = { id: string; zoom: number; x0: number; y0: number; w: number; h: number; mask: string; startedAt: number; mine: string; pauses: Pauses };
+export type ActiveSquares = { id: string; travel: TravelMode; zoom: number; x0: number; y0: number; w: number; h: number; mask: string; startedAt: number; mine: string; pauses: Pauses };
 
 /** The games you're in, for tracking to fill in (with the squares you already have, so they're not sent again). */
 export const myActiveSquares = createServerFn({ method: "GET" })
@@ -306,8 +310,8 @@ export const myActiveSquares = createServerFn({ method: "GET" })
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
     try {
-      const rows = await sql<{ board_id: string; zoom: number; x0: number; y0: number; w: number; h: number; mask: string; started: number }>`
-        select g.board_id, g.zoom, g.x0, g.y0, g.w, g.h, g.mask, (extract(epoch from g.started_at) * 1000)::float8 as started
+      const rows = await sql<{ board_id: string; travel: string; zoom: number; x0: number; y0: number; w: number; h: number; mask: string; started: number }>`
+        select g.board_id, g.travel, g.zoom, g.x0, g.y0, g.w, g.h, g.mask, (extract(epoch from g.started_at) * 1000)::float8 as started
         from square_games g join boards b on b.id = g.board_id
         left join board_shares s on s.board_id = b.id and s.user_id = ${context.userId}
         where b.owner_id = ${context.userId} or s.user_id = ${context.userId}
@@ -318,6 +322,7 @@ export const myActiveSquares = createServerFn({ method: "GET" })
         const mine = await sql<{ square: number }>`select square from square_visits where board_id = ${row.board_id} and user_id = ${context.userId} and how = 'visit'`;
         out.push({
           id: row.board_id,
+          travel: row.travel === "foot" || row.travel === "bike" ? row.travel : "car",
           zoom: Number(row.zoom),
           x0: Number(row.x0),
           y0: Number(row.y0),

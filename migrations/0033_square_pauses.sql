@@ -13,3 +13,4 @@ create table if not exists square_pauses (
 -- public/atlas/overlays/parks.geojson; geoid is then the park's id).
 alter table square_games add column if not exists place_kind text not null default 'city';
 alter table square_games alter column geoid type text;
+

@@ -8,16 +8,19 @@
  * Not counted: rough fixes (poor accuracy), fixes from before the game
  * started or while it's paused, and gaps of more than two minutes or two
  * miles (lost signal: the straight line between might not be where you went).
+ * In an on-foot or bike game, stretches faster than its limit (12 or 25 mph)
+ * don't count either, and a lone fix with nothing to measure speed against
+ * waits for the next one.
  * A pause this phone hasn't heard of yet comes back from the server when it
  * sends; those squares are dropped.
  */
 import type { Fix } from "@/lib/nearby";
-import { inGrid, maskFromText, packSquares, squareAt, squaresAlong, unpackSquares, type Grid } from "@/lib/city-grid";
+import { inGrid, maxMphFor, maskFromText, packSquares, squareAt, squaresAlong, unpackSquares, type Grid } from "@/lib/city-grid";
 import { squaresChanged } from "@/lib/squares-map";
 import type { Pauses } from "@/lib/city-squares";
 
 /** pending: squares found but not sent yet, with when. */
-type Game = { id: string; grid: Grid; startedAt: number; mine: Set<number>; pending: Map<number, number>; pauses: Pauses };
+type Game = { id: string; grid: Grid; maxMph: number | null; startedAt: number; mine: Set<number>; pending: Map<number, number>; pauses: Pauses };
 
 const paused = (pauses: Pauses, t: number) => pauses.some(([s, e]) => t >= s && (e == null || t <= e));
 const pauseBetween = (pauses: Pauses, a: number, b: number) => pauses.some(([s, e]) => s <= b && (e == null || e >= a));
@@ -54,7 +57,7 @@ export function refreshSquareGames(force = false) {
         // Squares found but not sent yet carry over (not ones from a pause just learned of).
         const pauses = row.pauses ?? [];
         const pending = new Map([...(old?.pending ?? [])].filter(([n, t]) => !mine.has(n) && !paused(pauses, t)));
-        return { id: row.id, grid, startedAt: row.startedAt, mine, pending, pauses };
+        return { id: row.id, grid, maxMph: maxMphFor(row.travel), startedAt: row.startedAt, mine, pending, pauses };
       });
     })
     .catch(() => {
@@ -80,6 +83,12 @@ export function feedSquares(fixes: Fix[]) {
     for (const game of games) {
       if (t < game.startedAt || paused(game.pauses, t)) continue;
       const joined = prev && prev.t >= game.startedAt && !pauseBetween(game.pauses, prev.t, t);
+      if (game.maxMph != null) {
+        // Too fast for this game (driving in an on-foot game): this stretch doesn't count.
+        if (!joined || !prev) continue;
+        const hours = Math.max(1, t - prev.t) / 3_600_000;
+        if (miles(prev, fix) / hours > game.maxMph) continue;
+      }
       const squares = joined && prev ? squaresAlong(game.grid, prev, fix) : [squareAt(game.grid, fix.lat, fix.lon)];
       for (const n of squares) {
         if (n < 0 || !inGrid(game.grid, n) || game.mine.has(n) || game.pending.has(n)) continue;

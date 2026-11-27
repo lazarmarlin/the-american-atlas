@@ -9,6 +9,8 @@ import { Map as MapIcon, Pause, Play, Search, Trophy } from "lucide-react";
 import {
   MAX_SQUARES,
   SQUARE_SIZES,
+  TRAVEL_MODES,
+  type TravelMode,
   biggestBlock,
   gridFor,
   inGrid,
@@ -122,6 +124,7 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
   const [town, setTown] = useState<TownHit | null>(null);
   const [zoom, setZoom] = useState<number | null>(null);
   const [mode, setMode] = useState<SquaresMode>("together");
+  const [travel, setTravel] = useState<TravelMode>("foot");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const owner = api.board.role === "owner";
@@ -183,7 +186,7 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
     setNote(null);
     try {
       const g = chosen.grid;
-      await setupSquares({ data: { id: api.board.id, geoid: town.geoid, city: town.name, place: kind, state: town.st, zoom: g.zoom, mode, x0: g.x0, y0: g.y0, w: g.w, h: g.h, mask: maskToText(g.mask) } });
+      await setupSquares({ data: { id: api.board.id, geoid: town.geoid, city: town.name, place: kind, travel, state: town.st, zoom: g.zoom, mode, x0: g.x0, y0: g.y0, w: g.w, h: g.h, mask: maskToText(g.mask) } });
       onStarted();
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Couldn't start the game.");
@@ -264,6 +267,23 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
                 );
               })}
             </div>
+          </Card>
+          <Card>
+            <Label>Getting around</Label>
+            <div className="mt-2 grid grid-cols-3 rounded-xl bg-bg/60 p-1">
+              {TRAVEL_MODES.map((t) => (
+                <button key={t.id} type="button" aria-pressed={travel === t.id} onClick={() => setTravel(t.id)} className={"h-10 rounded-lg text-sm " + (travel === t.id ? "bg-elevated text-ink shadow-sm" : "text-muted")}>
+                  {t.name}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-faint">
+              {travel === "foot"
+                ? "Walking or running: squares only count up to 12 mph, so driving through doesn't."
+                : travel === "bike"
+                  ? "Squares only count up to 25 mph, so driving through doesn't."
+                  : "Any speed counts, driving included."}
+            </p>
           </Card>
           <Card>
             <Label>With friends</Label>
@@ -478,7 +498,7 @@ export function SquaresBoard({ api }: { api: BoardApi }) {
         <div className="flex items-baseline justify-between gap-2">
           <p className="font-serif text-3xl leading-tight tabular-nums">{view.percent < 10 && view.percent > 0 ? view.percent.toFixed(1) : Math.floor(view.percent)}%</p>
           <span className="text-xs text-faint">
-            {game.city}, {game.state} · {race ? "race" : "together"}
+            {game.city}, {game.state} · {TRAVEL_MODES.find((t) => t.id === game.travel)?.name.toLowerCase()} · {race ? "race" : "together"}
           </span>
         </div>
         <p className="text-sm text-muted">
@@ -544,7 +564,7 @@ export function SquaresBoard({ api }: { api: BoardApi }) {
           ))}
         </ul>
         <p className="mt-3 text-xs text-faint">
-          Squares fill in when tracking takes you through them, from {new Date(game.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} on. Wall in a pocket of up to 4 squares (a big property, say) and it fills in too; circling a bigger area doesn't count.
+          Squares fill in when tracking takes you through them{game.travel === "foot" ? " on foot (up to 12 mph)" : game.travel === "bike" ? " by bike (up to 25 mph)" : ""}, from {new Date(game.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} on. Wall in a pocket of up to 4 squares (a big property, say) and it fills in too; circling a bigger area doesn't count.
         </p>
       </Card>
     </>

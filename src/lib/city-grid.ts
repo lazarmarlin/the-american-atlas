@@ -26,6 +26,18 @@ export const SQUARE_SIZES = [
 ] as const;
 export type SquareSize = (typeof SQUARE_SIZES)[number]["id"];
 
+/** How a game is played, and the fastest a stretch of travel can be and still count. */
+export const TRAVEL_MODES = [
+  { id: "foot", name: "On foot", line: "Walking or running", maxMph: 12 },
+  { id: "bike", name: "Bike", line: "Up to 25 mph", maxMph: 25 },
+  { id: "car", name: "Car", line: "Any speed", maxMph: null },
+] as const;
+export type TravelMode = (typeof TRAVEL_MODES)[number]["id"];
+
+export function maxMphFor(travel: string): number | null {
+  return TRAVEL_MODES.find((mode) => mode.id === travel)?.maxMph ?? null;
+}
+
 /** Walled-in pockets this size or smaller fill in by themselves. */
 export const POCKET_MAX = 4;
 /** More squares than this is no game (a big city at the tiny size). */
