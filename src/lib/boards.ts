@@ -12,7 +12,7 @@ export type BoardRole = "owner" | "edit" | "check";
 export type BoardItem = { id: string; text: string; note: string; done: boolean };
 export type BoardDoc = { start: string | null; end: string | null; items: BoardItem[] };
 export type BoardCard = { id: string; title: string; kind: BoardKind };
-export type BoardInfo = BoardCard & { role: BoardRole; updatedAt: number };
+export type BoardInfo = BoardCard & { role: BoardRole; updatedAt: number; done: number; total: number; start: string | null; end: string | null };
 export type BoardOpen = BoardCard & { role: BoardRole; doc: BoardDoc; updatedAt: number };
 
 export const BOARD_KINDS: { id: BoardKind; name: string; line: string }[] = [
@@ -54,6 +54,35 @@ export function cleanDoc(value: unknown): BoardDoc {
     items.push({ id, text, note: String(raw.note ?? "").trim().slice(0, 140), done: Boolean(raw.done) });
   }
   return { start: day(row.start), end: day(row.end), items };
+}
+
+/**
+ * Puts my change on top of what's saved now, given the version I started
+ * from, so two people working on one board don't undo each other: anything
+ * I didn't touch keeps the other person's version, items they added stay,
+ * and items I removed go. My order wins for the items I have.
+ */
+export function mergeDoc(base: BoardDoc, mine: BoardDoc, theirs: BoardDoc): BoardDoc {
+  const baseById = new Map(base.items.map((item) => [item.id, item]));
+  const theirById = new Map(theirs.items.map((item) => [item.id, item]));
+  const mineIds = new Set(mine.items.map((item) => item.id));
+  const pick = <K extends keyof BoardItem>(key: K, was: BoardItem | undefined, me: BoardItem, them: BoardItem | undefined) =>
+    !them || !was || me[key] !== was[key] ? me[key] : them[key];
+  const items: BoardItem[] = [];
+  for (const me of mine.items) {
+    const was = baseById.get(me.id);
+    const them = theirById.get(me.id);
+    // They removed it and I didn't change it: it stays gone.
+    if (was && !them && me.text === was.text && me.note === was.note && me.done === was.done) continue;
+    items.push({ id: me.id, text: pick("text", was, me, them), note: pick("note", was, me, them), done: pick("done", was, me, them) });
+  }
+  // Added by them since I loaded it.
+  for (const them of theirs.items) if (!mineIds.has(them.id) && !baseById.has(them.id)) items.push(them);
+  return {
+    start: mine.start !== base.start ? mine.start : theirs.start,
+    end: mine.end !== base.end ? mine.end : theirs.end,
+    items: items.slice(0, 80),
+  };
 }
 
 function parseThread(value: unknown): Thread {
@@ -119,21 +148,28 @@ export const listBoards = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<BoardInfo[]> => {
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
-    const rows = await sql<{ id: string; kind: string; title: string; owner_id: string; role: string | null; updated_at: unknown }>`
-      select b.id, b.kind, b.title, b.owner_id, s.role, b.updated_at
+    const rows = await sql<{ id: string; kind: string; title: string; owner_id: string; role: string | null; updated_at: unknown; doc: unknown }>`
+      select b.id, b.kind, b.title, b.owner_id, s.role, b.updated_at, b.doc
       from boards b
       left join board_shares s on s.board_id = b.id and s.user_id = ${context.userId}
       where b.owner_id = ${context.userId} or s.user_id = ${context.userId}
       order by b.updated_at desc
       limit 100
     `;
-    return rows.map((row) => ({
-      id: row.id,
-      kind: kindOf(row.kind),
-      title: row.title,
-      role: row.owner_id === context.userId ? "owner" : row.role === "edit" ? "edit" : "check",
-      updatedAt: toMs(row.updated_at),
-    }));
+    return rows.map((row) => {
+      const doc = readDoc(row.doc);
+      return {
+        id: row.id,
+        kind: kindOf(row.kind),
+        title: row.title,
+        role: row.owner_id === context.userId ? "owner" : row.role === "edit" ? "edit" : "check",
+        updatedAt: toMs(row.updated_at),
+        done: doc.items.filter((item) => item.done).length,
+        total: doc.items.length,
+        start: doc.start,
+        end: doc.end,
+      };
+    });
   });
 
 export const openBoard = createServerFn({ method: "POST" })
@@ -175,7 +211,8 @@ export const saveBoard = createServerFn({ method: "POST" })
     const row = (input ?? {}) as Record<string, unknown>;
     const id = String(row.id ?? "");
     if (!BOARD_RE.test(id)) throw new Error("Unknown board");
-    return { id, title: String(row.title ?? "").trim().slice(0, 60), doc: cleanDoc(row.doc) };
+    // base: the version this change started from (older apps don't send one).
+    return { id, title: String(row.title ?? "").trim().slice(0, 60), doc: cleanDoc(row.doc), base: row.base ? cleanDoc(row.base) : null };
   })
   .handler(async ({ context, data }): Promise<BoardOpen> => {
     const { getSql } = await import("@/lib/db");
@@ -191,7 +228,9 @@ export const saveBoard = createServerFn({ method: "POST" })
               return next ? { ...item, done: next.done } : item;
             }),
           }
-        : data.doc;
+        : data.base
+          ? mergeDoc(data.base, data.doc, current)
+          : data.doc;
     const title = role === "check" ? board.title : data.title || board.title;
     await sql`update boards set title = ${title}, doc = ${JSON.stringify(doc)}::jsonb, updated_at = now() where id = ${data.id}`;
     return { id: data.id, title, kind: kindOf(board.kind), role, doc, updatedAt: Date.now() };
