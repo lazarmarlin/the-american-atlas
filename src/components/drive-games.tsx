@@ -36,16 +36,22 @@ export function useDriveGames({ driving, fix, states }: { driving: boolean; fix:
       return;
     }
     let live = true;
+    // Off screen nothing is asked, so nothing is checked either (it looks again on coming back).
     const load = () =>
-      import("@/lib/boards")
+      document.visibilityState !== "visible"
+        ? undefined
+        : import("@/lib/boards")
         .then((mod) => mod.myGames())
         .then((next) => live && setGames(next))
         .catch(() => undefined);
     void load();
     const timer = window.setInterval(load, 600_000);
+    const onShow = () => document.visibilityState === "visible" && void load();
+    document.addEventListener("visibilitychange", onShow);
     return () => {
       live = false;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onShow);
     };
   }, [driving]);
 
@@ -73,7 +79,7 @@ export function useDriveGames({ driving, fix, states }: { driving: boolean; fix:
           // Next fix.
         }
       }
-      if (was && was !== state && games?.trivia) {
+      if (was && was !== state && games?.trivia && document.visibilityState === "visible") {
         const t = triviaFor(state);
         if (!t) return;
         setResult(null);
@@ -85,7 +91,7 @@ export function useDriveGames({ driving, fix, states }: { driving: boolean; fix:
 
   // Name that county: look a mile and a half ahead every half mile.
   useEffect(() => {
-    if (!driving || !games?.county || !fix || !states || question) return;
+    if (!driving || !games?.county || !fix || !states || question || document.visibilityState !== "visible") return;
     const going = heading();
     if (going == null || (speedMph() ?? 0) < 15) return;
     const prev = countyAt.current;

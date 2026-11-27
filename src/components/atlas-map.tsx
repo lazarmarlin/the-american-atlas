@@ -13,6 +13,29 @@ import type { Fix } from "@/lib/nearby";
 import { displayLine, type GhostLines } from "@/lib/ghost-trail";
 import { loadTowns } from "@/lib/towns-overlay";
 import { youMarkerImage } from "@/lib/you-marker";
+import { heading, speedMph, turnBetween, zoomForSpeed } from "@/lib/motion";
+import { makeCuller, type Box } from "@/lib/map-cull";
+import type { Feature } from "geojson";
+
+function viewBox(map: MlMap): Box {
+  const b = map.getBounds();
+  return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+}
+
+const LOCATE_SVG =
+  '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle class="atlas-locate-dot" cx="12" cy="12" r="3" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
+
+/** When moving, you sit a fifth of the way down from the middle, so more of what's ahead shows. */
+function aheadOffset(map: MlMap): [number, number] {
+  return (speedMph() ?? 0) >= 5 ? [0, Math.round(map.getContainer().clientHeight * 0.2)] : [0, 0];
+}
+
+/** Facing the way you're going (only when clearly moving), else as it is. */
+function bearingAhead(current: number) {
+  const going = (speedMph() ?? 0) >= 5 ? heading() : null;
+  if (going == null) return current;
+  return turnBetween(current, going) >= 8 ? Math.round(going) : current;
+}
 
 function rgba(hex: string, alpha: number) {
   const n = Number.parseInt(hex.replace("#", ""), 16);
@@ -320,12 +343,19 @@ export function AtlasMap({
   const keepView = useRef(false);
   const [ready, setReady] = useState(false);
   const overlaysLoaded = useRef(new Set<string>());
+  // Places, roads, a state's catalog and town outlines: only what's in or near the view goes to the map (src/lib/map-cull.ts).
+  const culler = useRef(makeCuller());
+  const showCulled = (map: MlMap, id: string, features?: Feature[]) => {
+    if (features) culler.current.set(id, features);
+    if (!culler.current.area()) culler.current.view(viewBox(map));
+    (map.getSource(id) as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: culler.current.pick(id) });
+  };
   /** Download the town outlines once (for the town layer or a selected town's outline). */
   const ensureTowns = (map: MlMap) => {
     if (overlaysLoaded.current.has("towns")) return;
     overlaysLoaded.current.add("towns");
     void loadTowns()
-      .then((towns) => (map.getSource("towns") as GeoJSONSource | undefined)?.setData(towns))
+      .then((towns) => showCulled(map, "towns", towns.features as Feature[]))
       .catch(() => overlaysLoaded.current.delete("towns"));
   };
   const [countiesReady, setCountiesReady] = useState(false);
@@ -402,9 +432,55 @@ export function AtlasMap({
         fadeDuration: 0,
       });
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+      // Above the zoom buttons: tap for you (facing the way you're going), double-tap for friends one by one.
+      map.addControl(
+        {
+          onAdd: () => {
+            const wrap = document.createElement("div");
+            wrap.className = "maplibregl-ctrl atlas-locate";
+            const group = document.createElement("div");
+            group.className = "maplibregl-ctrl-group";
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "atlas-locate-button";
+            button.setAttribute("aria-label", "Show me. Double-tap for friends");
+            button.setAttribute("aria-pressed", "false");
+            button.innerHTML = LOCATE_SVG;
+            button.addEventListener("click", () => locateTap.current());
+            group.appendChild(button);
+            const chip = document.createElement("button");
+            chip.type = "button";
+            chip.className = "atlas-locate-chip";
+            chip.hidden = true;
+            chip.addEventListener("click", () => locateChip.current());
+            wrap.append(chip, group);
+            locateEls.current = { button, chip };
+            return wrap;
+          },
+          onRemove: () => {
+            locateEls.current = null;
+          },
+        },
+        "bottom-right",
+      );
       map.dragRotate.disable();
       map.touchZoomRotate.disableRotation();
       mapRef.current = map;
+      // Dragging the map ends the locate button's follow; north comes back up when you let go.
+      let turnedByLocate = false;
+      const live = map;
+      live.on("dragstart", (event) => {
+        if (!(event as { originalEvent?: unknown }).originalEvent || locateRef.current === "off") return;
+        turnedByLocate = locateRef.current === "you" && followRef.current == null && Math.abs(live.getBearing()) > 0.5;
+        locateDrag.current();
+      });
+      live.on("dragend", () => {
+        if (!turnedByLocate) return;
+        turnedByLocate = false;
+        // After the drag's own glide has finished (it would cancel this).
+        const north = () => followRef.current == null && locateRef.current !== "you" && live.easeTo({ bearing: 0, duration: duration() });
+        window.setTimeout(() => (live.isMoving() ? live.once("moveend", north) : north()), 0);
+      });
       // For browser tests in development only.
       if (import.meta.env.DEV) (window as Window & { __atlasMap?: unknown }).__atlasMap = map;
 
@@ -1076,14 +1152,8 @@ export function AtlasMap({
     const map = mapRef.current;
     if (!ready || !map) return;
     const shown = preview && !marks.some((mark) => mark.id === preview.id) ? [...marks, preview] : marks;
-    (map.getSource("routes") as GeoJSONSource).setData({
-      type: "FeatureCollection",
-      features: lineFeatures(shown),
-    });
-    (map.getSource("places") as GeoJSONSource).setData({
-      type: "FeatureCollection",
-      features: dotFeatures(shown),
-    });
+    showCulled(map, "routes", lineFeatures(shown));
+    showCulled(map, "places", dotFeatures(shown));
 
     const accent = tokenColor("--color-accent", "#e23d2b");
     const ink = tokenColor("--color-ink", "#f3f0e6");
@@ -1202,15 +1272,36 @@ export function AtlasMap({
     if (!ready || !map) return;
     const roads = offers.filter((item) => isLine(item));
     const places = offers.filter((item) => !isLine(item));
-    (map.getSource("offers") as GeoJSONSource).setData({
-      type: "FeatureCollection",
-      features: offerLineFeatures(roads),
-    });
-    (map.getSource("offer-places") as GeoJSONSource).setData({
-      type: "FeatureCollection",
-      features: offerDotFeatures(places),
-    });
+    showCulled(map, "offers", offerLineFeatures(roads));
+    showCulled(map, "offer-places", offerDotFeatures(places));
   }, [offers, ready]);
+
+  // The view moved out of the culled area (or zoomed well in): hand the map what's near the new view.
+  // Looked at a few times a second while moving, so a long glide fills in as it goes.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    let last = 0;
+    let frame = 0;
+    const check = () => {
+      frame = 0;
+      if (!culler.current.view(viewBox(map))) return;
+      for (const id of culler.current.ids()) showCulled(map, id);
+    };
+    const onMove = () => {
+      const now = performance.now();
+      if (frame || now - last < 300) return;
+      last = now;
+      frame = requestAnimationFrame(check);
+    };
+    map.on("move", onMove);
+    map.on("moveend", check);
+    return () => {
+      map.off("move", onMove);
+      map.off("moveend", check);
+      cancelAnimationFrame(frame);
+    };
+  }, [ready]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1677,6 +1768,94 @@ export function AtlasMap({
   padRef.current = followPadding;
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
+
+  // The locate button. "you": following you (until you drag the map); "friend": looking at a friend.
+  const locateRef = useRef<"off" | "you" | "friend">("off");
+  const locateEls = useRef<{ button: HTMLButtonElement; chip: HTMLButtonElement } | null>(null);
+  const locateTap = useRef<() => void>(() => undefined);
+  const locateChip = useRef<() => void>(() => undefined);
+  const tapTimer = useRef(0);
+  const chipTimer = useRef(0);
+  const friendOrder = useRef<string[]>([]);
+  const friendAt = useRef(-1);
+  const pinsRef = useRef(friendPins);
+  pinsRef.current = friendPins;
+  const youRef = useRef(you);
+  youRef.current = you;
+  const setLocate = (mode: "off" | "you" | "friend", chip: string | null = null) => {
+    locateRef.current = mode;
+    const els = locateEls.current;
+    if (!els) return;
+    els.button.setAttribute("aria-pressed", mode === "you" ? "true" : "false");
+    els.button.dataset.mode = mode;
+    window.clearTimeout(chipTimer.current);
+    els.chip.hidden = !chip;
+    els.chip.textContent = chip ?? "";
+    if (chip) chipTimer.current = window.setTimeout(() => locateEls.current && (locateEls.current.chip.hidden = true), 6000);
+  };
+  /** Single tap: you, a little below the middle, facing the way you're going. */
+  const showMe = () => {
+    const map = mapRef.current;
+    if (!map) return;
+    const live = latestLiveFix();
+    const at = dotShown.current ?? (live ? [live.lon, live.lat] : youRef.current ? [youRef.current.lon, youRef.current.lat] : null);
+    friendAt.current = -1;
+    if (!at) {
+      setLocate("off", "Location isn't on");
+      return;
+    }
+    setLocate("you");
+    const mph = speedMph();
+    map.easeTo({
+      center: at as [number, number],
+      zoom: (mph ?? 0) >= 5 ? zoomForSpeed(mph, map.getZoom()) : Math.max(map.getZoom(), 15),
+      bearing: bearingAhead(map.getBearing()),
+      offset: aheadOffset(map),
+      duration: duration(),
+    });
+  };
+  /** Double tap: the next friend on the map (nearest first), one by one. */
+  const nextFriend = () => {
+    const map = mapRef.current;
+    if (!map) return;
+    const pins = pinsRef.current;
+    if (!pins.length) {
+      setLocate(locateRef.current, "No friends on the map right now");
+      return;
+    }
+    // A fresh round starts from whoever's closest.
+    if (friendAt.current < 0 || friendOrder.current.some((id) => !pins.find((pin) => pin.id === id)) || friendOrder.current.length !== pins.length) {
+      const c = map.getCenter();
+      friendOrder.current = [...pins].sort((a, b) => Math.hypot(a.lon - c.lng, a.lat - c.lat) - Math.hypot(b.lon - c.lng, b.lat - c.lat)).map((pin) => pin.id);
+      friendAt.current = -1;
+    }
+    friendAt.current = (friendAt.current + 1) % friendOrder.current.length;
+    const pin = pins.find((row) => row.id === friendOrder.current[friendAt.current]);
+    if (!pin) return;
+    setLocate("friend", pins.length > 1 ? `${pin.name} · ${friendAt.current + 1} of ${pins.length}` : pin.name);
+    const far = Math.abs(map.getCenter().lng - pin.lon) + Math.abs(map.getCenter().lat - pin.lat) > 3;
+    const move = { center: [pin.lon, pin.lat] as [number, number], zoom: 14, bearing: 0, offset: [0, 0] as [number, number] };
+    if (far && !reducedMotion()) map.flyTo({ ...move, duration: 1800 });
+    else map.easeTo({ ...move, duration: duration() });
+  };
+  locateTap.current = () => {
+    if (tapTimer.current) {
+      window.clearTimeout(tapTimer.current);
+      tapTimer.current = 0;
+      nextFriend();
+      return;
+    }
+    tapTimer.current = window.setTimeout(() => {
+      tapTimer.current = 0;
+      showMe();
+    }, 260);
+  };
+  const locateDrag = useRef<() => void>(() => undefined);
+  locateDrag.current = () => setLocate("off");
+  locateChip.current = () => {
+    const id = friendOrder.current[friendAt.current];
+    if (locateRef.current === "friend" && id) propsRef.current.onFriend(id);
+  };
   const placeDot = useCallback((coords: [number, number] | null) => {
     const map = mapRef.current;
     const source = map?.getSource("you") as GeoJSONSource | undefined;
@@ -1714,6 +1893,15 @@ export function AtlasMap({
           zoom: followRef.current,
           bearing: bearingRef.current ?? 0,
           padding: padRef.current ?? NO_PAD,
+          duration: far || reducedMotion() ? 0 : span,
+          easing: (t) => t,
+        });
+      } else if (locateRef.current === "you" && !selectedRef.current) {
+        // The locate button's follow: same glide, facing the way you're going.
+        map.easeTo({
+          center: [lon, lat],
+          bearing: bearingAhead(map.getBearing()),
+          offset: aheadOffset(map),
           duration: far || reducedMotion() ? 0 : span,
           easing: (t) => t,
         });

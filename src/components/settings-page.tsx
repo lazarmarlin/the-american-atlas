@@ -22,7 +22,7 @@ import { GhostColors, GhostHours } from "@/components/ghost-panel";
 import { PhotoFinder } from "@/components/photos-panel";
 import type { RecordingTrip } from "@/lib/photo-file";
 import { AppVersion } from "@/components/update-prompt";
-import { isMarkerColor, isMarkerIcon, MARKER_COLORS, MARKER_ICONS, markerLabel } from "@/lib/you-marker";
+import { isMarkerColor, isMarkerIcon, MARKER_COLORS, MARKER_ICONS, markerId, markerLabel } from "@/lib/you-marker";
 import { ChatLookScreen } from "@/components/chat-look";
 import { readLook, type ChatLook } from "@/lib/chat-look";
 import type { PhotoInfo } from "@/lib/photos";
@@ -433,11 +433,11 @@ export function SettingsPage({
               <button
                 key={icon.id}
                 type="button"
-                aria-pressed={markerIcon === icon.id}
+                aria-pressed={markerId(markerIcon) === icon.id}
                 onClick={() => setPendingIcon(icon.id)}
                 className={
                   "flex flex-col items-center rounded-lg border px-1 py-2 " +
-                  (markerIcon === icon.id ? "border-ink bg-elevated" : "border-line")
+                  (markerId(markerIcon) === icon.id ? "border-ink bg-elevated" : "border-line")
                 }
               >
                 <YouMarkerFace icon={icon.id} color={markerColor} size={48} />
