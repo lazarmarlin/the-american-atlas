@@ -60,6 +60,33 @@ final class MessageWatch {
 
     private MessageWatch() {}
 
+    /**
+     * Push works (the server has its key and this phone's token): no minute-by-minute
+     * check while tracking, and the WorkManager check is only a safety net.
+     */
+    static boolean pushOn(Context ctx) {
+        return prefs(ctx.getApplicationContext()).getBoolean("pushOn", false);
+    }
+
+    static void setPushOn(Context ctx, boolean on) {
+        Context app = ctx.getApplicationContext();
+        boolean was = pushOn(app);
+        prefs(app).edit().putBoolean("pushOn", on).apply();
+        if (was == on) return;
+        if (on) {
+            AlarmManager alarms = app.getSystemService(AlarmManager.class);
+            if (alarms != null) alarms.cancel(MessageAlarm.intent(app));
+        }
+        // The background check's pace changes (hourly with push, every 15 minutes without).
+        WorkManager.getInstance(app).cancelUniqueWork(WORK);
+        start(app);
+    }
+
+    /** A new token from Firebase: back to checking on our own until the app registers it. */
+    static void notePushToken(Context ctx, String token) {
+        setPushOn(ctx, false);
+    }
+
     private static SharedPreferences prefs(Context ctx) {
         return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
@@ -85,7 +112,7 @@ final class MessageWatch {
 
     static synchronized void stop(Context ctx) {
         Context app = ctx.getApplicationContext();
-        prefs(app).edit().remove("token").apply();
+        prefs(app).edit().remove("token").putBoolean("pushOn", false).apply();
         WorkManager.getInstance(app).cancelUniqueWork(WORK);
         AlarmManager alarms = app.getSystemService(AlarmManager.class);
         if (alarms != null) alarms.cancel(MessageAlarm.intent(app));
@@ -103,7 +130,7 @@ final class MessageWatch {
      */
     static void scheduleNext(Context ctx) {
         Context app = ctx.getApplicationContext();
-        if (!configured(app) || !(foreground || tracking(app))) return;
+        if (!configured(app) || !(foreground || tracking(app)) || pushOn(app)) return;
         AlarmManager alarms = app.getSystemService(AlarmManager.class);
         if (alarms == null) return;
         long every = EVERY_MS;
@@ -117,7 +144,9 @@ final class MessageWatch {
         final Context app = ctx.getApplicationContext();
         if (!configured(app)) return;
         Constraints online = new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build();
-        PeriodicWorkRequest work = new PeriodicWorkRequest.Builder(MessageCheckWorker.class, 15, TimeUnit.MINUTES)
+        // With push, this is only in case one gets lost.
+        long minutes = pushOn(app) ? 60 : 15;
+        PeriodicWorkRequest work = new PeriodicWorkRequest.Builder(MessageCheckWorker.class, minutes, TimeUnit.MINUTES)
             .setConstraints(online)
             .build();
         WorkManager.getInstance(app).enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.KEEP, work);

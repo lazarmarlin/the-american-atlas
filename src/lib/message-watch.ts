@@ -17,7 +17,35 @@ const Watch = registerPlugin<{
   setQuiet(options: { quiet: string[] }): Promise<void>;
   show(options: { items: Item[]; seen: string[]; likes: number }): Promise<void>;
   stop(): Promise<void>;
+  pushToken(): Promise<{ token: string | null; reason?: string }>;
+  setPushOn(options: { on: boolean }): Promise<void>;
 }>("MessageWatch");
+
+let pushTokenNow: string | null = null;
+
+/**
+ * Push (Firebase): register this phone's token with the account. When the
+ * server can send, the native side stops checking every minute and relies on
+ * pokes (with an hourly check as a safety net). Anything missing (a build
+ * without Firebase, no Play services, the server's key not set) leaves the
+ * old checks running.
+ */
+async function startPush() {
+  try {
+    const { token } = await Watch.pushToken();
+    if (!token) {
+      await Watch.setPushOn({ on: false });
+      return;
+    }
+    const [{ registerPush }, { deviceId }] = await Promise.all([import("@/lib/push"), import("@/lib/drive-log")]);
+    const { sending } = await registerPush({ data: { token, deviceId: deviceId() } });
+    pushTokenNow = token;
+    await Watch.setPushOn({ on: sending });
+  } catch {
+    // An older app (no pushToken) or offline: the regular checks carry on.
+    await Watch.setPushOn({ on: false }).catch(() => undefined);
+  }
+}
 
 let ready = false;
 
@@ -31,6 +59,7 @@ export async function startMessageWatch(userId: string, seen: string[]) {
     if (!token) return;
     await Watch.configure({ url: `${apiOrigin}/api/notify`, token, seen, quiet: quietList(userId) });
     ready = true;
+    void startPush();
   } catch {
     ready = false;
   }
@@ -58,6 +87,13 @@ export async function setQuietThreads(quiet: string[]) {
 export async function stopMessageWatch() {
   if (!nativeApp) return;
   ready = false;
+  // Signed out: this phone stops getting pokes for that account.
+  const token = pushTokenNow;
+  pushTokenNow = null;
+  if (token) {
+    const { unregisterPush } = await import("@/lib/push");
+    await unregisterPush({ data: { token } }).catch(() => undefined);
+  }
   await Watch.stop().catch(() => {});
 }
 
