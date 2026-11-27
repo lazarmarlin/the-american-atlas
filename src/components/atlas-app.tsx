@@ -2910,8 +2910,10 @@ function AtlasShell() {
         ) : null}
         {/* Bottom left: chips stacked above the buttons (they never overlap), and the
             buttons in one row that tucks away behind the arrow. */}
-        <div className="pointer-events-none absolute bottom-safe left-safe z-10 flex max-w-[calc(100%-4rem)] flex-col items-start gap-2">
-          <div className="pointer-events-auto flex max-w-full flex-col items-start gap-2">
+        {/* The button row along the bottom gets the full width (the zoom buttons sit above it);
+            the chips above it stay clear of the zoom buttons. */}
+        <div className="pointer-events-none absolute right-safe bottom-safe left-safe z-10 flex flex-col items-start gap-2">
+          <div className="pointer-events-auto flex max-w-[calc(100%-2.5rem)] flex-col items-start gap-2">
         {tripRoutes && !(friendLive || friendLines.length) ? (
           <button
             type="button"
@@ -3010,7 +3012,7 @@ function AtlasShell() {
         ) : null}
           </div>
           {!driving ? (
-            <div className="pointer-events-auto flex max-w-full items-center gap-1.5 overflow-x-auto">
+            <div className="pointer-events-auto flex max-w-full items-center gap-1.5 overflow-x-auto [scrollbar-width:none]">
               <button
                 type="button"
                 onClick={() => setToolsTucked(!toolsTucked)}
@@ -3075,7 +3077,8 @@ function AtlasShell() {
             className="flex h-11 shrink-0 items-center gap-1.5 rounded-full border border-line bg-surface/95 px-3 text-sm shadow-sm backdrop-blur-sm"
           >
             <Car className="size-4" />
-            Drive
+            {/* On a narrow phone the row only fits with Drive as just its icon. */}
+            <span className="max-[370px]:sr-only">Drive</span>
           </button>
           {user?.id ? (
             <button
