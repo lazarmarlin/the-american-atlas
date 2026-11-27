@@ -121,6 +121,16 @@ public class MessageWatchPlugin extends Plugin {
         }
     }
 
+    /** For Settings: whether push is in use, and when the last poke arrived. */
+    @PluginMethod
+    public void pushStatus(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("on", MessageWatch.pushOn(getContext()));
+        out.put("lastPoke", MessageWatch.lastPoke(getContext()));
+        out.put("firebase", !com.google.firebase.FirebaseApp.getApps(getContext()).isEmpty());
+        call.resolve(out);
+    }
+
     /** The server took the token and can send: lean on push instead of checking every minute. */
     @PluginMethod
     public void setPushOn(PluginCall call) {

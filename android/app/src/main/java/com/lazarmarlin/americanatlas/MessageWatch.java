@@ -82,6 +82,19 @@ final class MessageWatch {
         start(app);
     }
 
+    /** When the last poke arrived (for Settings › Notifications). */
+    static void notePoke(Context ctx) {
+        prefs(ctx.getApplicationContext()).edit().putLong("lastPoke", System.currentTimeMillis()).apply();
+    }
+
+    static long lastPoke(Context ctx) {
+        return prefs(ctx.getApplicationContext()).getLong("lastPoke", 0L);
+    }
+
+    static void showPushTest(Context ctx) {
+        post(ctx.getApplicationContext(), "push-test:" + System.currentTimeMillis(), "Push works", "This came through Firebase, so new messages will show even with the app closed.", "");
+    }
+
     /** A new token from Firebase: back to checking on our own until the app registers it. */
     static void notePushToken(Context ctx, String token) {
         setPushOn(ctx, false);

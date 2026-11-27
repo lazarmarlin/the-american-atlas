@@ -37,3 +37,11 @@ export const unregisterPush = createServerFn({ method: "POST" })
     await sql`delete from push_tokens where token = ${data.token} and user_id = ${context.userId}`;
     return { ok: true };
   });
+
+/** Pokes your own phones and reports where it broke, if it did (Settings › Notifications › Test push). */
+export const testPush = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const { sendPokes } = await import("@/lib/push.server");
+    return sendPokes([context.userId], "test");
+  });

@@ -12,8 +12,12 @@ import com.google.firebase.messaging.RemoteMessage;
 public class AtlasPushService extends FirebaseMessagingService {
     @Override
     public void onMessageReceived(@NonNull RemoteMessage message) {
+        android.content.Context app = getApplicationContext();
+        MessageWatch.notePoke(app);
+        // The Test push button: say it arrived, whatever else is new.
+        if ("test".equals(message.getData().get("what"))) MessageWatch.showPushTest(app);
         // Already on a background thread, with time for one short request.
-        MessageWatch.check(getApplicationContext());
+        MessageWatch.check(app);
     }
 
     @Override

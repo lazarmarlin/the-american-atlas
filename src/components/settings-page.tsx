@@ -843,6 +843,70 @@ function OfflineMapsSection() {
  * Whether the phone lets the app notify (places added, messages, thumbs-up,
  * friends sharing, On this day), with a way to fix it and a test.
  */
+/**
+ * Push (Firebase): whether it's in use on this phone, and a test that pokes
+ * your own phones through the server and says where it broke if it did.
+ */
+function PushCard() {
+  const [state, setState] = useState<import("@/lib/message-watch").PushState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    void import("@/lib/message-watch").then(({ pushState }) => pushState()).then(setState);
+  }, []);
+  async function test() {
+    setBusy(true);
+    setNote(null);
+    try {
+      const { refreshPush } = await import("@/lib/message-watch");
+      const now = await refreshPush();
+      setState(now);
+      if (now && !now.firebase) {
+        setNote("This build doesn't have Firebase in it. Update the app; if this stays, the GOOGLE_SERVICES_JSON secret is missing.");
+        return;
+      }
+      const { testPush } = await import("@/lib/push");
+      const report = await testPush();
+      if (!report.configured) {
+        setNote(report.problems[0] ?? "The server doesn't have its Firebase key: add FIREBASE_SERVICE_ACCOUNT where the app's server secrets live, then redeploy.");
+      } else if (!report.phones) {
+        setNote("The server has its key, but no phone is registered for your account. Close and reopen the app, then test again.");
+      } else if (report.sent) {
+        setNote(`Sent to ${report.sent} ${report.sent === 1 ? "phone" : "phones"}. A "Push works" notification should show in a few seconds.${report.problems.length ? ` (${report.problems.join(" ")})` : ""}`);
+        // See whether it landed here.
+        const sentAt = Date.now();
+        window.setTimeout(async () => {
+          const { pushState } = await import("@/lib/message-watch");
+          const after = await pushState();
+          setState(after);
+          if (after && after.lastPoke < sentAt - 2000) setNote("Google took it, but it hasn't reached this phone yet. Check that this phone's Firebase project matches the server's key.");
+        }, 12_000);
+      } else {
+        setNote(report.problems.join(" ") || "Google didn't take it.");
+      }
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Couldn't run the test.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (!state) return null;
+  const last = state.lastPoke ? new Date(state.lastPoke) : null;
+  return (
+    <div className="mt-3 rounded-lg border border-line px-3 py-3">
+      <p className="text-sm">{state.on ? "Push is on" : state.firebase ? "Push isn't on yet" : "Push isn't in this build"}</p>
+      <p className="mt-0.5 text-xs text-faint">
+        {state.on ? "Messages arrive right away, even with the app closed." : "Messages are checked every so often instead."}
+        {last ? ` Last push ${last.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.` : ""}
+      </p>
+      <button type="button" disabled={busy} onClick={() => void test()} className="mt-2 h-11 w-full rounded-lg border border-line text-sm disabled:text-faint">
+        {busy ? "Testing…" : "Test push"}
+      </button>
+      {note ? <p className="mt-2 text-sm text-muted">{note}</p> : null}
+    </div>
+  );
+}
+
 function NotificationsSection() {
   const [status, setStatus] = useState<{ enabled: boolean; channelsOff: string[] } | null>(null);
   const [battery, setBattery] = useState(true);
@@ -913,6 +977,7 @@ function NotificationsSection() {
         </div>
       ) : null}
       {status?.enabled && !status.channelsOff.length ? <p className="mt-3 text-sm text-muted">Notifications are on.</p> : null}
+      <PushCard />
       {!battery ? (
         <div className="mt-3 rounded-lg border border-line px-3 py-3">
           <p className="text-sm">Android is limiting the app's battery, so it may be paused on a drive and notify late.</p>
