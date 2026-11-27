@@ -118,7 +118,25 @@ export async function checkForUpdate(force = false) {
   }
 }
 
-/** Download the update and open Android's installer. */
+/** The background download (downloadQuietly) has finished, one way or the other. */
+function backgroundDone() {
+  return new Promise<void>((resolve) => {
+    if (!useUpdate.getState().background) return resolve();
+    const stop = useUpdate.subscribe((state) => {
+      if (state.background) return;
+      stop();
+      resolve();
+    });
+  });
+}
+
+/**
+ * The Update button: install the update, downloading it first if it isn't
+ * already. If it's already downloading in the background, that download is
+ * waited for (its progress shows) rather than a second one started: two at
+ * once wrote over each other's file, the bar jumped about, and one ended in
+ * "Couldn't save the update".
+ */
 export async function installUpdate() {
   const update = useUpdate.getState().available;
   if (!update || useUpdate.getState().status === "downloading") return;
@@ -126,6 +144,16 @@ export async function installUpdate() {
   if (!allowed) {
     useUpdate.setState({ status: "permission", message: null });
     return;
+  }
+  if (useUpdate.getState().background) {
+    useUpdate.setState({ status: "downloading", message: null });
+    await backgroundDone();
+    useUpdate.setState({ status: "idle" });
+  }
+  if (useUpdate.getState().ready) {
+    await installReadyUpdate();
+    // Installed from the download (the app closes); if that build couldn't, download it fresh below.
+    if (useUpdate.getState().ready || useUpdate.getState().status !== "idle") return;
   }
   useUpdate.setState({ status: "downloading", percent: 0, message: null });
   const sub = await Updater.addListener("progress", ({ percent, bytes }) => {

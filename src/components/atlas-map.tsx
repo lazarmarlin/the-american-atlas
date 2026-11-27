@@ -18,6 +18,11 @@ import { makeCuller, type Box } from "@/lib/map-cull";
 import { seenAgo } from "@/lib/live-share";
 import type { Feature } from "geojson";
 
+/** Your marker: full size at zoom 5.7 and in, about half by a whole-continent view. */
+const AVATAR_SIZE = ["interpolate", ["linear"], ["zoom"], 1.5, 0.48, 3.5, 0.68, 5.7, 1] as unknown as number;
+/** Friends': the same curve, a touch smaller. */
+const AVATAR_SIZE_FRIEND = ["interpolate", ["linear"], ["zoom"], 1.5, 0.44, 3.5, 0.62, 5.7, 0.92] as unknown as number;
+
 function viewBox(map: MlMap): Box {
   const b = map.getBounds();
   return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
@@ -936,7 +941,9 @@ export function AtlasMap({
           source: "you",
           layout: {
             "icon-image": "you-marker",
-            "icon-size": 1,
+            // Full size from about the zoom of a few states; smaller as the map zooms out, so it
+            // doesn't tower over the whole country.
+            "icon-size": AVATAR_SIZE,
             "icon-anchor": "center",
             "icon-allow-overlap": true,
             "icon-ignore-placement": true,
@@ -948,7 +955,7 @@ export function AtlasMap({
           source: "friend-people",
           layout: {
             "icon-image": ["get", "icon"],
-            "icon-size": 0.92,
+            "icon-size": AVATAR_SIZE_FRIEND,
             "icon-anchor": "center",
             "icon-allow-overlap": true,
             "icon-ignore-placement": true,

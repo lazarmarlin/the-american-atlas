@@ -34,6 +34,13 @@ import java.net.URL;
 public class ApkUpdaterPlugin extends Plugin {
 
     private static final String ALLOWED_PREFIX = "https://github.com/lazarmarlin/the-american-atlas/releases/download/";
+    /**
+     * One download at a time. The background download and the Update button
+     * used to run at once, writing the same file: the progress bar jumped
+     * between the two and one failed with "Couldn't save the update".
+     */
+    private static final Object DOWNLOADING = new Object();
+    private static final String PREFS = "atlas-apk-updater";
 
     @Override
     public void load() {
@@ -72,14 +79,8 @@ public class ApkUpdaterPlugin extends Plugin {
         }
         call.setKeepAlive(true);
         new Thread(() -> {
-            File apk = new File(new File(getContext().getCacheDir(), "updates"), "american-atlas.apk");
             try {
-                File dir = apk.getParentFile();
-                if (dir == null || (!dir.exists() && !dir.mkdirs())) throw new Exception("Couldn't make room for the update.");
-                File part = new File(dir, "american-atlas.apk.part");
-                download(url, part);
-                if (apk.exists() && !apk.delete()) throw new Exception("Couldn't replace the last download.");
-                if (!part.renameTo(apk)) throw new Exception("Couldn't save the update.");
+                File apk = fetch(url);
                 Activity activity = getActivity();
                 if (activity == null) throw new Exception("Stay in the app, then try the install again.");
                 Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apk);
@@ -119,13 +120,7 @@ public class ApkUpdaterPlugin extends Plugin {
         call.setKeepAlive(true);
         new Thread(() -> {
             try {
-                File apk = readyFile();
-                File dir = apk.getParentFile();
-                if (dir == null || (!dir.exists() && !dir.mkdirs())) throw new Exception("Couldn't make room for the update.");
-                File part = new File(dir, "american-atlas.apk.part");
-                download(url, part);
-                if (apk.exists() && !apk.delete()) throw new Exception("Couldn't replace the last download.");
-                if (!part.renameTo(apk)) throw new Exception("Couldn't save the update.");
+                File apk = fetch(url);
                 JSObject out = new JSObject();
                 out.put("bytes", apk.length());
                 call.resolve(out);
@@ -204,6 +199,29 @@ public class ApkUpdaterPlugin extends Plugin {
         call.resolve(out);
     }
 
+    /**
+     * The update from this address, downloaded (or the copy already downloaded
+     * from it). If another download is running, waits for it first: when that
+     * was the same update, its file is used as it is.
+     */
+    private File fetch(String url) throws Exception {
+        synchronized (DOWNLOADING) {
+            File apk = readyFile();
+            android.content.SharedPreferences prefs = getContext().getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE);
+            if (apk.exists() && apk.length() > 0 && url.equals(prefs.getString("readyUrl", ""))) return apk;
+            File dir = apk.getParentFile();
+            if (dir == null || (!dir.exists() && !dir.mkdirs())) throw new Exception("Couldn't make room for the update.");
+            File part = new File(dir, "american-atlas.apk.part");
+            if (part.exists() && !part.delete()) throw new Exception("Couldn't clear the last download.");
+            prefs.edit().remove("readyUrl").apply();
+            download(url, part);
+            if (apk.exists() && !apk.delete()) throw new Exception("Couldn't replace the last download.");
+            if (!part.renameTo(apk)) throw new Exception("Couldn't save the update.");
+            prefs.edit().putString("readyUrl", url).apply();
+            return apk;
+        }
+    }
+
     private File readyFile() {
         return new File(new File(getContext().getCacheDir(), "updates"), "american-atlas-ready.apk");
     }
@@ -260,5 +278,6 @@ public class ApkUpdaterPlugin extends Plugin {
         } finally {
             conn.disconnect();
         }
+        if (total > 0 && done != total) throw new Exception("The download was cut short. Try again.");
     }
 }
