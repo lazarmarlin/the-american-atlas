@@ -11,9 +11,11 @@
 import { ScreenHeader } from "@/components/screen-header";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ArrowDown, ArrowUp, CalendarDays, Check, ChevronDown, ChevronRight, Gauge, ListTodo, Luggage, Map as MapIcon, Plus, Receipt, Search, Send, Star, Trash2, Users, Wrench } from "lucide-react";
+import { ArrowDown, ArrowUp, CalendarDays, Check, ChevronDown, ChevronRight, Gauge, Plus, Search, Send, Trash2, Users } from "lucide-react";
 import {
+  BOARD_CATEGORIES,
   BOARD_KINDS,
+  PLAYER_KINDS,
   createBoard,
   deleteBoard,
   listBoards,
@@ -29,80 +31,34 @@ import {
   type BoardInfo,
   type BoardItem,
   type BoardKind,
+  type BoardMeta,
   type BoardOpen,
 } from "@/lib/boards";
+import { BestOfBoard, BudgetBoard, FuelBoard, JournalBoard, type BoardApi } from "@/components/board-kinds";
+import { AlphaGame, BingoGame, ChainsGame, CowsGame, GuessGame, PlatesGame, QuizBoard } from "@/components/board-games";
+import { loadMeta } from "@/lib/atlas-model";
+import { readDeviceLocation } from "@/lib/nearby";
+import { stateAtPoint } from "@/lib/next-county";
 import { listFriends, type FriendRow } from "@/lib/friends";
+import { agoText, Bar, BoardKindIcon, dayCount, dayLabel, itemId, KIND_LOOK, Label, money, parseMoney, progressWords, todayDay } from "@/components/board-ui";
 import type { Thread } from "@/lib/messages";
 import { useBackClose } from "@/lib/sheet-back";
 
-/** Each kind's icon, colour (used small: the icon tile, checks, and the progress bar), and words. */
-export const KIND_LOOK: Record<BoardKind, { icon: typeof ListTodo; tint: string; label: string; done: string; doneSection: string; empty: string; add: string }> = {
-  todo: { icon: ListTodo, tint: "#8fb47c", label: "To-do", done: "done", doneSection: "Done", empty: "Nothing on the list yet.", add: "Add something to do" },
-  pack: { icon: Luggage, tint: "#e0a640", label: "Packing list", done: "packed", doneSection: "In the bag", empty: "Nothing to pack yet.", add: "Add something to pack" },
-  trip: { icon: MapIcon, tint: "#e8705f", label: "Trip plan", done: "been", doneSection: "Been", empty: "No stops yet. Add the first one.", add: "Add a stop" },
-  wish: { icon: Star, tint: "#c39be6", label: "Wish list", done: "been", doneSection: "Been there", empty: "No places yet. Find one below; it ticks itself off when you get there.", add: "Search for a place" },
-  car: { icon: Wrench, tint: "#74aee0", label: "Car care", done: "done", doneSection: "Done", empty: "Nothing to keep track of yet. Pick a few below.", add: "Add a job" },
-  split: { icon: Receipt, tint: "#6fc3ad", label: "Split costs", done: "settled", doneSection: "Settled", empty: "No costs yet. Add the first one below.", add: "What was it for?" },
+/** Quick-add ideas for the plain lists. */
+const IDEAS: Partial<Record<BoardKind, string[]>> = {
+  pack: ["Phone charger", "Car charger", "Toothbrush", "Jacket", "Snacks", "Water bottle", "Sunglasses", "Wallet & ID", "Meds", "Pillow", "Socks", "Swimsuit", "Headphones", "Rain gear", "First aid kit"],
+  meals: ["Coffee", "Eggs", "Bacon", "Hot dogs & buns", "Burgers", "S'mores", "Foil-packet dinners", "Chili", "Pancake mix", "Tortillas", "Cooler ice", "Paper towels", "Lighter", "Trash bags", "Dish soap"],
+  check: ["Tire pressure", "Spare tire", "Oil level", "Coolant", "Wiper fluid", "Headlights & signals", "Brake lights", "Wipers", "Registration & insurance", "Jumper cables", "Phone mount & cable", "Emergency kit", "Fill the tank", "Offline maps"],
+  postcards: ["Mom", "Dad", "Grandma", "Grandpa", "Best friend", "Work"],
 };
 
-const PACK_IDEAS = ["Phone charger", "Car charger", "Toothbrush", "Jacket", "Snacks", "Water bottle", "Sunglasses", "Wallet & ID", "Meds", "Pillow", "Socks", "Swimsuit", "Headphones", "Rain gear", "First aid kit"];
+/** Boards with their own screen (no plain list, no progress bar). */
+const OWN_SCREEN = new Set<BoardKind>(["budget", "fuel", "journal", "bestof", "plates", "bingo", "alpha", "cows", "chains", "guess", "county", "trivia"]);
 
-/** The kind's icon on its own soft tile. */
-export function BoardKindIcon({ kind, size = "md" }: { kind: BoardKind; size?: "sm" | "md" | "lg" }) {
-  const look = KIND_LOOK[kind];
-  const Icon = look.icon;
-  const box = size === "lg" ? "size-12 rounded-2xl" : size === "sm" ? "size-9 rounded-xl" : "size-11 rounded-xl";
-  return (
-    <span className={"grid shrink-0 place-items-center " + box} style={{ background: `${look.tint}24`, color: look.tint }}>
-      <Icon className={size === "lg" ? "size-6" : size === "sm" ? "size-4" : "size-5"} strokeWidth={1.9} />
-    </span>
-  );
-}
-
-function itemId() {
-  return `bi-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
-}
-
-function agoText(ms: number) {
-  const gap = Date.now() - ms;
-  if (gap < 60_000) return "just now";
-  if (gap < 3_600_000) return `${Math.floor(gap / 60_000)}m ago`;
-  if (gap < 86_400_000) return `${Math.floor(gap / 3_600_000)}h ago`;
-  if (gap < 7 * 86_400_000) return `${Math.floor(gap / 86_400_000)}d ago`;
-  return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-function dayLabel(day: string) {
-  const [y, m, d] = day.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-}
-
-function dayCount(start: string | null, end: string | null) {
-  if (!start || !end) return null;
-  const a = Date.parse(`${start}T12:00:00`);
-  const b = Date.parse(`${end}T12:00:00`);
-  if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return null;
-  return Math.round((b - a) / 86_400_000) + 1;
-}
-
-function progressWords(kind: BoardKind, done: number, total: number) {
-  if (!total) return kind === "trip" ? "No stops yet" : "Empty";
-  if (done === total) return kind === "pack" ? "All packed" : kind === "trip" ? "Every stop done" : kind === "wish" ? "Been everywhere on it" : "All done";
-  if (kind === "wish") return `${done} of ${total} visited`;
-  return kind === "trip" ? `${done} of ${total} stops` : `${done} of ${total} ${KIND_LOOK[kind].done}`;
-}
-
-function Bar({ kind, done, total }: { kind: BoardKind; done: number; total: number }) {
-  const share = total ? done / total : 0;
-  return (
-    <span className="block h-1.5 overflow-hidden rounded-full bg-line" aria-hidden="true">
-      <span className="block h-full rounded-full transition-[width] duration-500" style={{ width: `${Math.round(share * 100)}%`, background: KIND_LOOK[kind].tint }} />
-    </span>
-  );
-}
-
-function Label({ children }: { children: ReactNode }) {
-  return <p className="text-[11px] tracking-[0.14em] text-faint uppercase">{children}</p>;
+/** Which state you're in now, for the state line guess. */
+async function stateHere() {
+  const [fix, meta] = await Promise.all([readDeviceLocation(), loadMeta()]);
+  return stateAtPoint(fix.lat, fix.lon, meta.states);
 }
 
 export function BoardsPage({
@@ -155,6 +111,8 @@ export function BoardsPage({
     }
   }
 
+  const [category, setCategory] = useState<string>("all");
+  const inCategory = (row: BoardInfo) => category === "all" || !!BOARD_KINDS.find((kind) => kind.id === row.kind)?.cats.includes(category as never);
   const mine = (rows ?? []).filter((row) => row.role === "owner");
   const shared = (rows ?? []).filter((row) => row.role !== "owner");
 
@@ -190,9 +148,24 @@ export function BoardsPage({
         />
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-10">
-          <Label>Start a board</Label>
+          <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+            {[{ id: "all", name: "All" }, ...BOARD_CATEGORIES].map((cat) => (
+              <button
+                key={cat.id}
+                type="button"
+                aria-pressed={category === cat.id}
+                onClick={() => setCategory(cat.id)}
+                className={"h-9 shrink-0 rounded-full px-4 text-sm " + (category === cat.id ? "bg-ink text-bg" : "border border-line text-muted")}
+              >
+                {cat.name}
+              </button>
+            ))}
+          </div>
+          {(category === "all" ? BOARD_CATEGORIES : BOARD_CATEGORIES.filter((cat) => cat.id === category)).map((cat) => (
+          <section key={cat.id} className="mt-5">
+          <Label>{category === "all" ? cat.name : `Start a ${cat.name.toLowerCase()} board`}</Label>
           <div className="mt-2 grid grid-cols-3 gap-2">
-            {BOARD_KINDS.map((kind) => (
+            {BOARD_KINDS.filter((kind) => kind.cats.includes(cat.id) && (category !== "all" || kind.cats[0] === cat.id)).map((kind) => (
               <button
                 key={kind.id}
                 type="button"
@@ -208,6 +181,8 @@ export function BoardsPage({
               </button>
             ))}
           </div>
+          </section>
+          ))}
 
           {rows === null ? <p className="mt-6 text-sm text-faint">Loading…</p> : null}
           {rows && !rows.length ? (
@@ -216,8 +191,8 @@ export function BoardsPage({
               <p className="mt-1 text-sm text-muted">Start one above, then send it to whoever's coming.</p>
             </div>
           ) : null}
-          {mine.length ? <BoardList title="Yours" rows={mine} onOpen={(id) => void show(id)} /> : null}
-          {shared.length ? <BoardList title="Shared with you" rows={shared} onOpen={(id) => void show(id)} /> : null}
+          {mine.filter(inCategory).length ? <BoardList title="Yours" rows={mine.filter(inCategory)} onOpen={(id) => void show(id)} /> : null}
+          {shared.filter(inCategory).length ? <BoardList title="Shared with you" rows={shared.filter(inCategory)} onOpen={(id) => void show(id)} /> : null}
         </div>
       )}
     </div>,
@@ -247,14 +222,16 @@ function BoardList({ title, rows, onOpen }: { title: string; rows: BoardInfo[]; 
                   </span>
                   <span className="mt-0.5 block truncate text-xs text-muted">
                     {row.kind === "trip" && row.start ? `${dayLabel(row.start)}${days ? ` · ${days} ${days === 1 ? "day" : "days"}` : ""} · ` : ""}
-                    {row.kind === "car"
+                    {row.summary
+                      ? row.summary
+                      : row.kind === "car"
                       ? `${(row.cars ?? 0) > 1 ? `${row.cars} cars · ` : ""}${row.total ? (row.due ? `${row.due} due soon` : "nothing due") : "nothing tracked yet"}`
                       : row.kind === "split"
                         ? `${money(row.spent ?? 0)} spent`
                         : progressWords(row.kind, row.done, row.total)}
                     {row.role === "edit" ? " · you can change it" : row.role === "check" ? " · you can check off" : ""}
                   </span>
-                  {row.total && row.kind !== "car" && row.kind !== "split" ? (
+                  {row.total && !row.summary && row.kind !== "car" && row.kind !== "split" ? (
                     <span className="mt-2 block">
                       <Bar kind={row.kind} done={row.done} total={row.total} />
                     </span>
@@ -363,20 +340,47 @@ function BoardEditor({
     [list[at], list[to]] = [list[to], list[at]];
     setItems(list);
   };
+  const player = PLAYER_KINDS.has(board.kind);
   function add(line: string, extra: Partial<BoardItem> = {}) {
     const clean = line.trim().slice(0, 80);
-    if (!clean || !canEdit) return;
-    setItems([...now(), { id: itemId(), text: clean, note: "", done: false, ...extra }]);
+    if (!clean || !(canEdit || player)) return;
+    const row = { id: itemId(), text: clean, note: "", done: false, ...extra };
+    // Game rows with a fixed id (one per player or per plate) replace, never repeat.
+    setItems([...now().filter((item) => item.id !== row.id), row]);
   }
+  const own = useMemo(() => {
+    const me = board.me ?? "";
+    const people = board.people ?? [];
+    return { me, people, name: (id: string | null | undefined) => (id && id === me ? "You" : people.find((p) => p.id === id)?.name ?? "Someone") };
+  }, [board.me, board.people]);
+  const api: BoardApi = {
+    board,
+    canEdit,
+    me: own.me,
+    people: own.people,
+    name: own.name,
+    items: now,
+    setItems,
+    update,
+    add,
+    remove: (id) => {
+      const item = now().find((row) => row.id === id);
+      if (canEdit || (player && item?.by === own.me)) remove(id);
+    },
+    setExtra: (patch: BoardMeta) => write({ ...latest.current, doc: { ...latest.current.doc, extra: { ...(latest.current.doc.extra ?? {}), ...patch } } }),
+    setDates: (patch) => write({ ...latest.current, doc: { ...latest.current.doc, ...patch } }),
+  };
+  const ownScreen = OWN_SCREEN.has(board.kind);
 
   const done = items.filter((row) => row.done).length;
   const left = items.filter((row) => !row.done);
   const finished = items.filter((row) => row.done);
   const days = dayCount(board.doc.start, board.doc.end);
   const ideas = useMemo(() => {
-    if (board.kind !== "pack") return [];
+    const list = IDEAS[board.kind];
+    if (!list) return [];
     const have = new Set(items.map((row) => row.text.toLowerCase()));
-    return PACK_IDEAS.filter((idea) => !have.has(idea.toLowerCase())).slice(0, 10);
+    return list.filter((idea) => !have.has(idea.toLowerCase())).slice(0, 10);
   }, [board.kind, items]);
 
   const rowProps = (item: BoardItem, index: number) => ({
@@ -443,6 +447,8 @@ function BoardEditor({
           />
         ) : board.kind === "split" ? (
           <SplitSummary board={board} canEdit={canEdit} onSettle={(from, to, cents) => add("Paid back", { amount: cents, paidBy: from, among: [to], payment: true })} />
+        ) : ownScreen ? (
+          <p className="mt-3 text-sm text-muted">{BOARD_KINDS.find((kind) => kind.id === board.kind)?.line}</p>
         ) : (
           <>
             <div className="mt-4 flex items-baseline justify-between gap-2 text-sm">
@@ -454,12 +460,34 @@ function BoardEditor({
             </div>
           </>
         )}
-        {!canEdit ? <p className="mt-3 text-xs text-faint">You can check things off. The list itself is theirs to change.</p> : null}
+        {!canEdit ? <p className="mt-3 text-xs text-faint">{player ? "You're playing. Your moves are your own; the rest is theirs to change." : "You can check things off. The list itself is theirs to change."}</p> : null}
       </section>
 
       {/* The list. */}
-      {!items.length ? <p className="mx-4 mt-5 text-sm text-muted">{look.empty}</p> : null}
-      {board.kind === "car" ? (
+      {!items.length && !ownScreen ? <p className="mx-4 mt-5 text-sm text-muted">{look.empty}</p> : null}
+      {board.kind === "budget" ? (
+        <BudgetBoard api={api} />
+      ) : board.kind === "fuel" ? (
+        <FuelBoard api={api} />
+      ) : board.kind === "journal" ? (
+        <JournalBoard api={api} />
+      ) : board.kind === "bestof" ? (
+        <BestOfBoard api={api} />
+      ) : board.kind === "plates" ? (
+        <PlatesGame api={api} />
+      ) : board.kind === "bingo" ? (
+        <BingoGame api={api} />
+      ) : board.kind === "alpha" ? (
+        <AlphaGame api={api} />
+      ) : board.kind === "cows" ? (
+        <CowsGame api={api} />
+      ) : board.kind === "chains" ? (
+        <ChainsGame api={api} />
+      ) : board.kind === "guess" ? (
+        <GuessGame api={api} here={stateHere} />
+      ) : board.kind === "county" || board.kind === "trivia" ? (
+        <QuizBoard api={api} />
+      ) : board.kind === "car" ? (
         <CarJobs board={board} car={car} canEdit={canEdit} onSave={update} onRemove={remove} />
       ) : board.kind === "split" ? (
         <SplitList board={board} canEdit={canEdit} onSave={update} onRemove={remove} />
@@ -478,7 +506,9 @@ function BoardEditor({
               ))}
             </ul>
           ) : items.length ? (
-            <p className="mx-4 mt-5 text-center font-serif text-lg">{board.kind === "pack" ? "Everything's in the bag." : board.kind === "wish" ? "Been everywhere on the list." : "All done. Nice."}</p>
+            <p className="mx-4 mt-5 text-center font-serif text-lg">
+              {board.kind === "pack" ? "Everything's in the bag." : board.kind === "wish" ? "Been everywhere on the list." : board.kind === "check" ? "Ready to roll." : board.kind === "postcards" ? "Everyone's had theirs." : board.kind === "meals" ? "Fed and watered." : "All done. Nice."}
+            </p>
           ) : null}
           {finished.length ? (
             <div className="mx-4 mt-3">
@@ -487,9 +517,9 @@ function BoardEditor({
                   <ChevronDown className={"size-4 transition-transform " + (showDone ? "" : "-rotate-90")} />
                   {look.doneSection} · {finished.length}
                 </button>
-                {board.kind === "pack" && canEdit ? (
+                {(board.kind === "pack" || board.kind === "check") && canEdit ? (
                   <button type="button" onClick={() => setItems(now().map((row) => ({ ...row, done: false })))} className="h-9 shrink-0 rounded-full border border-line px-3 text-xs text-muted">
-                    Unpack all
+                    {board.kind === "pack" ? "Unpack all" : "Reset all"}
                   </button>
                 ) : null}
               </div>
@@ -509,7 +539,7 @@ function BoardEditor({
       {canEdit && board.kind === "wish" ? <WishPicker board={board} onAdd={add} /> : null}
       {canEdit && board.kind === "car" && car ? <CarAdd board={board} car={car} onAdd={add} /> : null}
       {canEdit && board.kind === "split" ? <SplitAdd board={board} onAdd={add} /> : null}
-      {canEdit && board.kind !== "wish" && board.kind !== "car" && board.kind !== "split" ? (
+      {canEdit && !ownScreen && board.kind !== "wish" && board.kind !== "car" && board.kind !== "split" ? (
         <div className="mx-4 mt-4">
           <form
             className="flex items-center gap-1 rounded-full border border-line bg-surface py-1 pr-1 pl-4 focus-within:border-muted/60"
@@ -763,7 +793,7 @@ function ShareCard({ board, thread, onNote, onSent }: { board: BoardOpen; thread
       <div className="mt-3 grid grid-cols-2 gap-1 rounded-xl bg-bg/60 p-1" role="radiogroup" aria-label="What they can do">
         {(
           [
-            ["check", "Check off"],
+            ["check", PLAYER_KINDS.has(board.kind) ? "Play along" : "Check off"],
             ["edit", "Change it too"],
           ] as const
         ).map(([id, label]) => (
@@ -779,7 +809,11 @@ function ShareCard({ board, thread, onNote, onSent }: { board: BoardOpen; thread
           </button>
         ))}
       </div>
-      <p className="mt-2 text-xs text-faint">{role === "check" ? "They can tick things off; only you change the list." : "They can add, rename, move and remove things."}</p>
+      <p className="mt-2 text-xs text-faint">{role === "check"
+          ? PLAYER_KINDS.has(board.kind)
+            ? "They play with their own moves; only you change the board itself."
+            : "They can tick things off; only you change the list."
+          : "They can add, rename, move and remove things."}</p>
       {thread ? (
         <button
           type="button"
@@ -964,10 +998,7 @@ const CAR_JOBS: { text: string; everyMiles: number | null; everyMonths: number |
   { text: "Inspection", everyMiles: null, everyMonths: 12 },
 ];
 
-const todayDay = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-};
+
 
 function carId() {
   return `car-${Math.random().toString(36).slice(2, 10)}`;
@@ -1356,15 +1387,6 @@ function CarAdd({ board, car, onAdd }: { board: BoardOpen; car: BoardCar; onAdd:
 }
 
 /* ----------------------------------------------------------- split costs */
-
-export function money(cents: number) {
-  return (cents / 100).toLocaleString(undefined, { style: "currency", currency: "USD" });
-}
-
-function parseMoney(text: string) {
-  const n = Number(text.replace(/[^\d.]/g, ""));
-  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null;
-}
 
 /** Each person's balance in cents: + they're owed, − they owe. */
 export function balances(items: BoardItem[], people: string[]) {

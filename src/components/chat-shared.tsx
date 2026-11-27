@@ -129,7 +129,9 @@ function SharedRow({
                     ? row.board?.title || "A board"
                     : row.kind === "poll"
                       ? row.poll ? `Poll: ${row.poll.q}` : "A poll"
-                      : row.body.slice(0, 140);
+                      : row.kind === "where"
+                        ? "Where am I?"
+                        : row.body.slice(0, 140);
   const open = () => {
     if (row.kind === "place" && row.place && onOpenPlace) {
       onClose();

@@ -107,6 +107,8 @@ import {
   vaultVisits,
 } from "@/lib/vault";
 
+import { DriveQuiz, useDriveGames } from "@/components/drive-games";
+
 const AtlasMap = lazy(() => import("@/components/atlas-map").then((mod) => ({ default: mod.AtlasMap })));
 
 /** Wish-list places you just got to: ticked off on the server; say so. */
@@ -1115,6 +1117,8 @@ function AtlasShell() {
     if (!fix || !atlas || mapsAhead === "off" || document.visibilityState !== "visible") return;
     void saveMapsAhead(fix, (speedMph() ?? 0) >= 10 ? heading() : null, atlas.states, mapsAhead, changed);
   }, [tracker, you, mapsAhead]);
+  // Name that county, state trivia, the state line guess (src/components/drive-games.tsx).
+  const quiz = useDriveGames({ driving, fix: tracker, states: meta?.states ?? null });
   const [driveBearing, setDriveBearing] = useState<number | null>(null);
   const [driveZoom, setDriveZoom] = useState<number>(15);
   /** Bumped as fixes come in, so speed-based things update between tracker repaints. */
@@ -2708,7 +2712,7 @@ function AtlasShell() {
                   })()}
                 </div>
               </div>
-              {nextUp ? (
+              {nextUp && quiz.question?.kind !== "county" ? (
                 <div className="flex items-center gap-3 border-t border-line px-4 py-2.5">
                   <Navigation2
                     className="size-6 shrink-0 text-accent transition-transform duration-500"
@@ -2727,6 +2731,7 @@ function AtlasShell() {
                   </span>
                 </div>
               ) : null}
+              <DriveQuiz {...quiz} />
               {cars.length ? (
                 <div className="border-t border-line">
                   <button type="button" onClick={() => setCarMenu((v) => !v)} aria-expanded={carMenu} className="flex w-full items-center gap-2 px-4 py-1.5 text-left text-xs text-muted">
