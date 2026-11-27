@@ -558,6 +558,15 @@ export const sendToThread = createServerFn({ method: "POST" })
       insert into message_reads (user_id, thread, read_at) values (${context.userId}, ${readKey(data.thread)}, now())
       on conflict (user_id, thread) do update set read_at = now()
     `;
+    // Wake the other phones (push); they fetch and show the notification themselves.
+    const { pushConfigured, pokeUsers } = await import("@/lib/push.server");
+    if (pushConfigured()) {
+      const to =
+        data.thread.kind === "group"
+          ? (await sql<{ user_id: string }>`select user_id from chat_group_members where group_id = ${data.thread.id} and user_id <> ${context.userId}`).map((r) => r.user_id)
+          : [data.thread.id];
+      await pokeUsers(to, "message");
+    }
     return { id: data.id };
   });
 

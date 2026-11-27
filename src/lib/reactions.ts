@@ -40,6 +40,10 @@ export const react = createServerFn({ method: "POST" })
         insert into reactions (user_id, owner_id, target) values (${context.userId}, ${data.ownerId}, ${data.target})
         on conflict do nothing
       `;
+      if (data.ownerId !== context.userId) {
+        const { pokeUsers } = await import("@/lib/push.server");
+        await pokeUsers([data.ownerId], "like");
+      }
     } else {
       await sql`delete from reactions where user_id = ${context.userId} and owner_id = ${data.ownerId} and target = ${data.target}`;
     }

@@ -7,6 +7,11 @@
 # secret the build still works but uses a throwaway key and isn't published,
 # because a phone couldn't install it over the existing app.
 #
+# Push notifications: the repository secret GOOGLE_SERVICES_JSON holds the
+# google-services.json from Firebase (Project settings › Your apps › Android).
+# Without it the app builds the same, with no push (it checks for messages
+# on its own instead).
+#
 # The phone talks to https://traveltrack.grok.me unless a repository variable
 # API_ORIGIN is set (Settings → Secrets and variables → Actions → Variables).
 name: Android APK
@@ -51,6 +56,19 @@ jobs:
         env:
           VITE_API_ORIGIN: ${{ vars.API_ORIGIN || 'https://traveltrack.grok.me' }}
         run: npm run build:app
+
+      - name: Firebase config (push)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
+            echo "No GOOGLE_SERVICES_JSON secret: building without push."
+            exit 0
+          fi
+          printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+          # A paste that isn't the right file would fail the build later with a worse message.
+          node -e 'const j=JSON.parse(require("fs").readFileSync("android/app/google-services.json","utf8")); const ok=(j.client||[]).some(c=>c.client_info?.android_client_info?.package_name==="com.lazarmarlin.americanatlas"); if(!ok){console.error("google-services.json has no Android app com.lazarmarlin.americanatlas"); process.exit(1)}'
+          echo "Push is set up for this build."
 
       - name: Unlock the signing key
         id: key

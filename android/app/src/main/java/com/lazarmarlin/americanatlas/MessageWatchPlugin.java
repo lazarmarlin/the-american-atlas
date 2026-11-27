@@ -91,6 +91,43 @@ public class MessageWatchPlugin extends Plugin {
         call.resolve();
     }
 
+    /** This phone's push token, or none when the build has no Firebase setup (or Play services). */
+    @PluginMethod
+    public void pushToken(PluginCall call) {
+        android.content.Context ctx = getContext();
+        try {
+            if (com.google.firebase.FirebaseApp.getApps(ctx).isEmpty()) {
+                JSObject out = new JSObject();
+                out.put("token", null);
+                out.put("reason", "not-set-up");
+                call.resolve(out);
+                return;
+            }
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
+                JSObject out = new JSObject();
+                if (task.isSuccessful() && task.getResult() != null) {
+                    out.put("token", task.getResult());
+                } else {
+                    out.put("token", null);
+                    out.put("reason", "unavailable");
+                }
+                call.resolve(out);
+            });
+        } catch (Exception e) {
+            JSObject out = new JSObject();
+            out.put("token", null);
+            out.put("reason", "unavailable");
+            call.resolve(out);
+        }
+    }
+
+    /** The server took the token and can send: lean on push instead of checking every minute. */
+    @PluginMethod
+    public void setPushOn(PluginCall call) {
+        MessageWatch.setPushOn(getContext(), Boolean.TRUE.equals(call.getBoolean("on", false)));
+        call.resolve();
+    }
+
     @PluginMethod
     public void checkNow(PluginCall call) {
         new Thread(() -> {
