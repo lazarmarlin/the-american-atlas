@@ -112,6 +112,8 @@ type Props = {
   onFriend: (id: string) => void;
   /** The friend the map is zoomed in on (zoom 11+, their marker on screen, nearest the middle), or null. */
   onLook?: (id: string | null) => void;
+  /** A City squares game drawn on the map (src/components/city-squares.tsx squareFeatures), or null. */
+  squares?: GeoJSON.Feature[] | null;
   onView: (zoom: number, base: number | null) => void;
   /** Bumped to fly back out to the whole country (Android back). */
   homeTick?: number;
@@ -328,6 +330,7 @@ export function AtlasMap({
   onPress,
   onFriend,
   onLook,
+  squares,
   onView,
   homeTick = 0,
   topInset = 0,
@@ -524,6 +527,7 @@ export function AtlasMap({
         map.addSource("you", { type: "geojson", data: empty });
         map.addSource("photo-pins", { type: "geojson", data: empty });
         map.addSource("friend-people", { type: "geojson", data: empty });
+        map.addSource("city-squares", { type: "geojson", data: empty });
         for (const id of glyphKinds()) {
           const color = placeKinds.find((kind) => kind.id === id)?.color ?? "#e2b15a";
           map.addImage(`k-${id}`, glyphImage(id, color, false), { pixelRatio: 2 });
@@ -689,6 +693,37 @@ export function AtlasMap({
           filter: offerFilter,
           paint: { "line-color": routeColor, "line-width": ["case", ["==", ["get", "sys"], "I"], 1.4, 0.7], "line-opacity": 0.7 },
           layout: { "line-cap": "round", "line-join": "round" },
+        });
+        // City squares (under the roads and places): filled ones tinted, the rest outlined faintly.
+        map.addLayer({
+          id: "squares-fill",
+          type: "fill",
+          source: "city-squares",
+          minzoom: 8,
+          filter: ["all", ["!=", ["get", "s"], "empty"], ["!=", ["get", "s"], "target"]],
+          paint: {
+            "fill-color": ["get", "c"],
+            "fill-opacity": ["match", ["get", "s"], "filled", 0.34, "walled", 0.2, 0.14],
+          },
+        });
+        map.addLayer({
+          id: "squares-targets",
+          type: "circle",
+          source: "city-squares",
+          filter: ["==", ["get", "s"], "target"],
+          paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 3, 14, 7], "circle-color": "#fbf8f0", "circle-stroke-color": ["get", "c"], "circle-stroke-width": 3 },
+        });
+        map.addLayer({
+          id: "squares-line",
+          type: "line",
+          source: "city-squares",
+          filter: ["!=", ["get", "s"], "target"],
+          minzoom: 10.5,
+          paint: {
+            "line-color": ["case", ["==", ["get", "s"], "empty"], "#8a857a", ["get", "c"]],
+            "line-width": 0.7,
+            "line-opacity": ["interpolate", ["linear"], ["zoom"], 10.5, 0, 12, 0.45],
+          },
         });
         map.addLayer({
           id: "route-halo",
@@ -1324,6 +1359,13 @@ export function AtlasMap({
       window.clearTimeout(settle);
     };
   }, [ready]);
+
+  // A City squares game on the map (culled like the other big sets: a big city at the tiny size is thousands of squares).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    showCulled(map, "city-squares", squares ?? []);
+  }, [ready, squares]);
 
   // Which friend the map is zoomed in on (atlas-app asks their phone for a fresh location).
   const onLookRef = useRef(onLook);

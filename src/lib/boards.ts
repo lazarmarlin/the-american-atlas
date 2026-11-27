@@ -28,8 +28,9 @@ export type BoardKind =
   | "chains"
   | "guess"
   | "county"
-  | "trivia";
-export const ALL_KINDS: BoardKind[] = ["todo", "pack", "trip", "wish", "car", "split", "meals", "check", "postcards", "budget", "fuel", "journal", "bestof", "plates", "bingo", "alpha", "cows", "chains", "guess", "county", "trivia"];
+  | "trivia"
+  | "squares";
+export const ALL_KINDS: BoardKind[] = ["todo", "pack", "trip", "wish", "car", "split", "meals", "check", "postcards", "budget", "fuel", "journal", "bestof", "plates", "bingo", "alpha", "cows", "chains", "guess", "county", "trivia", "squares"];
 export type BoardCategory = "plan" | "money" | "car" | "play" | "memories";
 /** Small extra facts on an item or a board (a game's score, a fill-up's gallons). */
 export type BoardMeta = Record<string, string | number | boolean | null>;
@@ -140,12 +141,13 @@ export const BOARD_KINDS: { id: BoardKind; name: string; line: string; cats: Boa
   { id: "guess", name: "State line guess", line: "Guess the minutes to the next state. Closest wins.", cats: ["play"] },
   { id: "county", name: "Name that county", line: "Drive mode asks before each county line.", cats: ["play"] },
   { id: "trivia", name: "State trivia", line: "A question about each state as you cross into it.", cats: ["play"] },
+  { id: "squares", name: "City squares", line: "Cut a city or a park into squares and visit every one.", cats: ["play"] },
   { id: "journal", name: "Trip journal", line: "A line a day, with where you went.", cats: ["memories"] },
   { id: "bestof", name: "Best of the trip", line: "Best meal, best view, worst motel. Everyone picks.", cats: ["memories"] },
   { id: "postcards", name: "Postcards", line: "Who to send one to, and who's had theirs.", cats: ["memories"] },
 ];
 
-const BOARD_RE = /^bd-[a-z0-9]{8,24}$/;
+export const BOARD_RE = /^bd-[a-z0-9]{8,24}$/;
 const ITEM_RE = /^bi-[a-z0-9]{6,16}$/;
 const USER_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const GROUP_RE = /^cg-[a-z0-9]{6,24}$/;
@@ -174,7 +176,7 @@ const CAR_RE = /^car-[a-z0-9]{1,16}$/;
 type Sql = Awaited<ReturnType<typeof import("@/lib/db").getSql>>;
 
 /** Games and shared memories: everyone on the board adds their own moves, even if they may only check things off. */
-export const PLAYER_KINDS = new Set<BoardKind>(["plates", "bingo", "alpha", "cows", "chains", "guess", "county", "trivia", "journal", "bestof"]);
+export const PLAYER_KINDS = new Set<BoardKind>(["plates", "bingo", "alpha", "cows", "chains", "guess", "county", "trivia", "journal", "bestof", "squares"]);
 
 /** A short, stable tag for a person (part of their game rows' ids). */
 export function userTag(id: string) {
@@ -398,7 +400,7 @@ function readDoc(value: unknown): BoardDoc {
   }
 }
 
-async function loadAccess(sql: Sql, me: string, id: string): Promise<{ board: { owner_id: string; kind: string; title: string; doc: unknown; updated_at: unknown }; role: BoardRole }> {
+export async function loadAccess(sql: Sql, me: string, id: string): Promise<{ board: { owner_id: string; kind: string; title: string; doc: unknown; updated_at: unknown }; role: BoardRole }> {
   const rows = await sql<{ owner_id: string; kind: string; title: string; doc: unknown; updated_at: unknown }>`
     select owner_id, kind, title, doc, updated_at from boards where id = ${id}
   `;
@@ -417,7 +419,7 @@ async function memberIds(sql: Sql, boardId: string, ownerId: string) {
 }
 
 /** Everyone on the board, with the names they go by. */
-async function boardPeople(sql: Sql, boardId: string, ownerId: string): Promise<BoardPerson[]> {
+export async function boardPeople(sql: Sql, boardId: string, ownerId: string): Promise<BoardPerson[]> {
   const ids = await memberIds(sql, boardId, ownerId);
   const { namesFor } = await import("@/lib/messages");
   const names = await namesFor(sql, ids);
@@ -727,6 +729,20 @@ export const tickWishes = createServerFn({ method: "POST" })
     return { ticked };
   });
 
+/** "120 of 450 squares · Columbus" (squares visited; walled-in pockets count on the board itself). */
+async function squaresSummary(sql: Sql, boardId: string): Promise<string | null> {
+  try {
+    const rows = await sql<{ city: string; total: number; filled: number }>`
+      select g.city, g.total, (select count(distinct square)::int from square_visits v where v.board_id = g.board_id) as filled
+      from square_games g where g.board_id = ${boardId}
+    `;
+    const row = rows[0];
+    return row ? `${Number(row.filled).toLocaleString()} of ${Number(row.total).toLocaleString()} squares · ${row.city}` : "Pick a city";
+  } catch {
+    return null;
+  }
+}
+
 export const listBoards = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }): Promise<BoardInfo[]> => {
@@ -749,7 +765,7 @@ export const listBoards = createServerFn({ method: "GET" })
       if (kind === "chains") doc = (await tickChains(sql, row.id, row.owner_id, doc)).doc;
       if (kind === "car") extra = { due: carDue(doc, await carMiles(sql, row.owner_id, doc)), cars: doc.cars?.length ?? 0 };
       if (kind === "split") extra = { spent: spentOf(doc) };
-      extra = { ...extra, summary: boardSummary(kind, doc) };
+      extra = { ...extra, summary: kind === "squares" ? await squaresSummary(sql, row.id) : boardSummary(kind, doc) };
       out.push({
         id: row.id,
         kind: kindOf(row.kind),
@@ -846,6 +862,9 @@ export const deleteBoard = createServerFn({ method: "POST" })
     const { role } = await loadAccess(sql, context.userId, data.id);
     if (role !== "owner") throw new Error("Only the person who made the board can delete it.");
     await sql`delete from boards where id = ${data.id}`;
+    // A city squares game goes with its board.
+    await sql`delete from square_visits where board_id = ${data.id}`.catch(() => undefined);
+    await sql`delete from square_games where board_id = ${data.id}`.catch(() => undefined);
     return { ok: true };
   });
 

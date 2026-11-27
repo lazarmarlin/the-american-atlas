@@ -372,3 +372,15 @@
 .year-slide > *:nth-child(3) {
   animation-delay: 0.3s;
 }
+
+/* A modifier card being dealt (src/components/city-squares.tsx DealtCard). */
+@keyframes deal {
+  from {
+    transform: translateY(40px) rotate(-25deg) scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: rotate(-5deg);
+    opacity: 1;
+  }
+}

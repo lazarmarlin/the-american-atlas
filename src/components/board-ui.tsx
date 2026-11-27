@@ -4,29 +4,7 @@
  * money in words. src/components/boards-page.tsx and the board kinds.
  */
 import type { ReactNode } from "react";
-import {
-  Beef,
-  ClipboardCheck,
-  Fuel,
-  Grid3x3,
-  HelpCircle,
-  ListTodo,
-  Luggage,
-  Mail,
-  Map as MapIcon,
-  MapPinned,
-  NotebookPen,
-  Receipt,
-  RectangleHorizontal,
-  Star,
-  Store,
-  Timer,
-  Trophy,
-  Type,
-  UtensilsCrossed,
-  Wallet,
-  Wrench,
-} from "lucide-react";
+import { Beef, ClipboardCheck, Fuel, Grid2x2Check, Grid3x3, HelpCircle, ListTodo, Luggage, Mail, Map as MapIcon, MapPinned, NotebookPen, Receipt, RectangleHorizontal, Star, Store, Timer, Trophy, Type, UtensilsCrossed, Wallet, Wrench } from "lucide-react";
 import type { BoardKind } from "@/lib/boards";
 
 type Look = { icon: typeof ListTodo; tint: string; label: string; done: string; doneSection: string; empty: string; add: string };
@@ -54,6 +32,7 @@ export const KIND_LOOK: Record<BoardKind, Look> = {
   guess: { icon: Timer, tint: "#6fc3ad", label: "State line guess", done: "guessed", doneSection: "Rounds", empty: "", add: "" },
   county: { icon: MapPinned, tint: "#74aee0", label: "Name that county", done: "right", doneSection: "Answered", empty: "", add: "" },
   trivia: { icon: HelpCircle, tint: "#e0c050", label: "State trivia", done: "right", doneSection: "Answered", empty: "", add: "" },
+  squares: { icon: Grid2x2Check, tint: "#4fae7a", label: "City squares", done: "filled", doneSection: "Filled", empty: "", add: "" },
 };
 
 /** The kind's icon on its own soft tile. */

@@ -142,6 +142,28 @@ export async function readDeviceLocation(): Promise<Fix> {
   }
 }
 
+/**
+ * A location read right now (nothing cached), with how sure the phone is, in
+ * feet: for checking you're really at a place (City squares cards).
+ */
+export function readExactLocation(): Promise<Fix & { feet: number }> {
+  return new Promise((resolve, reject) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      reject(new Error("This device can't share a location."));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const fix = { lat: pos.coords.latitude, lon: pos.coords.longitude, t: pos.timestamp || Date.now() };
+        rememberFix(fix);
+        resolve({ ...fix, feet: Math.round((pos.coords.accuracy || 0) * 3.281) });
+      },
+      (err) => reject(new Error(err.code === 1 ? "Location is blocked. Allow it for The American Atlas in the app or browser settings." : "Couldn't read your location. Try again in a moment.")),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
+  });
+}
+
 const LAST_KEY = "atlas.last-fix";
 
 /** Keep the newest location on the phone, so the marker can show the moment the app opens. */

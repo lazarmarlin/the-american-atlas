@@ -72,6 +72,11 @@ import { Tour } from "@/components/tour";
 import { BadgeIcon } from "@/components/badge-icon";
 import { resetAccountChoices, setSettingsOwner, settingsOwner, useSettings } from "@/lib/atlas-settings";
 import { freshPoints, GHOST_KEEP_HOURS, loadGhost, mergeLiveCache, syncGhost, thinTrail, trailLines, useGhost, type GhostLines, type GhostPoint } from "@/lib/ghost-trail";
+import { feedSquares, flushSquares, refreshSquareGames } from "@/lib/squares-tracker";
+import { useSquaresOnMap } from "@/lib/squares-map";
+import { squaresState, type SquaresState } from "@/lib/city-squares";
+import { DealtCard, squareFeatures } from "@/components/city-squares";
+import { cardSeen } from "@/lib/squares-map";
 import { clearLiveTrail, incomingLive, pingLive, pullLiveTrail, pushLiveTrail, seenAgo, useLiveShare, type LiveFriend } from "@/lib/live-share";
 import { loadAccountSettings, saveAccountSettings, type AccountSettings } from "@/lib/account-settings";
 import { clearGhostCache, pullGhostCache, pushGhostCache } from "@/lib/ghost-cache";
@@ -305,6 +310,39 @@ function AtlasShell() {
   const [activeTrip, setActiveTrip] = useState<string | null>(null);
   const [recordingId, setRecordingId] = useState<string | null>(null);
   const [livePins, setLivePins] = useState<LiveFriend[]>([]);
+  // City squares: the games tracking fills in, and the one drawn on the map (if any).
+  const squaresOnMap = useSquaresOnMap((state) => state.id);
+  const squaresRev = useSquaresOnMap((state) => state.rev);
+  const dealtCard = useSquaresOnMap((state) => state.dealt);
+  const finishedCard = useSquaresOnMap((state) => state.finished);
+  const [squaresView, setSquaresView] = useState<SquaresState | null>(null);
+  useEffect(() => {
+    if (!user?.id) return;
+    void refreshSquareGames(true);
+    // Squares found but not sent yet go before the app's put away.
+    const onHide = () => document.visibilityState === "hidden" && void flushSquares();
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+  }, [user?.id]);
+  useEffect(() => {
+    if (!user?.id || !squaresOnMap) {
+      setSquaresView(null);
+      return;
+    }
+    let live = true;
+    const load = () =>
+      document.visibilityState === "visible" &&
+      void squaresState({ data: { id: squaresOnMap } })
+        .then((state) => live && setSquaresView(state))
+        .catch(() => live && setSquaresView(null));
+    load();
+    const timer = window.setInterval(load, 60_000);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+  }, [user?.id, squaresOnMap, squaresRev]);
+  const squaresShapes = useMemo(() => (squaresView ? squareFeatures(squaresView) : null), [squaresView]);
   /** Check friends' locations again now (after a friend's phone was woken for a fresh one). */
   const livePull = useRef<(() => void) | null>(null);
   /** The friend the map is zoomed in on, if any (AtlasMap onLook). */
@@ -1583,6 +1621,8 @@ function AtlasShell() {
         setMotionTick((n) => n + 1);
       }
       useGhost.getState().record(fixes);
+      // City squares you're playing fill in along the way.
+      feedSquares(fixes);
       shareLive();
       if (!adding) return;
       logDrive(fixes);
@@ -2659,6 +2699,7 @@ function AtlasShell() {
               friendLive={friendLive != null}
               friendPins={shownPins}
               onLook={setLookAt}
+              squares={squaresShapes}
               photoPins={photoPins}
               you={you}
               dot={locating ? (tracker ?? you) : you}
@@ -3097,6 +3138,7 @@ function AtlasShell() {
           onColor={setGhostColor}
           onClose={() => setGhostOpen(false)}
         />
+        {finishedCard ? <DealtCard card={finishedCard.card} done={finishedCard.place} onClose={cardSeen} /> : dealtCard ? <DealtCard card={dealtCard.card} onClose={cardSeen} /> : null}
         {mailOpen && user?.id ? (
           <MessageBoard
             key={mailThread ? `${mailThread.kind}:${mailThread.id}` : "board"}
