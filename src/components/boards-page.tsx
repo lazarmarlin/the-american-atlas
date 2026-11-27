@@ -36,6 +36,7 @@ import {
 } from "@/lib/boards";
 import { BestOfBoard, BudgetBoard, FuelBoard, JournalBoard, type BoardApi } from "@/components/board-kinds";
 import { AlphaGame, BingoGame, ChainsGame, CowsGame, GuessGame, PlatesGame, QuizBoard } from "@/components/board-games";
+import { SquaresBoard } from "@/components/city-squares";
 import { loadMeta } from "@/lib/atlas-model";
 import { readDeviceLocation } from "@/lib/nearby";
 import { stateAtPoint } from "@/lib/next-county";
@@ -53,7 +54,7 @@ const IDEAS: Partial<Record<BoardKind, string[]>> = {
 };
 
 /** Boards with their own screen (no plain list, no progress bar). */
-const OWN_SCREEN = new Set<BoardKind>(["budget", "fuel", "journal", "bestof", "plates", "bingo", "alpha", "cows", "chains", "guess", "county", "trivia"]);
+const OWN_SCREEN = new Set<BoardKind>(["budget", "fuel", "journal", "bestof", "plates", "bingo", "alpha", "cows", "chains", "guess", "county", "trivia", "squares"]);
 
 /** Which state you're in now, for the state line guess. */
 async function stateHere() {
@@ -489,6 +490,8 @@ function BoardEditor({
         <ChainsGame api={api} />
       ) : board.kind === "guess" ? (
         <GuessGame api={api} here={stateHere} />
+      ) : board.kind === "squares" ? (
+        <SquaresBoard api={api} />
       ) : board.kind === "county" || board.kind === "trivia" ? (
         <QuizBoard api={api} />
       ) : board.kind === "car" ? (
