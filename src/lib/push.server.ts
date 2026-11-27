@@ -83,6 +83,24 @@ export type PokeReport = {
 
 /** Sends the pokes and says how it went (for the test button; pokeUsers ignores it). */
 export async function sendPokes(userIds: string[], what: "message" | "like" | "test"): Promise<PokeReport> {
+  // Wakes the phone even when it's asleep; collapses repeats into one.
+  return sendData(userIds, { kind: "poke", what }, { priority: "HIGH", ...(what === "test" ? {} : { collapse_key: "atlas-poke" }), ttl: "3600s" });
+}
+
+/**
+ * "Somebody's looking at where you are": the phone gets one fresh location
+ * and posts it (AtlasPushService / LiveLocate on Android). No point arriving
+ * late, so it expires after two minutes.
+ */
+export async function locateUsers(userIds: string[]) {
+  if (!serviceAccount() || !userIds.length) return;
+  const work = sendData(userIds, { kind: "locate" }, { priority: "HIGH", collapse_key: "atlas-locate", ttl: "120s" }).then((report) => {
+    if (report.problems.length) console.warn("push (locate):", report.problems.join(" | "));
+  });
+  await Promise.race([work.catch((err) => console.warn("locate push failed:", err)), new Promise((resolve) => setTimeout(resolve, 6000))]);
+}
+
+async function sendData(userIds: string[], data: Record<string, string>, android: Record<string, unknown>): Promise<PokeReport> {
   const acct = serviceAccount();
   const report: PokeReport = { configured: !!acct, phones: 0, sent: 0, problems: [] };
   const raw = env("FIREBASE_SERVICE_ACCOUNT");
@@ -119,14 +137,7 @@ export async function sendPokes(userIds: string[], what: "message" | "like" | "t
           signal: AbortSignal.timeout(6000),
           method: "POST",
           headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
-          body: JSON.stringify({
-            message: {
-              token,
-              data: { kind: "poke", what },
-              // Wakes the phone even when it's asleep; collapses repeats into one.
-              android: { priority: "HIGH", ...(what === "test" ? {} : { collapse_key: "atlas-poke" }), ttl: "3600s" },
-            },
-          }),
+          body: JSON.stringify({ message: { token, data, android } }),
         });
         if (res.ok) {
           report.sent += 1;

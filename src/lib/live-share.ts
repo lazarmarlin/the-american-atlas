@@ -1,7 +1,11 @@
 /**
  * A live ghost trail shared with at most three friends. Only those friends can
- * read it, and only while tracking is on. A few minutes after the last update
- * it is treated as gone.
+ * read it, and only while tracking is on.
+ *
+ * Friends see it live while it's being updated (the last 3 minutes), and
+ * after that as "last seen", for a day. Looking at someone (pingLive) wakes
+ * their phone for a fresh location, and while anyone is looking their phone
+ * posts every fix; when nobody is, it only posts now and then (saves battery).
  */
 import { create } from "zustand";
 import { createServerFn } from "@tanstack/react-start";
@@ -10,6 +14,8 @@ import type { PackedPoint } from "@/lib/ghost-sync";
 
 export const MAX_LIVE_FRIENDS = 3;
 export const LIVE_STALE_MS = 3 * 60 * 1000;
+/** How long a friend's last location stays on your map after it stops updating. */
+export const LAST_SEEN_HOURS = 24;
 const MAX_POINTS = 600;
 const USER_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -104,7 +110,8 @@ export const pushLiveTrail = createServerFn({ method: "POST" })
       values (${context.userId}, ${JSON.stringify(points)}::jsonb, ${deviceId}, now())
       on conflict (user_id) do update set points = excluded.points, device_id = excluded.device_id, updated_at = now()
     `;
-    return { ok: true as const };
+    // Whether anyone is looking right now: the app sends every few seconds then, and only now and then otherwise.
+    return { ok: true as const, watching: await isWatched(sql, context.userId) };
   });
 
 /**
@@ -125,6 +132,19 @@ export const clearLiveTrail = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
+type Sql = Awaited<ReturnType<typeof import("@/lib/db").getSql>>;
+
+/** Somebody is looking at this person's location (pinged in the last couple of minutes). */
+export async function isWatched(sql: Sql, userId: string) {
+  try {
+    const rows = await sql<{ ok: boolean }>`select true as ok from live_watch where user_id = ${userId} and watched_until > now()`;
+    return Boolean(rows[0]?.ok);
+  } catch {
+    // Before the migration: as before, as if somebody were.
+    return true;
+  }
+}
+
 export type LiveFriend = {
   id: string;
   name: string;
@@ -132,6 +152,10 @@ export type LiveFriend = {
   lon: number;
   icon: string;
   color: string;
+  /** When their location last came in (ms). */
+  seenAt: number;
+  /** Updated in the last few minutes; otherwise it's where they were last seen. */
+  live: boolean;
 };
 
 export const incomingLive = createServerFn({ method: "GET" })
@@ -139,8 +163,10 @@ export const incomingLive = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<LiveFriend[]> => {
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
-    const rows = await sql<{ id: string; name: string; icon: string | null; color: string | null; lat: number; lon: number }>`
+    const rows = await sql<{ id: string; name: string; icon: string | null; color: string | null; lat: number; lon: number; seen_at: number; live: boolean }>`
       select v.user_id as id,
+        (extract(epoch from t.updated_at) * 1000)::float8 as seen_at,
+        (t.updated_at > now() - interval '3 minutes') as live,
         coalesce(nullif(p.name, ''), nullif(u.name, ''), 'Friend') as name,
         p.marker_icon as icon,
         p.marker_color as color,
@@ -151,7 +177,7 @@ export const incomingLive = createServerFn({ method: "GET" })
       left join profiles p on p.user_id = v.user_id
       left join "user" u on u.id = v.user_id
       where v.friend_id = ${context.userId}
-        and t.updated_at > now() - interval '3 minutes'
+        and t.updated_at > now() - interval '24 hours'
       order by t.updated_at desc
     `;
     return rows
@@ -163,6 +189,8 @@ export const incomingLive = createServerFn({ method: "GET" })
         lon: Number(row.lon),
         icon: row.icon || "dot",
         color: (row.color || "#3d8fd4").toLowerCase(),
+        seenAt: Math.round(Number(row.seen_at)) || 0,
+        live: Boolean(row.live),
       }));
   });
 
@@ -180,13 +208,59 @@ export const pullLiveTrail = createServerFn({ method: "POST" })
       select t.points from live_trails t
       join live_viewers v on v.user_id = t.user_id and v.friend_id = ${context.userId}
       where t.user_id = ${friendId}
-        and t.updated_at > now() - interval '3 minutes'
+        and t.updated_at > now() - interval '24 hours'
     `;
     if (!rows[0]) return [];
     const raw = rows[0].points;
     const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
     return Array.isArray(parsed) ? (parsed as PackedPoint[]) : [];
   });
+
+/**
+ * You're looking at a friend who shares their location with you (their page,
+ * their marker, or the map zoomed in on them). Called again each minute while
+ * you keep looking. Their phone posts every fix for the next couple of
+ * minutes, and if what the server has is over a minute old it's woken for a
+ * fresh one (a push, at most once a minute whoever is asking).
+ */
+export const pingLive = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    const id = String((input as { id?: unknown } | null)?.id ?? "");
+    if (!USER_RE.test(id)) throw new Error("Unknown friend");
+    return { id };
+  })
+  .handler(async ({ context, data }) => {
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    const shared = await sql<{ ok: boolean }>`select true as ok from live_viewers where user_id = ${data.id} and friend_id = ${context.userId}`;
+    if (!shared[0]?.ok) throw new Error("They aren't sharing their location with you.");
+    await sql`
+      insert into live_watch (user_id, watched_until) values (${data.id}, now() + interval '150 seconds')
+      on conflict (user_id) do update set watched_until = greatest(live_watch.watched_until, excluded.watched_until)
+    `;
+    const trail = await sql<{ fresh: boolean }>`select (updated_at > now() - interval '60 seconds') as fresh from live_trails where user_id = ${data.id}`;
+    if (trail[0]?.fresh) return { woke: false };
+    // Claimed in one step, so two friends looking at once send one push.
+    const claimed = await sql<{ ok: boolean }>`
+      update live_watch set pinged_at = now()
+      where user_id = ${data.id} and (pinged_at is null or pinged_at < now() - interval '60 seconds')
+      returning true as ok
+    `;
+    if (!claimed[0]?.ok) return { woke: false };
+    const { locateUsers } = await import("@/lib/push.server");
+    await locateUsers([data.id]);
+    return { woke: true };
+  });
+
+/** "last seen 12 min ago" */
+export function seenAgo(seenAt: number, now = Date.now()) {
+  const min = Math.max(0, Math.round((now - seenAt) / 60_000));
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  const hours = Math.round(min / 60);
+  return `${hours} hr ago`;
+}
 
 type LiveState = {
   viewers: string[];

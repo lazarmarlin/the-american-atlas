@@ -12,6 +12,10 @@ import { hashToken } from "@/lib/track-token";
  *
  * "X-Atlas-Live" tells the phone whether anyone is watching: with "0" it keeps
  * fixes on the phone and only posts one every 10 minutes (saves battery).
+ * "Watching" means a friend is looking at you right now (live_watch, set by
+ * pingLive), not just that you share with someone; a friend opening your
+ * location wakes the phone with a push, so it starts posting again at once.
+ * Fixes that do come in still update where friends last saw you.
  */
 const MAX_POINTS = 600;
 const QUIET = { status: 204, headers: { "X-Atlas-Live": "0" } };
@@ -48,18 +52,20 @@ export const Route = createFileRoute("/api/track")({
         const rows = await sql<{ points: unknown; updated_at: string }>`
           select points, updated_at from live_trails where user_id = ${who.user_id}
         `;
+        const { isWatched } = await import("@/lib/live-share");
+        const answer = (await isWatched(sql, who.user_id)) ? LIVE : QUIET;
         const prev = rows[0];
-        if (prev && Date.now() - new Date(prev.updated_at).getTime() < 10_000) return new Response(null, LIVE);
+        if (prev && Date.now() - new Date(prev.updated_at).getTime() < 10_000) return new Response(null, answer);
         const points = Array.isArray(prev?.points) ? (prev.points as unknown[]) : [];
         const last = points.at(-1) as number[] | undefined;
-        if (last && Number(last[2]) >= t) return new Response(null, LIVE);
+        if (last && Number(last[2]) >= t) return new Response(null, answer);
         const next = [...points, [Math.round(lat * 1e5) / 1e5, Math.round(lon * 1e5) / 1e5, Math.round(t)]].slice(-MAX_POINTS);
         await sql`
           insert into live_trails (user_id, points, device_id, updated_at)
           values (${who.user_id}, ${JSON.stringify(next)}::jsonb, ${who.device_id}, now())
           on conflict (user_id) do update set points = excluded.points, device_id = excluded.device_id, updated_at = now()
         `;
-        return new Response(null, LIVE);
+        return new Response(null, answer);
       },
     },
   },

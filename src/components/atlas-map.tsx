@@ -15,6 +15,7 @@ import { loadTowns } from "@/lib/towns-overlay";
 import { youMarkerImage } from "@/lib/you-marker";
 import { heading, speedMph, turnBetween, zoomForSpeed } from "@/lib/motion";
 import { makeCuller, type Box } from "@/lib/map-cull";
+import { seenAgo } from "@/lib/live-share";
 import type { Feature } from "geojson";
 
 function viewBox(map: MlMap): Box {
@@ -79,7 +80,8 @@ type Props = {
   friendLines: GhostLines;
   friendLook: number;
   friendLive: boolean;
-  friendPins: { id: string; name: string; lat: number; lon: number; icon: string; color: string }[];
+  /** Friends sharing their location with you. `live: false`: where they were last seen (`seenAt`), drawn faded. */
+  friendPins: { id: string; name: string; lat: number; lon: number; icon: string; color: string; live?: boolean; seenAt?: number }[];
   photoPins: { id: string; poiId: string; lat: number; lon: number; thumb: string; friendId?: string }[];
   you: Fix | null;
   dot: Fix | null;
@@ -103,6 +105,8 @@ type Props = {
   onOffer: (id: string) => void;
   onPress: () => void;
   onFriend: (id: string) => void;
+  /** The friend the map is zoomed in on (zoom 11+, their marker on screen, nearest the middle), or null. */
+  onLook?: (id: string | null) => void;
   onView: (zoom: number, base: number | null) => void;
   /** Bumped to fly back out to the whole country (Android back). */
   homeTick?: number;
@@ -318,6 +322,7 @@ export function AtlasMap({
   onOffer,
   onPress,
   onFriend,
+  onLook,
   onView,
   homeTick = 0,
   topInset = 0,
@@ -948,6 +953,8 @@ export function AtlasMap({
             "icon-allow-overlap": true,
             "icon-ignore-placement": true,
           },
+          // Faded: where they were last seen (not updating right now).
+          paint: { "icon-opacity": ["case", ["boolean", ["get", "stale"], false], 0.5, 1] },
         });
 
         let hover: string | null = null;
@@ -1276,30 +1283,71 @@ export function AtlasMap({
     showCulled(map, "offer-places", offerDotFeatures(places));
   }, [offers, ready]);
 
-  // The view moved out of the culled area (or zoomed well in): hand the map what's near the new view.
-  // Looked at a few times a second while moving, so a long glide fills in as it goes.
+  // The view moved out of the culled area (or zoomed well in): hand the map what's near the new
+  // view, once the map has settled (not mid-drag, which made it stutter). Only during a long glide
+  // that leaves the area altogether is it done on the way, and then at most twice a second.
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
+    let settle = 0;
     let last = 0;
-    let frame = 0;
-    const check = () => {
-      frame = 0;
+    const recull = () => {
+      settle = 0;
       if (!culler.current.view(viewBox(map))) return;
-      for (const id of culler.current.ids()) showCulled(map, id);
+      for (const id of culler.current.ids()) {
+        const features = culler.current.fresh(id);
+        if (features) (map.getSource(id) as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features });
+      }
+    };
+    const onEnd = () => {
+      window.clearTimeout(settle);
+      settle = window.setTimeout(recull, 120);
     };
     const onMove = () => {
       const now = performance.now();
-      if (frame || now - last < 300) return;
+      if (now - last < 500 || !culler.current.outside(viewBox(map))) return;
       last = now;
-      frame = requestAnimationFrame(check);
+      recull();
     };
+    map.on("moveend", onEnd);
     map.on("move", onMove);
-    map.on("moveend", check);
     return () => {
+      map.off("moveend", onEnd);
       map.off("move", onMove);
-      map.off("moveend", check);
-      cancelAnimationFrame(frame);
+      window.clearTimeout(settle);
+    };
+  }, [ready]);
+
+  // Which friend the map is zoomed in on (atlas-app asks their phone for a fresh location).
+  const onLookRef = useRef(onLook);
+  onLookRef.current = onLook;
+  const lookedAt = useRef<string | null>(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const look = () => {
+      let pick: string | null = null;
+      if (map.getZoom() >= 11) {
+        const b = map.getBounds();
+        const c = map.getCenter();
+        let best = Infinity;
+        for (const pin of pinsRef.current) {
+          if (!b.contains([pin.lon, pin.lat])) continue;
+          const d = Math.hypot(pin.lon - c.lng, pin.lat - c.lat);
+          if (d < best) {
+            best = d;
+            pick = pin.id;
+          }
+        }
+      }
+      if (pick === lookedAt.current) return;
+      lookedAt.current = pick;
+      onLookRef.current?.(pick);
+    };
+    map.on("moveend", look);
+    look();
+    return () => {
+      map.off("moveend", look);
     };
   }, [ready]);
 
@@ -1832,7 +1880,8 @@ export function AtlasMap({
     friendAt.current = (friendAt.current + 1) % friendOrder.current.length;
     const pin = pins.find((row) => row.id === friendOrder.current[friendAt.current]);
     if (!pin) return;
-    setLocate("friend", pins.length > 1 ? `${pin.name} · ${friendAt.current + 1} of ${pins.length}` : pin.name);
+    const seen = pin.live === false && pin.seenAt ? ` · seen ${seenAgo(pin.seenAt)}` : "";
+    setLocate("friend", (pins.length > 1 ? `${pin.name} · ${friendAt.current + 1} of ${pins.length}` : pin.name) + seen);
     const far = Math.abs(map.getCenter().lng - pin.lon) + Math.abs(map.getCenter().lat - pin.lat) > 3;
     const move = { center: [pin.lon, pin.lat] as [number, number], zoom: 14, bearing: 0, offset: [0, 0] as [number, number] };
     if (far && !reducedMotion()) map.flyTo({ ...move, duration: 1800 });
@@ -1959,7 +2008,7 @@ export function AtlasMap({
       }
       features.push({
         type: "Feature" as const,
-        properties: { id: pin.id, name: pin.name, icon: imageId },
+        properties: { id: pin.id, name: pin.name, icon: imageId, stale: pin.live === false },
         geometry: { type: "Point" as const, coordinates: [pin.lon, pin.lat] },
       });
     }

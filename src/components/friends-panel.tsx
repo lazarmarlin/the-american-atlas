@@ -26,7 +26,7 @@ import { sendToThread, type ChatPlace, type Thread } from "@/lib/messages";
 import { sharedTrip, type SharedTraveler } from "@/lib/trips";
 import { reactionsOn, react, recentLikes, type Like } from "@/lib/reactions";
 import { pushBack } from "@/lib/sheet-back";
-import { type LiveFriend } from "@/lib/live-share";
+import { seenAgo, type LiveFriend } from "@/lib/live-share";
 import { friendsLeaderboard, periodRange, type LeaderRow } from "@/lib/recap";
 
 function friendUrl(code: string) {
@@ -437,16 +437,26 @@ export function FriendsPanel({
             {error ? <p className="mt-2 px-2 text-sm text-accent">{error}</p> : null}
 
             {liveNow.some((row) => row.id === page.id) ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setShown("live");
-                  onWatch({ id: page.id, name: page.name });
-                }}
-                className={"mt-4 h-11 w-full rounded-lg border text-sm " + (shown === "live" || watchingLive === page.id ? "border-ink bg-elevated" : "border-line")}
-              >
-                {shown === "live" || watchingLive === page.id ? "Watching their live trail · Show on map" : "Watch live trail"}
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShown("live");
+                    onWatch({ id: page.id, name: page.name });
+                  }}
+                  className={"mt-4 h-11 w-full rounded-lg border text-sm " + (shown === "live" || watchingLive === page.id ? "border-ink bg-elevated" : "border-line")}
+                >
+                  {(() => {
+                    const row = liveNow.find((item) => item.id === page.id);
+                    const watching = shown === "live" || watchingLive === page.id;
+                    if (row && !row.live) return `Last seen ${seenAgo(row.seenAt)} · Show on map`;
+                    return watching ? "Watching their live trail · Show on map" : "Watch live trail";
+                  })()}
+                </button>
+                {liveNow.find((item) => item.id === page.id)?.live === false ? (
+                  <p className="mt-1.5 px-2 text-xs text-faint">Asking their phone where they are now. It updates here if it can.</p>
+                ) : null}
+              </>
             ) : (
               <p className="mt-4 px-2 text-sm text-muted">They aren't sharing a live trail right now.</p>
             )}
@@ -494,7 +504,10 @@ export function FriendsPanel({
             {chatOpen && openId ? (
               <ChatScreen
                 title={nickOf(meId, "friend", page.id, page.name)}
-                subtitle={liveNow.some((row) => row.id === page.id) ? "Sharing a live trail" : undefined}
+                subtitle={(() => {
+                  const row = liveNow.find((item) => item.id === page.id);
+                  return row ? (row.live ? "Sharing a live trail" : `Last seen ${seenAgo(row.seenAt)}`) : undefined;
+                })()}
                 onClose={() => setChatOpen(false)}
                 thread={{ kind: "friend", id: openId }}
                 meId={meId}

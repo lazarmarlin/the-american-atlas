@@ -72,7 +72,7 @@ import { Tour } from "@/components/tour";
 import { BadgeIcon } from "@/components/badge-icon";
 import { resetAccountChoices, setSettingsOwner, settingsOwner, useSettings } from "@/lib/atlas-settings";
 import { freshPoints, GHOST_KEEP_HOURS, loadGhost, mergeLiveCache, syncGhost, thinTrail, trailLines, useGhost, type GhostLines, type GhostPoint } from "@/lib/ghost-trail";
-import { clearLiveTrail, incomingLive, pullLiveTrail, pushLiveTrail, useLiveShare, type LiveFriend } from "@/lib/live-share";
+import { clearLiveTrail, incomingLive, pingLive, pullLiveTrail, pushLiveTrail, seenAgo, useLiveShare, type LiveFriend } from "@/lib/live-share";
 import { loadAccountSettings, saveAccountSettings, type AccountSettings } from "@/lib/account-settings";
 import { clearGhostCache, pullGhostCache, pushGhostCache } from "@/lib/ghost-cache";
 import { setTripRecording } from "@/lib/trips";
@@ -305,6 +305,10 @@ function AtlasShell() {
   const [activeTrip, setActiveTrip] = useState<string | null>(null);
   const [recordingId, setRecordingId] = useState<string | null>(null);
   const [livePins, setLivePins] = useState<LiveFriend[]>([]);
+  /** Check friends' locations again now (after a friend's phone was woken for a fresh one). */
+  const livePull = useRef<(() => void) | null>(null);
+  /** The friend the map is zoomed in on, if any (AtlasMap onLook). */
+  const [lookAt, setLookAt] = useState<string | null>(null);
   const [photos, setPhotos] = useState<PhotoInfo[]>([]);
   const [viewing, setViewing] = useState<{ list: PhotoInfo[]; id: string } | null>(null);
   const closeViewer = useCallback(() => setViewing(null), []);
@@ -1487,6 +1491,9 @@ function AtlasShell() {
 
     let lastShare = 0;
     let lastSharedT = 0;
+    // Whether a friend is looking right now (the server says, each time): every
+    // 12 s then, and every 2 minutes otherwise (enough to stay "live" for them).
+    let watched = true;
     function shareLive(force = false) {
       if (!useLiveShare.getState().viewers.length) {
         if (lastShare) {
@@ -1497,7 +1504,7 @@ function AtlasShell() {
         return;
       }
       const now = Date.now();
-      if (!force && now - lastShare < 12000) return;
+      if (!force && now - lastShare < (watched ? 12_000 : 120_000)) return;
       // One fix is enough for the marker. The line appears once there's a second point.
       const here = useGhost.getState().live.at(-1);
       // Nothing new (parked): just keep the trail from timing out for friends
@@ -1511,9 +1518,13 @@ function AtlasShell() {
       const packed = points.slice(-600).map((point) =>
         point.brk ? ([point.lat, point.lon, point.t, 1] as const) : ([point.lat, point.lon, point.t] as const),
       );
-      void pushLiveTrail({ data: { points: packed, deviceId: deviceId() } }).catch(() => {
-        lastShare = 0;
-      });
+      void pushLiveTrail({ data: { points: packed, deviceId: deviceId() } })
+        .then((res) => {
+          watched = (res as { watching?: boolean }).watching !== false;
+        })
+        .catch(() => {
+          lastShare = 0;
+        });
     }
 
     // "Keep the live trail on your account": the whole trail goes up each time, so
@@ -2304,6 +2315,10 @@ function AtlasShell() {
     let first = true;
     let seen = new Set<string>();
     let anyone = false;
+    livePull.current = () => {
+      window.clearTimeout(timer);
+      pull();
+    };
     const schedule = () => {
       window.clearTimeout(timer);
       if (dead) return;
@@ -2315,7 +2330,10 @@ function AtlasShell() {
         .then((rows) => {
           if (dead) return;
           setLivePins(rows);
-          anyone = rows.length > 0;
+          // Friends show for a day after their location stops updating ("last seen"),
+          // but only ones updating now count as live (quicker checks, auto-watch, the alert).
+          const liveRows = rows.filter((row) => row.live);
+          anyone = liveRows.length > 0;
           const now = new Set(rows.map((row) => row.id));
           // Live trails show by default: watch a friend who's sharing, unless you hid them
           // (that lasts until they stop sharing). The map doesn't move for it.
@@ -2323,12 +2341,12 @@ function AtlasShell() {
           setFriendLive((cur) => {
             if (cur && !now.has(cur.id)) return null;
             if (cur || trailShown.current) return cur;
-            const next = rows.find((row) => !liveHidden.current.has(row.id));
+            const next = liveRows.find((row) => !liveHidden.current.has(row.id));
             return next ? { id: next.id, name: next.name } : null;
           });
           // Not on the first check: friends already live when the app opens show on the map.
-          if (!first) for (const row of rows) if (!seen.has(row.id)) void notifyFriendLive(row.name);
-          seen = now;
+          if (!first) for (const row of liveRows) if (!seen.has(row.id)) void notifyFriendLive(row.name);
+          seen = new Set(liveRows.map((row) => row.id));
           first = false;
         })
         .catch(() => {
@@ -2409,6 +2427,39 @@ function AtlasShell() {
       document.removeEventListener("visibilitychange", onShow);
     };
   }, [user?.id]);
+
+  // Looking at a friend who shares their location (their page, or the map zoomed in on them):
+  // their phone is asked for where they are now, and again each minute while you keep looking
+  // (for up to 10 minutes; looking again starts over). Not while the app is off screen.
+  const liveNowOf = (id: string) => livePins.find((pin) => pin.id === id)?.live !== false;
+  const focusId = [friendId, lookAt].find((id) => id && livePins.some((pin) => pin.id === id)) ?? null;
+  useEffect(() => {
+    if (!focusId) return;
+    let dead = false;
+    let timer = 0;
+    let asked = 0;
+    const later: number[] = [];
+    const ask = () => {
+      if (dead || asked >= 10) return;
+      if (document.visibilityState === "visible") {
+        asked += 1;
+        void pingLive({ data: { id: focusId } })
+          .then((res) => {
+            if (dead || !res.woke) return;
+            // Their phone was woken: look for the fresh location in a few seconds.
+            later.push(window.setTimeout(() => livePull.current?.(), 8000), window.setTimeout(() => livePull.current?.(), 20000));
+          })
+          .catch(() => undefined);
+      }
+      timer = window.setTimeout(ask, 60_000);
+    };
+    ask();
+    return () => {
+      dead = true;
+      window.clearTimeout(timer);
+      for (const id of later) window.clearTimeout(id);
+    };
+  }, [focusId]);
 
   useEffect(() => {
     if (!friendLive) {
@@ -2607,6 +2658,7 @@ function AtlasShell() {
               friendLook={friendLook}
               friendLive={friendLive != null}
               friendPins={shownPins}
+              onLook={setLookAt}
               photoPins={photoPins}
               you={you}
               dot={locating ? (tracker ?? you) : you}
@@ -2900,11 +2952,11 @@ function AtlasShell() {
                   (liveWide ? "px-3" : "shrink-0 px-2.5")
                 }
               >
-                <span className={"size-2 shrink-0 rounded-full bg-accent " + (friendLive ? "animate-pulse" : "opacity-70")} aria-hidden />
+                <span className={"size-2 shrink-0 rounded-full bg-accent " + (friendLive && liveNowOf(friendLive.id) ? "animate-pulse" : "opacity-70")} aria-hidden />
                 {liveWide ? (
                   <>
                     <span className="min-w-0 truncate">{friendLive ? friendLive.name : "Friend's trail"}</span>
-                    <span className="shrink-0 text-xs text-muted">{friendLive ? "live · Hide" : "Hide"}</span>
+                    <span className="shrink-0 text-xs text-muted">{friendLive ? (liveNowOf(friendLive.id) ? "live · Hide" : `seen ${seenAgo(livePins.find((pin) => pin.id === friendLive.id)?.seenAt ?? Date.now())} · Hide`) : "Hide"}</span>
                   </>
                 ) : (
                   <span className="max-w-24 truncate text-xs text-muted">{friendLive ? friendLive.name.split(" ")[0] : "Trail"}</span>
