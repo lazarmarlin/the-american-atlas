@@ -19,7 +19,7 @@ import { Images, ImageIcon, Settings } from "lucide-react";
 import { WallpaperScreen, wallpaperFor } from "@/components/chat-wallpaper";
 import { ArrowUp, Camera, ListTodo, LocateFixed, MapPinned, Mic, Plus, Route, Send } from "lucide-react";
 import { allowMic } from "@/lib/mic";
-import { BoardsPage } from "@/components/boards-page";
+import { BoardKindIcon, BoardsPage, KIND_LOOK } from "@/components/boards-page";
 import { ChatLookScreen, applyShared } from "@/components/chat-look";
 import { LOOK_DEFAULT, nickOf, readLook, useLookVersion, wallVeil, withAlpha, type ChatLook } from "@/lib/chat-look";
 import { loadTheme } from "@/lib/chat-theme";
@@ -903,13 +903,13 @@ export function ChatThread({
                 ) : null}
                 {row.kind === "voice" ? <VoiceNote thread={thread} id={row.id} seconds={Number(row.body) || 1} local={clips.current.get(row.id) ?? ""} /> : null}
                 {row.kind === "board" && row.board ? (
-                  <button type="button" onClick={() => onOpenBoard?.(row.board?.id ?? "")} className="block w-full py-1 text-left">
-                    <span className="flex items-center gap-2 text-accent">
-                      <ListTodo className="size-4" />
-                      <span className="text-xs tracking-widest uppercase">{row.board.kind === "pack" ? "Packing list" : row.board.kind === "trip" ? "Trip plan" : "To-do"}</span>
+                  <button type="button" onClick={() => onOpenBoard?.(row.board?.id ?? "")} className="flex w-full min-w-48 items-center gap-3 py-1 text-left">
+                    <BoardKindIcon kind={row.board.kind} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[11px] tracking-[0.14em] text-faint uppercase">{KIND_LOOK[row.board.kind].label}</span>
+                      <span className="block truncate font-serif text-lg leading-tight">{row.board.title}</span>
+                      <span className="mt-0.5 block text-xs text-muted">Tap to open</span>
                     </span>
-                    <span className="mt-0.5 block font-serif text-lg leading-tight">{row.board.title}</span>
-                    <span className="mt-1 block text-xs text-muted">Open the board</span>
                   </button>
                 ) : null}
                 {row.kind === "text" ? <p className="break-words">{linkParts(row.body)}</p> : null}
