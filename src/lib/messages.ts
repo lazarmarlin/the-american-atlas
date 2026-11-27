@@ -57,11 +57,22 @@ export type ChatDay = {
   trail: ChatTrail | null;
 };
 
+/** A quick poll: a question and 2–6 choices. One vote each; tap another to change it. */
+export type ChatPoll = {
+  q: string;
+  options: string[];
+  /** Votes per option, and who voted for what (names), for this chat only. */
+  votes: number[];
+  voters: string[][];
+  /** The option I picked, or -1. */
+  mine: number;
+};
+
 export type ChatMessage = {
   id: string;
   fromId: string;
   fromName: string;
-  kind: "text" | "link" | "photo" | "place" | "trip" | "trail" | "here" | "day" | "voice" | "board";
+  kind: "text" | "link" | "photo" | "place" | "trip" | "trail" | "here" | "day" | "voice" | "board" | "poll";
   body: string;
   thumb: string;
   at: number;
@@ -74,6 +85,7 @@ export type ChatMessage = {
   here?: ChatHere | null;
   day?: ChatDay | null;
   board?: BoardCard | null;
+  poll?: ChatPoll | null;
   reply?: ChatReply | null;
   reactions?: ChatReaction;
   /** Stuck to the top of this chat. */
@@ -173,7 +185,7 @@ export async function namesFor(sql: Sql, ids: string[]) {
   return new Map(rows.map((row) => [row.id, row.name]));
 }
 
-const KINDS = ["link", "photo", "place", "trip", "trail", "here", "day", "voice", "board"] as const;
+const KINDS = ["link", "photo", "place", "trip", "trail", "here", "day", "voice", "board", "poll"] as const;
 function kindOf(value: unknown): ChatMessage["kind"] {
   return (KINDS as readonly unknown[]).includes(value) ? (value as ChatMessage["kind"]) : "text";
 }
@@ -281,6 +293,7 @@ function quoteOf(kind: ChatMessage["kind"], body: string) {
   if (kind === "here") return readHere(body)?.label || "I'm here";
   if (kind === "day") return readDay(body)?.day || "A day";
   if (kind === "board") return readBoard(body)?.title || "A board";
+  if (kind === "poll") return readPollCard(body)?.q || "A poll";
   return (body || "").slice(0, 80);
 }
 
@@ -308,8 +321,29 @@ function readBoard(body: string): BoardCard | null {
   try {
     const row = JSON.parse(body) as BoardCard;
     if (!row || typeof row.id !== "string" || typeof row.title !== "string") return null;
-    const kind = row.kind === "pack" || row.kind === "trip" ? row.kind : "todo";
+    const kind = (["pack", "trip", "wish", "car", "split"] as const).find((k) => k === row.kind) ?? "todo";
     return { id: row.id, title: row.title, kind };
+  } catch {
+    return null;
+  }
+}
+
+function cleanPoll(value: unknown): { q: string; options: string[] } {
+  const row = (value ?? {}) as Record<string, unknown>;
+  const q = String(row.q ?? "").trim().slice(0, 140);
+  const seen = new Set<string>();
+  const options = (Array.isArray(row.options) ? row.options : [])
+    .map((option) => String(option ?? "").trim().slice(0, 60))
+    .filter((option) => option && !seen.has(option.toLowerCase()) && seen.add(option.toLowerCase()))
+    .slice(0, 6);
+  if (!q) throw new Error("Ask a question first.");
+  if (options.length < 2) throw new Error("Give at least two choices.");
+  return { q, options };
+}
+
+function readPollCard(body: string): { q: string; options: string[] } | null {
+  try {
+    return cleanPoll(JSON.parse(body));
   } catch {
     return null;
   }
@@ -418,6 +452,27 @@ export const listThread = createServerFn({ method: "POST" })
           select message_id, user_id, mark from message_reactions where message_id = any(${ids}::text[])
         `
       : [];
+    const pollIds = rows.filter((row) => row.kind === "poll").map((row) => row.id);
+    const voteRows = pollIds.length
+      ? await sql<{ message_id: string; user_id: string; choice: number }>`
+          select message_id, user_id, choice from poll_votes where message_id = any(${pollIds}::text[]) order by voted_at
+        `
+      : [];
+    const voterNames = voteRows.length ? await namesFor(sql, [...new Set(voteRows.map((row) => row.user_id))]) : new Map<string, string>();
+    const pollOf = (row: Row): ChatPoll | null => {
+      const card = readPollCard(row.body);
+      if (!card) return null;
+      const votes = card.options.map(() => 0);
+      const voters: string[][] = card.options.map(() => []);
+      let mine = -1;
+      for (const vote of voteRows) {
+        if (vote.message_id !== row.id || vote.choice < 0 || vote.choice >= card.options.length) continue;
+        votes[vote.choice] += 1;
+        voters[vote.choice].push(vote.user_id === context.userId ? "You" : voterNames.get(vote.user_id) ?? "Friend");
+        if (vote.user_id === context.userId) mine = vote.choice;
+      }
+      return { ...card, votes, voters, mine };
+    };
     const pinRows = await sql<{ message_id: string }>`
       select message_id from thread_pins where thread = ${readKey(thread)}
     `;
@@ -448,7 +503,7 @@ export const listThread = createServerFn({ method: "POST" })
         fromId: row.from_id,
         fromName: names.get(row.from_id) ?? "Friend",
         kind,
-        body: kind === "place" || kind === "trip" || kind === "trail" || kind === "here" || kind === "day" || kind === "board" ? "" : row.body || "",
+        body: kind === "place" || kind === "trip" || kind === "trail" || kind === "here" || kind === "day" || kind === "board" || kind === "poll" ? "" : row.body || "",
         thumb: have.has(row.id) ? "" : row.thumb || "",
         at,
         lat: row.lat ?? null,
@@ -460,6 +515,7 @@ export const listThread = createServerFn({ method: "POST" })
         here: kind === "here" ? readHere(row.body) : null,
         day: kind === "day" ? readDay(row.body) : null,
         board: kind === "board" ? readBoard(row.body) : null,
+        poll: kind === "poll" ? pollOf(row) : null,
         reply,
         reactions,
         pinned: row.id === pinId,
@@ -526,6 +582,9 @@ function parseSend(input: unknown) {
     const id = String(card.id ?? "");
     if (!/^bd-[a-z0-9]{8,24}$/.test(id)) throw new Error("Unknown board");
     return { ...base, body: JSON.stringify({ id, role: card.role === "edit" ? "edit" : "check" }) };
+  }
+  if (kind === "poll") {
+    return { ...base, body: JSON.stringify(cleanPoll(row.poll)) };
   }
   if (kind === "place") {
     const place = (row.place ?? {}) as Record<string, unknown>;
@@ -829,6 +888,8 @@ const preview = (kind: string, body: string) =>
               ? "Voice note"
             : kind === "board"
               ? `Board: ${readBoard(body)?.title ?? ""}`.trim()
+            : kind === "poll"
+              ? `Poll: ${readPollCard(body)?.q ?? ""}`.trim()
             : kind === "place"
               ? `Shared ${readPlace(body)?.name ?? "a place"}`
               : kind === "link"
@@ -1073,4 +1134,35 @@ export const loadMessagePhoto = createServerFn({ method: "POST" })
     const image = rows[0]?.image;
     if (!image) throw new Error("That photo isn't in the chat.");
     return { image };
+  });
+
+/** Vote in a poll (choice -1 takes your vote back). Returns the poll as it stands. */
+export const votePoll = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    const row = (input ?? {}) as Record<string, unknown>;
+    const choice = Math.round(Number(row.choice));
+    if (!Number.isFinite(choice) || choice < -1 || choice > 5) throw new Error("Unknown choice");
+    return { thread: parseThread(row.thread), id: parseMessageId(row.id), choice };
+  })
+  .handler(async ({ context, data }) => {
+    const sql = await openThread(context.userId, data.thread);
+    const found =
+      data.thread.kind === "group"
+        ? await sql<{ body: string }>`select body from group_messages where id = ${data.id} and group_id = ${data.thread.id} and kind = 'poll'`
+        : await sql<{ body: string }>`
+            select body from messages
+            where id = ${data.id} and kind = 'poll'
+              and ((from_id = ${context.userId} and to_id = ${data.thread.id}) or (from_id = ${data.thread.id} and to_id = ${context.userId}))
+          `;
+    const card = found[0] ? readPollCard(found[0].body) : null;
+    if (!card) throw new Error("That poll is gone.");
+    if (data.choice >= card.options.length) throw new Error("Unknown choice");
+    if (data.choice < 0) await sql`delete from poll_votes where message_id = ${data.id} and user_id = ${context.userId}`;
+    else
+      await sql`
+        insert into poll_votes (message_id, user_id, choice) values (${data.id}, ${context.userId}, ${data.choice})
+        on conflict (message_id, user_id) do update set choice = excluded.choice, voted_at = now()
+      `;
+    return { ok: true };
   });

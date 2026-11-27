@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { useChat } from "@/lib/chat-store";
-import { deleteMessage, emptyReactions, listThread, loadThreadPhoto, messageBoard, searchChats, sendToThread, setThreadPin, toggleReaction, type BoardItem, type ChatDay, type ChatHere, type ChatHit, type ChatMessage, type ChatPlace, type ChatTrail, type ReactionMark, type Thread } from "@/lib/messages";
+import { deleteMessage, emptyReactions, listThread, votePoll, loadThreadPhoto, messageBoard, searchChats, sendToThread, setThreadPin, toggleReaction, type BoardItem, type ChatDay, type ChatHere, type ChatHit, type ChatMessage, type ChatPlace, type ChatPoll, type ChatTrail, type ReactionMark, type Thread } from "@/lib/messages";
 import { milesBetween, type Fix } from "@/lib/nearby";
 import { readGps } from "@/lib/photo-file";
 import { categoryName } from "@/lib/place-kinds";
@@ -17,7 +17,7 @@ import { Clock, Copy, Download, LogOut, Map as MapIcon, MapPinPlus, Maximize2, M
 import { TripSketch, tripDates } from "@/components/trip-recap";
 import { Images, ImageIcon, Settings } from "lucide-react";
 import { WallpaperScreen, wallpaperFor } from "@/components/chat-wallpaper";
-import { ArrowUp, Camera, ListTodo, LocateFixed, MapPinned, Mic, Plus, Route, Send } from "lucide-react";
+import { ArrowUp, Camera, Check, ListTodo, LocateFixed, MapPinned, Mic, Plus, Route, Send, Vote } from "lucide-react";
 import { allowMic } from "@/lib/mic";
 import { BoardKindIcon, BoardsPage, KIND_LOOK } from "@/components/boards-page";
 import { ChatLookScreen, applyShared } from "@/components/chat-look";
@@ -52,6 +52,7 @@ function blurb(row: ChatMessage) {
   if (row.kind === "here") return row.here?.label || "I'm here";
   if (row.kind === "day") return row.day ? `A day · ${row.day.day}` : "A day";
   if (row.kind === "board") return row.board?.title || "A board";
+  if (row.kind === "poll") return row.poll ? `Poll: ${row.poll.q}` : "A poll";
   return row.body;
 }
 
@@ -172,6 +173,7 @@ export function ChatThread({
   const [caption, setCaption] = useState("");
   const [trailsOpen, setTrailsOpen] = useState(false);
   const [boardsOpen, setBoardsOpen] = useState(false);
+  const [pollOpen, setPollOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [query, setQuery] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
@@ -304,19 +306,20 @@ export function ChatThread({
 
   // Back closes whatever is on top: the photo, a picker, the menu.
   useEffect(() => {
-    if (!viewing && !picking && !menu && !attach && !sharing && !trailsOpen && !captionFor && !boardsOpen) return;
+    if (!viewing && !picking && !menu && !attach && !sharing && !trailsOpen && !captionFor && !boardsOpen && !pollOpen) return;
     return pushBack(() => {
       if (viewing) setViewing(null);
       else if (picking) setPicking(null);
       else if (sharing) setSharing(false);
       else if (trailsOpen) setTrailsOpen(false);
       else if (boardsOpen) setBoardsOpen(false);
+      else if (pollOpen) setPollOpen(false);
       else if (captionFor) setCaptionFor(null);
       else if (attach) setAttach(false);
       else setMenu(null);
       return true;
     });
-  }, [viewing, picking, menu, attach, sharing, trailsOpen, captionFor, boardsOpen]);
+  }, [viewing, picking, menu, attach, sharing, trailsOpen, captionFor, boardsOpen, pollOpen]);
 
   function optimistic(row: Omit<ChatMessage, "fromId" | "fromName" | "at">) {
     const full: ChatMessage = { ...row, fromId: meId, fromName: "You", at: Date.now() };
@@ -581,6 +584,39 @@ export function ChatThread({
       reply: quoting ? { id: quoting.id, name: quoting.fromId === meId ? "You" : quoting.fromName, text: blurb(quoting) } : null,
     });
     await deliver(message, { thread, id, kind: "trail", trail: { name, points: packed, day }, replyTo: quoting?.id }, setNote);
+  }
+
+  async function sendPoll(q: string, options: string[]) {
+    setPollOpen(false);
+    const id = newId();
+    const poll: ChatPoll = { q, options, votes: options.map(() => 0), voters: options.map(() => []), mine: -1 };
+    const message = optimistic({ id, kind: "poll", body: "", thumb: "", lat: null, lon: null, takenAt: null, place: null, poll });
+    await deliver(message, { thread, id, kind: "poll", poll: { q, options } }, setNote);
+  }
+
+  /** Tap a choice to vote; tap it again to take the vote back. */
+  async function vote(message: ChatMessage, choice: number) {
+    const poll = message.poll;
+    if (!poll || sending.current.has(message.id)) return;
+    const next = poll.mine === choice ? -1 : choice;
+    setRows((prev) =>
+      (prev ?? []).map((row) => {
+        if (row.id !== message.id || !row.poll) return row;
+        const votes = row.poll.votes.slice();
+        const voters = row.poll.voters.map((names) => names.filter((who) => who !== "You"));
+        if (row.poll.mine >= 0) votes[row.poll.mine] = Math.max(0, votes[row.poll.mine] - 1);
+        if (next >= 0) {
+          votes[next] += 1;
+          voters[next] = [...voters[next], "You"];
+        }
+        return { ...row, poll: { ...row.poll, votes, voters, mine: next } };
+      }),
+    );
+    try {
+      await votePoll({ data: { thread, id: message.id, choice: next } });
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Couldn't vote.");
+    }
   }
 
   async function react(message: ChatMessage, mark: ReactionMark) {
@@ -912,6 +948,7 @@ export function ChatThread({
                     </span>
                   </button>
                 ) : null}
+                {row.kind === "poll" && row.poll ? <PollCard poll={row.poll} mine={mine} pending={sending.current.has(row.id)} onVote={(choice) => void vote(row, choice)} /> : null}
                 {row.kind === "text" ? <p className="break-words">{linkParts(row.body)}</p> : null}
               </div>
               {row.reactions && MARKS.some(([mark]) => row.reactions?.[mark]) ? (
@@ -1049,6 +1086,11 @@ export function ChatThread({
         )}
       </form>
 
+      {pollOpen ? (
+        <Sheet label="Quick poll" onClose={() => setPollOpen(false)}>
+          <PollMaker onSend={(q, options) => void sendPoll(q, options)} />
+        </Sheet>
+      ) : null}
       {boardsOpen ? (
         <BoardsPage
           thread={thread}
@@ -1081,7 +1123,7 @@ export function ChatThread({
             </span>
             <Send className="size-4 shrink-0 text-muted" aria-hidden="true" />
           </button>
-          <div className="mt-2 grid grid-cols-4 gap-2">
+          <div className="mt-2 grid grid-cols-3 gap-2">
             {(
               [
                 [
@@ -1115,6 +1157,14 @@ export function ChatThread({
                   () => {
                     setAttach(false);
                     setBoardsOpen(true);
+                  },
+                ],
+                [
+                  "Poll",
+                  <Vote key="i" className="size-5" />,
+                  () => {
+                    setAttach(false);
+                    setPollOpen(true);
                   },
                 ],
               ] as const
@@ -1194,7 +1244,7 @@ export function ChatThread({
                 {menu.fromId === meId ? "You" : menu.fromName} · {stampText(menu.at)}
               </p>
               <p className="truncate text-sm">
-                {menu.kind === "photo" ? (menu.body ? menu.body : "Photo") : menu.kind === "voice" ? "Voice note" : menu.kind === "place" ? menu.place?.name : menu.kind === "trip" ? menu.trip?.name : menu.kind === "trail" ? menu.trail?.name : menu.kind === "here" ? menu.here?.label : menu.kind === "day" ? "A day" : menu.kind === "board" ? menu.board?.title || "A board" : menu.body}
+                {menu.kind === "photo" ? (menu.body ? menu.body : "Photo") : menu.kind === "voice" ? "Voice note" : menu.kind === "place" ? menu.place?.name : menu.kind === "trip" ? menu.trip?.name : menu.kind === "trail" ? menu.trail?.name : menu.kind === "here" ? menu.here?.label : menu.kind === "day" ? "A day" : menu.kind === "board" ? menu.board?.title || "A board" : menu.kind === "poll" ? menu.poll?.q || "A poll" : menu.body}
               </p>
             </div>
           </div>
@@ -2181,4 +2231,116 @@ function agoText(ms: number) {
   if (dayOf(ms) === dayOf(Date.now() - 86400000)) return "Yesterday";
   if (gap < 6 * 86400000) return new Date(ms).toLocaleDateString(undefined, { weekday: "short" });
   return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric", ...(new Date(ms).getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}) });
+}
+
+/** A poll in a chat: each choice is a bar that fills with the votes; tap to vote, tap again to take it back. */
+function PollCard({ poll, mine, pending, onVote }: { poll: ChatPoll; mine: boolean; pending: boolean; onVote: (choice: number) => void }) {
+  const total = poll.votes.reduce((sum, n) => sum + n, 0);
+  const top = Math.max(0, ...poll.votes);
+  return (
+    <div className="min-w-56 py-1">
+      <span className="flex items-center gap-1.5 text-[11px] tracking-[0.14em] text-faint uppercase">
+        <Vote className="size-3.5" />
+        {mine ? "Your poll" : "Poll"}
+      </span>
+      <p className="mt-0.5 font-serif text-lg leading-tight">{poll.q}</p>
+      <div className="mt-2 grid gap-1.5">
+        {poll.options.map((option, index) => {
+          const n = poll.votes[index] ?? 0;
+          const share = total ? n / total : 0;
+          const picked = poll.mine === index;
+          const leading = total > 0 && n === top;
+          return (
+            <button
+              key={option}
+              type="button"
+              disabled={pending}
+              aria-pressed={picked}
+              onClick={() => onVote(index)}
+              className={"relative overflow-hidden rounded-lg border text-left " + (picked ? "border-ink" : "border-line")}
+            >
+              <span className="absolute inset-y-0 left-0 rounded-r-md bg-ink/10 transition-[width] duration-300" style={{ width: `${Math.round(share * 100)}%` }} aria-hidden="true" />
+              <span className="relative flex min-h-10 items-center gap-2 px-3 py-1.5">
+                <span className={"grid size-5 shrink-0 place-items-center rounded-full border " + (picked ? "border-ink bg-ink text-bg" : "border-line")}>
+                  {picked ? <Check className="size-3" strokeWidth={3} /> : null}
+                </span>
+                <span className={"min-w-0 flex-1 text-sm " + (leading ? "font-medium" : "")}>{option}</span>
+                {total ? <span className="shrink-0 text-xs text-muted tabular-nums">{n}</span> : null}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-1.5 text-xs text-faint">
+        {total ? `${total} ${total === 1 ? "vote" : "votes"}` : "No votes yet. Tap one."}
+        {total && poll.voters.some((names) => names.length) ? ` · ${poll.options.map((option, i) => (poll.voters[i]?.length ? `${option}: ${poll.voters[i].join(", ")}` : "")).filter(Boolean).join(" · ")}` : ""}
+      </p>
+    </div>
+  );
+}
+
+/** Ask a question with 2–6 choices. */
+function PollMaker({ onSend }: { onSend: (q: string, options: string[]) => void }) {
+  const [q, setQ] = useState("");
+  const [options, setOptions] = useState(["", ""]);
+  const ideas = [
+    ["Where are we eating?", ["Diner", "Tacos", "BBQ"]],
+    ["Stop for the night?", ["Keep driving", "Next town", "Here"]],
+    ["Scenic route or fast?", ["Scenic", "Fast"]],
+  ] as const;
+  const filled = options.map((option) => option.trim()).filter(Boolean);
+  return (
+    <div>
+      <input autoFocus value={q} onChange={(event) => setQ(event.target.value.slice(0, 140))} placeholder="Ask something" className="h-12 w-full rounded-lg border border-line bg-bg px-3 font-serif text-lg outline-none placeholder:text-faint" />
+      {!q && filled.length === 0 ? (
+        <div className="-mx-1 mt-2 flex gap-2 overflow-x-auto px-1 pb-1">
+          {ideas.map(([question, choices]) => (
+            <button
+              key={question}
+              type="button"
+              onClick={() => {
+                setQ(question);
+                setOptions([...choices]);
+              }}
+              className="h-9 shrink-0 rounded-full border border-line px-3 text-sm text-muted active:bg-elevated"
+            >
+              {question}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div className="mt-3 grid gap-2">
+        {options.map((option, index) => (
+          <div key={index} className="flex items-center gap-2">
+            <input
+              value={option}
+              onChange={(event) => setOptions((cur) => cur.map((row, i) => (i === index ? event.target.value.slice(0, 60) : row)))}
+              placeholder={`Choice ${index + 1}`}
+              className="h-11 min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 text-base outline-none placeholder:text-faint"
+            />
+            {options.length > 2 ? (
+              <button type="button" aria-label={`Remove choice ${index + 1}`} onClick={() => setOptions((cur) => cur.filter((_, i) => i !== index))} className="grid size-11 shrink-0 place-items-center text-faint">
+                <X className="size-4" />
+              </button>
+            ) : null}
+          </div>
+        ))}
+      </div>
+      {options.length < 6 ? (
+        <button type="button" onClick={() => setOptions((cur) => [...cur, ""])} className="mt-2 flex h-10 items-center gap-1 px-1 text-sm text-muted">
+          <Plus className="size-4" />
+          Add a choice
+        </button>
+      ) : null}
+      <button
+        type="button"
+        disabled={!q.trim() || filled.length < 2}
+        onClick={() => onSend(q.trim(), filled)}
+        className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-ink text-sm text-bg disabled:bg-elevated disabled:text-faint"
+      >
+        <Send className="size-4" />
+        Send poll
+      </button>
+    </div>
+  );
 }

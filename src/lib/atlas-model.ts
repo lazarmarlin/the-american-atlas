@@ -240,3 +240,28 @@ export function placeMatches(place: CatalogPlace, query: string) {
   if (!q) return true;
   return norm(place.name).includes(q);
 }
+
+/**
+ * Places in one state whose name matches (all kinds), best-known first: the
+ * wish-list picker. Starts-with matches come before the rest.
+ */
+export async function searchStatePlaces(state: string, query: string, limit = 30): Promise<{ place: CatalogPlace; category: string }[]> {
+  const q = norm(query);
+  if (q.length < 2) return [];
+  const bundle = await stateBundle(state);
+  if (!bundle) return [];
+  const hits: { place: CatalogPlace; category: string; score: number }[] = [];
+  for (const [category, rows] of Object.entries(bundle)) {
+    if (!Array.isArray(rows) || category === "road") continue;
+    for (const place of rows) {
+      const name = norm(place.name);
+      const at = name.indexOf(q);
+      if (at < 0) continue;
+      hits.push({ place, category, score: (at === 0 ? 0 : 1000) - (place.pts || 0) });
+    }
+  }
+  return hits
+    .sort((a, b) => a.score - b.score)
+    .slice(0, limit)
+    .map(({ place, category }) => ({ place, category }));
+}

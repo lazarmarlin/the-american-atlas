@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Sun, Cloud, CloudFog, CloudRain, CloudLightning, CloudSnow, Snowflake } from "lucide-react";
 import { Award, Car, ChartColumn, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleParking, CirclePlus, Compass, GripVertical, Images, ListTodo, Locate, LocateFixed, Mail, MapPinned, Navigation, Navigation2, Route as RouteIcon, Search, Settings, Users, Volume2, VolumeX, X } from "lucide-react";
 import { useCurrentUser, useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
@@ -85,7 +86,8 @@ import { useOfflinePack } from "@/lib/offline-pack";
 import { nativeApp } from "@/lib/native";
 import { COUNTY_COUNTS } from "@/lib/county-counts";
 import { askNotifyOnce, notifyFriendLive } from "@/lib/live-notify";
-import { notifyPlacesAdded } from "@/lib/place-notifications";
+import { notifyNote, notifyPlacesAdded } from "@/lib/place-notifications";
+import { weatherAhead, weatherSpeech, type WeatherAhead, type WeatherKind } from "@/lib/weather-ahead";
 import { glyphUrl } from "@/lib/map-glyphs";
 import { type Profile } from "@/lib/profile";
 import { earnedPoints, freshVisit, pointsForVisit, type Visit } from "@/lib/visits";
@@ -105,6 +107,26 @@ import {
 } from "@/lib/vault";
 
 const AtlasMap = lazy(() => import("@/components/atlas-map").then((mod) => ({ default: mod.AtlasMap })));
+
+/** Wish-list places you just got to: ticked off on the server; say so. */
+async function checkWishes() {
+  try {
+    const { tickWishes } = await import("@/lib/boards");
+    const { ticked } = await tickWishes();
+    for (const row of ticked.slice(0, 3)) {
+      announce(`Checked off ${row.place} on ${row.board}.`, "highlights", true);
+      void notifyNote(`${row.place} ✓`, `Checked off on ${row.board}`);
+    }
+  } catch {
+    // Next time.
+  }
+}
+
+const WEATHER_ICON: Record<WeatherKind, typeof Sun> = { clear: Sun, cloud: Cloud, fog: CloudFog, rain: CloudRain, storm: CloudLightning, snow: CloudSnow, ice: Snowflake };
+function WeatherIcon({ kind, className }: { kind: WeatherKind; className?: string }) {
+  const Icon = WEATHER_ICON[kind];
+  return <Icon className={className} aria-hidden="true" />;
+}
 
 /**
  * The live trail, as last seen on screen. With the app in the background the
@@ -434,6 +456,29 @@ function AtlasShell() {
   const [ghostOpen, setGhostOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
   const [boardsOpen, setBoardsOpen] = useState(false);
+  // Car care due soon (a dot on the Boards button; a phone note once a day).
+  const [carDue, setCarDue] = useState(0);
+  useEffect(() => {
+    if (!user?.id || boardsOpen) return;
+    let live = true;
+    void import("@/lib/boards")
+      .then(({ listBoards }) => listBoards())
+      .then((rows) => {
+        if (!live) return;
+        const due = rows.filter((row) => row.kind === "car" && row.role !== "check" && row.due);
+        setCarDue(due.reduce((sum, row) => sum + (row.due ?? 0), 0));
+        const day = localDay(Date.now());
+        const key = `atlas.car-reminded.${user.id}`;
+        if (!due.length || localStorage.getItem(key) === day) return;
+        localStorage.setItem(key, day);
+        const total = due.reduce((sum, row) => sum + (row.due ?? 0), 0);
+        void notifyNote("Car care", `${total} ${total === 1 ? "job is" : "jobs are"} due soon on ${due.map((row) => row.title).join(", ")}.`);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [user?.id, boardsOpen]);
   const [boardFocus, setBoardFocus] = useState<string | null>(null);
   /** The map's bottom buttons tucked away behind the arrow (remembered on this phone). */
   const [toolsTucked, setToolsTucked] = useState(() => {
@@ -1150,6 +1195,30 @@ function AtlasShell() {
   // Coming up ahead: unvisited places in the direction you're going (Drive
   // mode, or the voice set to Everything). At most every half mile or minute.
   const [ahead, setAhead] = useState<Ahead[]>([]);
+  // Weather ahead (Drive mode): the next hour along the way you're going.
+  const [weather, setWeather] = useState<WeatherAhead | null>(null);
+  const weatherSaid = useRef("");
+  useEffect(() => {
+    if (!driving || !tracker || document.visibilityState !== "visible") return;
+    const speed = speedMph() ?? 0;
+    const going = speed >= 10 ? heading() : null;
+    let live = true;
+    void weatherAhead(tracker, going, speed).then((result) => {
+      if (!live || !result) return;
+      setWeather(result);
+      // Said once per change (and not again for the same patch every 15 minutes).
+      const key = result.heads ? `${result.kind}` : "";
+      if (key && key !== weatherSaid.current) {
+        const line = weatherSpeech(result);
+        if (line) announce(line, "highlights", true);
+      }
+      weatherSaid.current = key;
+    });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driving, tracker]);
   const aheadAt = useRef<{ lat: number; lon: number; t: number } | null>(null);
   const aheadSaid = useRef(new Set<string>());
   const aheadAsk = useRef(0);
@@ -1338,6 +1407,7 @@ function AtlasShell() {
       setPassedNote(label);
       if (added.length) void notifyPlacesAdded(added);
       if (added.length) speakAdded(added, statesBefore);
+      if (added.length) void checkWishes();
     }
 
     let waited = 0;
@@ -2629,6 +2699,12 @@ function AtlasShell() {
                   </span>
                 </div>
               ) : null}
+              {weather ? (
+                <div className="flex items-center gap-3 border-t border-line px-4 py-2">
+                  <WeatherIcon kind={weather.kind} className={"size-5 shrink-0 " + (weather.heads ? "text-ink" : "text-muted")} />
+                  <span className={"min-w-0 flex-1 truncate text-[15px] " + (weather.heads ? "" : "text-muted")}>{weather.line}</span>
+                </div>
+              ) : null}
               {ahead.length ? (
                 <div className="border-t border-line px-4 py-2">
                   <p className="text-[10px] tracking-widest text-faint uppercase">Coming up</p>
@@ -2855,9 +2931,10 @@ function AtlasShell() {
                 setBoardFocus(null);
                 setBoardsOpen(true);
               }}
-              className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line bg-surface/95 text-accent shadow-sm backdrop-blur-sm"
+              className="relative grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line bg-surface/95 text-accent shadow-sm backdrop-blur-sm"
             >
               <ListTodo className="size-5" />
+              {carDue ? <span className="absolute top-1.5 right-1.5 size-2.5 rounded-full border-2 border-surface bg-accent" aria-label="Car care due" /> : null}
             </button>
           ) : null}
           {user?.id ? (
