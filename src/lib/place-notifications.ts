@@ -59,3 +59,18 @@ export async function notifyPlacesAdded(added: Added[]): Promise<void> {
     /* a missed notification shouldn't stop tracking */
   }
 }
+
+/** Any other short note from the app (wish list ticked off, car care due), on the same channel. */
+export async function notifyNote(title: string, body: string): Promise<void> {
+  if (!nativeApp) return;
+  try {
+    const LocalNotifications = await plugin();
+    const { display } = await LocalNotifications.checkPermissions();
+    if (display !== "granted") return;
+    await LocalNotifications.schedule({
+      notifications: [{ id: Math.floor(Date.now() % 2147483647), title, body, channelId: CHANNEL_ID, smallIcon: "ic_stat_atlas" }],
+    });
+  } catch {
+    /* a missed note is fine */
+  }
+}
