@@ -1,4 +1,5 @@
 import { ArrowDownUp, Search } from "lucide-react";
+import { ScreenHeader } from "@/components/screen-header";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { matchPlace, readPhotoFile, tripFor, type RecordingTrip } from "@/lib/photo-file";
 import { loadParkShapes, matchPark, choosePhotoPlace } from "@/lib/park-photo";
@@ -336,17 +337,7 @@ function PhotoReview({
 
   return (
     <div role="dialog" aria-label="Review photos" className="fixed inset-0 z-50 flex flex-col bg-bg screen-top">
-      <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
-        <button type="button" onClick={onClose} className="h-11 px-2 text-sm text-muted">
-          ‹ Photos
-        </button>
-        <div className="min-w-0 flex-1 text-right">
-          <p className="font-serif text-lg leading-tight">{selecting ? `${picked.size} selected` : "Review photos"}</p>
-          <p className="text-xs text-muted">
-            {added} of {rows.length} added
-          </p>
-        </div>
-      </div>
+      <ScreenHeader title={selecting ? `${picked.size} selected` : "Review photos"} subtitle={`${added} of ${rows.length} added`} onBack={onClose} backLabel="Back to photos" />
       {note ? <p className="shrink-0 px-4 pt-2 text-xs text-muted">{note}</p> : null}
       <div ref={body} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-4">
         {groups.map((group) => {
@@ -1340,12 +1331,7 @@ export function PhotoViewer({
 
   return (
     <div role="dialog" aria-label={`Photos of ${title}`} className="fixed inset-0 z-50 flex flex-col bg-bg screen-top">
-      <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
-        <button type="button" onClick={onClose} className="h-11 px-2 text-sm text-muted">
-          ‹ Back
-        </button>
-        <p className="min-w-0 flex-1 truncate text-right font-serif text-lg">{title}</p>
-      </div>
+      <ScreenHeader title={title} onBack={onClose} />
       <div className="flex min-h-0 flex-1 items-center justify-center p-3">
         <img
           src={full ?? photo.thumb}

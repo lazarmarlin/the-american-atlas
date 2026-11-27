@@ -8,9 +8,10 @@
  * Changes are merged on the server (src/lib/boards.ts mergeDoc), so two
  * people can work on one board without undoing each other.
  */
+import { ScreenHeader } from "@/components/screen-header";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ArrowDown, ArrowUp, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Gauge, ListTodo, Luggage, Map as MapIcon, Plus, Receipt, Search, Send, Star, Trash2, Users, Wrench } from "lucide-react";
+import { ArrowDown, ArrowUp, CalendarDays, Check, ChevronDown, ChevronRight, Gauge, ListTodo, Luggage, Map as MapIcon, Plus, Receipt, Search, Send, Star, Trash2, Users, Wrench } from "lucide-react";
 import {
   BOARD_KINDS,
   createBoard,
@@ -159,23 +160,16 @@ export function BoardsPage({
 
   return createPortal(
     <div role="dialog" aria-label="Boards" className="screen-top fixed inset-0 z-50 flex flex-col bg-bg">
-      <header className="flex shrink-0 items-center gap-1 border-b border-line bg-surface px-2 pb-2">
-        <button
-          type="button"
-          aria-label="Back"
-          onClick={() => {
-            if (open && !focusId) {
-              setOpen(null);
-              setNote(null);
-              void refresh();
-            } else onClose();
-          }}
-          className="grid h-11 w-11 place-items-center rounded-full text-ink active:bg-elevated"
-        >
-          <ChevronLeft className="size-6" />
-        </button>
-        <p className="font-serif text-xl leading-tight">{open ? KIND_LOOK[open.kind].label : "Boards"}</p>
-      </header>
+      <ScreenHeader
+        title="Boards"
+        onBack={() => {
+          if (open && !focusId) {
+            setOpen(null);
+            setNote(null);
+            void refresh();
+          } else onClose();
+        }}
+      />
       {note ? <p className="shrink-0 border-b border-line px-4 py-2 text-sm text-muted">{note}</p> : null}
       {open ? (
         <BoardEditor

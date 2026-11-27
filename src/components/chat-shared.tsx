@@ -2,6 +2,7 @@
  * Everything a chat has passed around: photos, links, places, trails, trips,
  * pins, and day cards. Both people see the same list.
  */
+import { ScreenHeader } from "@/components/screen-header";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { cachedThread } from "@/lib/chat-cache";
@@ -66,15 +67,7 @@ export function SharedInChat({
   const shown = (rows ?? []).filter((row) => matches(row, tab));
   return createPortal(
     <div role="dialog" aria-label="Shared in this chat" className="screen-top fixed inset-0 z-[70] flex flex-col bg-bg">
-      <header className="flex shrink-0 items-center gap-2 border-b border-line px-2 py-2">
-        <button type="button" onClick={onClose} className="h-11 px-2 text-sm text-muted">
-          ‹ Chat
-        </button>
-        <div className="min-w-0 flex-1 text-right">
-          <p className="font-serif text-lg leading-tight">Shared</p>
-          <p className="text-xs text-faint">Photos, links, places, and trails in this chat</p>
-        </div>
-      </header>
+      <ScreenHeader title="Shared" subtitle="Photos, links, places, and trails in this chat" onBack={onClose} backLabel="Back to the chat" />
       <div className="flex shrink-0 gap-1 overflow-x-auto px-3 py-2">
         {TABS.map((item) => (
           <button

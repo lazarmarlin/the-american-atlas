@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { ScreenHeader } from "@/components/screen-header";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Sun, Cloud, CloudFog, CloudRain, CloudLightning, CloudSnow, Snowflake } from "lucide-react";
 import { Award, Car, ChartColumn, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleParking, CirclePlus, Compass, GripVertical, Images, ListTodo, Locate, LocateFixed, Mail, MapPinned, Navigation, Navigation2, Route as RouteIcon, Search, Settings, Users, Volume2, VolumeX, X } from "lucide-react";
@@ -4919,13 +4920,7 @@ function Detail({
     // and scrolled out of view, especially with the keyboard up.
     return (
       <div role="dialog" aria-label="Visit details" className="fixed inset-0 z-50 overflow-y-auto bg-surface px-4 pb-6 screen-top safe-bottom">
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => setEditing(false)} className="h-11 shrink-0 px-1 text-sm text-muted">
-            ‹ Place
-          </button>
-          <h2 className="min-w-0 flex-1 truncate text-right font-serif text-xl leading-tight">Visit details</h2>
-        </div>
-        <p className="mt-1 truncate text-xs text-muted">{mark.name}</p>
+        <ScreenHeader className="-mx-4 bg-surface" title="Visit details" subtitle={mark.name} onBack={() => setEditing(false)} backLabel="Back to the place" />
         <p className="mt-3 text-xs text-faint">First visit 100%, then 85%, 50%, 25%, 10%, then none.</p>
         {draft.length > 1 ? (
           <label className="mt-3 block text-xs text-muted">
