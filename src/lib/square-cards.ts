@@ -4,8 +4,12 @@
  * (anything you pass through meanwhile doesn't count). Each card is checked
  * by the app itself:
  *
- *   cats:  go to a place of one of these kinds (a new one or a visit again):
- *          the number of visits to such places goes up after it's dealt
+ *   cats:  go to a place of one of these kinds inside the game's area. When
+ *          a game starts, the places of each kind inside it are listed (the
+ *          deck); only cards with somewhere to go are dealt, the card shows
+ *          the nearest. It's done when you stop there, open the card and tap
+ *          "I'm here": the phone checks you're within 100 feet of one (a place
+ *          you've been before counts; in one game each place does one card)
  *   photo: add a photo
  *   county: get a county (a new one)
  *   wait:  sit it out this many minutes
@@ -43,7 +47,6 @@ export const SQUARE_CARDS: SquareCard[] = [
   { id: "rails", name: "All aboard", task: "Visit a railroad site.", color: "yellow", icon: "TrainFront", cats: ["railroad"] },
   { id: "battle", name: "History buff", task: "Visit a fort or a battlefield.", color: "red", icon: "Castle", cats: ["fort", "battlefield"] },
   { id: "photo", name: "Photo op", task: "Take a photo in the app.", color: "yellow", icon: "Camera", photo: true },
-  { id: "county", name: "New county", task: "Get a county you haven't had.", color: "green", icon: "MapPinned", county: true },
   { id: "five", name: "Take five", task: "Take a 10-minute break.", color: "blue", icon: "Coffee", wait: 10 },
   { id: "skip", name: "Skip", task: "Sit out for 20 minutes.", color: "red", icon: "Ban", wait: 20 },
   { id: "wild", name: "Wild", task: "Lucky you. Nothing to do.", color: "wild", icon: "Star", wild: true },
@@ -59,7 +62,21 @@ export function cardById(id: string) {
   return SQUARE_CARDS.find((card) => card.id === id) ?? null;
 }
 
-export function drawCard(not?: string | null): SquareCard {
-  const deck = SQUARE_CARDS.filter((card) => card.id !== not);
-  return deck[Math.floor(Math.random() * deck.length)] ?? SQUARE_CARDS[0];
+/** How close you have to be to a card's place when you tap "I'm here": 100 feet, in miles. */
+export const CARD_REACH_MILES = 100 / 5280;
+/** Places listed per card in a game's deck (spread out if there are more). */
+export const DECK_MAX = 300;
+
+/** A game's deck: for each "go to" card, its places inside the area, [id, name, lat, lon]. */
+export type Deck = Record<string, [string, string, number, number][]>;
+
+/** The cards that can be dealt in a game: "go to" cards only where the deck has somewhere to go. */
+export function dealable(deck: Deck | null): SquareCard[] {
+  return SQUARE_CARDS.filter((card) => !card.county && (!card.cats || !deck || (deck[card.id]?.length ?? 0) > 0));
+}
+
+export function drawCard(not?: string | null, deck: Deck | null = null): SquareCard {
+  const deck2 = dealable(deck);
+  const pool = deck2.length > 1 ? deck2.filter((card) => card.id !== not) : deck2;
+  return pool[Math.floor(Math.random() * pool.length)] ?? SQUARE_CARDS[0];
 }

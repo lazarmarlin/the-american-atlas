@@ -14,10 +14,11 @@ function read() {
   }
 }
 
-export const useSquaresOnMap = create<{ id: string | null; rev: number; dealt: { board: string; card: string } | null }>(() => ({
+export const useSquaresOnMap = create<{ id: string | null; rev: number; dealt: { board: string; card: string } | null; finished: { board: string; card: string; place: string } | null }>(() => ({
   id: typeof window === "undefined" ? null : read(),
   rev: 0,
   dealt: null,
+  finished: null,
 }));
 
 export function setSquaresOnMap(id: string | null) {
@@ -41,5 +42,10 @@ export function cardDealt(board: string, card: string) {
 }
 
 export function cardSeen() {
-  useSquaresOnMap.setState({ dealt: null });
+  useSquaresOnMap.setState({ dealt: null, finished: null });
+}
+
+/** You got to a card's place: the app says so. */
+export function cardFinished(board: string, card: string, place: string) {
+  useSquaresOnMap.setState((state) => ({ finished: { board, card, place }, rev: state.rev + 1 }));
 }

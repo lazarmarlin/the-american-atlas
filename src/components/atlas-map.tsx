@@ -700,16 +700,24 @@ export function AtlasMap({
           type: "fill",
           source: "city-squares",
           minzoom: 8,
-          filter: ["!=", ["get", "s"], "empty"],
+          filter: ["all", ["!=", ["get", "s"], "empty"], ["!=", ["get", "s"], "target"]],
           paint: {
             "fill-color": ["get", "c"],
             "fill-opacity": ["match", ["get", "s"], "filled", 0.34, "walled", 0.2, 0.14],
           },
         });
         map.addLayer({
+          id: "squares-targets",
+          type: "circle",
+          source: "city-squares",
+          filter: ["==", ["get", "s"], "target"],
+          paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 3, 14, 7], "circle-color": "#fbf8f0", "circle-stroke-color": ["get", "c"], "circle-stroke-width": 3 },
+        });
+        map.addLayer({
           id: "squares-line",
           type: "line",
           source: "city-squares",
+          filter: ["!=", ["get", "s"], "target"],
           minzoom: 10.5,
           paint: {
             "line-color": ["case", ["==", ["get", "s"], "empty"], "#8a857a", ["get", "c"]],

@@ -18,17 +18,19 @@ import {
   maskFromText,
   maskToText,
   pockets,
+  squareAt,
   squareMiles,
   squareRing,
   unpackSquares,
   type Grid,
 } from "@/lib/city-grid";
-import { pauseSquares, setupSquares, skipSquare, squaresState, swapCard, type SquaresMode, type SquaresPlace, type SquaresState } from "@/lib/city-squares";
-import { setSquaresOnMap, squaresChanged, useSquaresOnMap } from "@/lib/squares-map";
+import { pauseSquares, playCard, setupSquares, skipSquare, squaresState, swapCard, type SquaresMode, type SquaresPlace, type SquaresState } from "@/lib/city-squares";
+import { cardFinished, setSquaresOnMap, squaresChanged, useSquaresOnMap } from "@/lib/squares-map";
 import { refreshSquareGames } from "@/lib/squares-tracker";
 import { KIND_LOOK, Label } from "@/components/board-ui";
 import { SquareCardArt } from "@/components/square-card-art";
-import { CARD_EVERY, cardById } from "@/lib/square-cards";
+import { CARD_EVERY, DECK_MAX, SQUARE_CARDS, cardById, dealable, type Deck } from "@/lib/square-cards";
+import { lastSquaresFix } from "@/lib/squares-tracker";
 import { Card, Pill, type BoardApi } from "@/components/board-kinds";
 
 const MINE = KIND_LOOK.squares.tint;
@@ -39,6 +41,7 @@ type TownHit = { name: string; st: string; geoid: string; shape: GeoJSON.Polygon
 
 const PLACES: { id: SquaresPlace; label: string; search: string }[] = [
   { id: "city", label: "City", search: "City or town (Columbus, OH)" },
+  { id: "county", label: "County", search: "County (Franklin, OH)" },
   { id: "state", label: "State park", search: "State park name" },
   { id: "national", label: "National park", search: "National park name" },
 ];
@@ -48,6 +51,12 @@ async function loadPlaces(kind: SquaresPlace): Promise<TownHit[]> {
   if (kind === "city") {
     const fc = await (await import("@/lib/towns-overlay")).loadTowns();
     return fc.features.map((f) => ({ name: f.properties.name, st: f.properties.st, geoid: f.properties.geoid, shape: f.geometry }));
+  }
+  if (kind === "county") {
+    const res = await fetch("/atlas/counties.geojson");
+    if (!res.ok) throw new Error(`counties: ${res.status}`);
+    const fc = (await res.json()) as GeoJSON.FeatureCollection<GeoJSON.Polygon | GeoJSON.MultiPolygon, { id: string; name: string; st: string }>;
+    return fc.features.map((f) => ({ name: f.properties.name, st: f.properties.st, geoid: f.properties.id, shape: f.geometry }));
   }
   const res = await fetch("/atlas/overlays/parks.geojson");
   if (!res.ok) throw new Error(`parks: ${res.status}`);
@@ -115,7 +124,34 @@ export function squareFeatures(state: SquaresState): GeoJSON.Feature[] | null {
     const c = who != null ? colorFor(state, who) : wall != null ? colorFor(state, wall || state.me) : "#8a857a";
     out.push({ type: "Feature", properties: { s, c }, geometry: { type: "Polygon", coordinates: [squareRing(grid, i)] } });
   }
+  // Where your card can send you.
+  for (const [, name, lat, lon] of state.holding[state.me]?.targets ?? []) out.push({ type: "Feature", properties: { s: "target", c: MINE, name }, geometry: { type: "Point", coordinates: [lon, lat] } });
   return out;
+}
+
+/** For each "go to" card, the state's places of its kinds inside the grid (spread out past DECK_MAX). */
+async function buildDeck(st: string, grid: Grid): Promise<Deck> {
+  const res = await fetch(`/atlas/places/${st}.json`);
+  if (!res.ok) return {};
+  const file = (await res.json()) as Record<string, { id: string; name: string; lat: number; lon: number }[]>;
+  const deck: Deck = {};
+  for (const card of SQUARE_CARDS) {
+    if (!card.cats) continue;
+    const seen = new Set<string>();
+    let list: [string, string, number, number][] = [];
+    for (const cat of card.cats)
+      for (const p of file[cat] ?? []) {
+        if (seen.has(p.id) || !Number.isFinite(p.lat) || squareAt(grid, p.lat, p.lon) < 0) continue;
+        seen.add(p.id);
+        list.push([p.id, p.name, p.lat, p.lon]);
+      }
+    if (list.length > DECK_MAX) {
+      const step = list.length / DECK_MAX;
+      list = Array.from({ length: DECK_MAX }, (_, i) => list[Math.floor(i * step)]);
+    }
+    deck[card.id] = list;
+  }
+  return deck;
 }
 
 /* ------------------------------------------------------------------ setup */
@@ -139,8 +175,8 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
     setTowns(null);
     setTown(null);
     setNote(null);
-    // Cities are usually driven; parks walked.
-    setTravel(kind === "city" ? "car" : "foot");
+    // Cities and counties are usually driven; parks walked.
+    setTravel(kind === "city" || kind === "county" ? "car" : "foot");
     void loadPlaces(kind)
       .then((list) => live && setTowns(list))
       .catch(() => live && setNote("Couldn't load the list. Check your connection."));
@@ -154,7 +190,7 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
     if (!towns || term.length < 2) return [];
     const [name, st] = term.split(",").map((part) => part.trim());
     // Cities by how their name starts; parks by any word ("smoky" finds Great Smoky Mountains).
-    const match = (t: TownHit) => (kind === "city" ? t.name.toLowerCase().startsWith(name) : t.name.toLowerCase().includes(name));
+    const match = (t: TownHit) => (kind === "city" || kind === "county" ? t.name.toLowerCase().startsWith(name) : t.name.toLowerCase().includes(name));
     const out = towns.filter((t) => match(t) && (!st || t.st.toLowerCase().startsWith(st)));
     out.sort((a, b) => Number(b.name.toLowerCase() === name) - Number(a.name.toLowerCase() === name) || a.name.length - b.name.length);
     return out.slice(0, 8);
@@ -172,6 +208,20 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
     setZoom(pick?.zoom ?? null);
   }, [sizes]);
 
+  const chosen = sizes.find((s) => s.zoom === zoom);
+  // Where the cards can send you: the state's places of each card's kinds inside the area.
+  const [deck, setDeck] = useState<Deck | null>(null);
+  useEffect(() => {
+    setDeck(null);
+    if (!town || !chosen || !cards) return;
+    let live = true;
+    void buildDeck(town.st, chosen.grid)
+      .then((d) => live && setDeck(d))
+      .catch(() => live && setDeck({}));
+    return () => {
+      live = false;
+    };
+  }, [town, chosen, cards]);
   if (!owner) {
     return (
       <Card>
@@ -180,7 +230,6 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
     );
   }
 
-  const chosen = sizes.find((s) => s.zoom === zoom);
   const lat = (() => {
     const ring = town ? (town.shape.type === "Polygon" ? town.shape.coordinates[0] : town.shape.coordinates[0]?.[0]) : null;
     return ring?.[0]?.[1] ?? 39;
@@ -192,7 +241,8 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
     setNote(null);
     try {
       const g = chosen.grid;
-      await setupSquares({ data: { id: api.board.id, geoid: town.geoid, city: town.name, place: kind, travel, cards, state: town.st, zoom: g.zoom, mode, x0: g.x0, y0: g.y0, w: g.w, h: g.h, mask: maskToText(g.mask) } });
+      const d = cards ? (deck ?? (await buildDeck(town.st, g).catch(() => ({})))) : null;
+      await setupSquares({ data: { id: api.board.id, geoid: town.geoid, city: town.name, place: kind, travel, cards, deck: d, state: town.st, zoom: g.zoom, mode, x0: g.x0, y0: g.y0, w: g.w, h: g.h, mask: maskToText(g.mask) } });
       onStarted();
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Couldn't start the game.");
@@ -204,15 +254,15 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
   return (
     <>
       <Card>
-        <div className="grid grid-cols-3 rounded-xl bg-bg/60 p-1">
+        <div className="grid grid-cols-4 rounded-xl bg-bg/60 p-1">
           {PLACES.map((p) => (
-            <button key={p.id} type="button" aria-pressed={kind === p.id} onClick={() => setKind(p.id)} className={"h-10 rounded-lg text-sm " + (kind === p.id ? "bg-elevated text-ink shadow-sm" : "text-muted")}>
+            <button key={p.id} type="button" aria-pressed={kind === p.id} onClick={() => setKind(p.id)} className={"min-h-10 rounded-lg px-1 text-[13px] leading-tight " + (kind === p.id ? "bg-elevated text-ink shadow-sm" : "text-muted")}>
               {p.label}
             </button>
           ))}
         </div>
         <div className="mt-4">
-          <Label>{kind === "city" ? "Pick a city" : kind === "state" ? "Pick a state park" : "Pick a national park"}</Label>
+          <Label>{kind === "city" ? "Pick a city" : kind === "county" ? "Pick a county" : kind === "state" ? "Pick a state park" : "Pick a national park"}</Label>
         </div>
         {town ? (
           <div className="mt-2 flex items-center gap-2">
@@ -227,7 +277,7 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
           <>
             <div className="mt-2 flex h-11 items-center gap-2 rounded-lg border border-line bg-bg px-3">
               <Search className="size-4 shrink-0 text-faint" aria-hidden />
-              <input value={q} onChange={(event) => setQ(event.target.value)} placeholder={towns ? PLACES.find((p) => p.id === kind)?.search : "Loading…"} disabled={!towns} className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-faint" aria-label={kind === "city" ? "City or town" : "Park name"} />
+              <input value={q} onChange={(event) => setQ(event.target.value)} placeholder={towns ? PLACES.find((p) => p.id === kind)?.search : "Loading…"} disabled={!towns} className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-faint" aria-label={kind === "city" ? "City or town" : kind === "county" ? "County" : "Park name"} />
             </div>
             {hits.length ? (
               <ul className="mt-2 overflow-hidden rounded-xl border border-line">
@@ -240,7 +290,7 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
                 ))}
               </ul>
             ) : q.trim().length >= 2 && towns ? (
-              <p className="mt-2 text-sm text-muted">{kind === "city" ? "No city or town by that name." : "No park by that name."}</p>
+              <p className="mt-2 text-sm text-muted">{kind === "city" ? "No city or town by that name." : kind === "county" ? "No county by that name." : "No park by that name."}</p>
             ) : null}
           </>
         )}
@@ -309,11 +359,21 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
               </button>
             </div>
             {cards ? (
-              <div className="mt-3 flex gap-1.5 overflow-hidden" aria-hidden>
-                {["historic", "hungry", "grass", "museum", "wild"].map((cid, i) => (
-                  <SquareCardArt key={cid} id={cid} width={52} style={{ transform: `rotate(${(i - 2) * 4}deg)` }} />
-                ))}
-              </div>
+              deck ? (
+                <>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {dealable(deck).map((card) => (
+                      <SquareCardArt key={card.id} id={card.id} width={34} />
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-faint">
+                    {dealable(deck).length} cards can come up here. "Go to" cards only if there's somewhere to go inside {town.name}
+                    {SQUARE_CARDS.some((c) => c.cats && !deck[c.id]?.length) ? ` (no ${SQUARE_CARDS.filter((c) => c.cats && !deck[c.id]?.length).map((c) => c.name.toLowerCase()).slice(0, 3).join(", ")}…)` : ""}.
+                  </p>
+                </>
+              ) : (
+                <p className="mt-3 text-xs text-faint">Looking for places inside {town.name}…</p>
+              )
             ) : null}
           </Card>
           <Card>
@@ -519,7 +579,7 @@ export function SquaresBoard({ api }: { api: BoardApi }) {
     <>
       {complete ? (
         <div className="mx-4 mt-4 rounded-2xl p-4 text-center text-bg" style={{ background: MINE }}>
-          <p className="font-serif text-3xl leading-tight">{game.place === "city" ? "City" : "Park"} complete!</p>
+          <p className="font-serif text-3xl leading-tight">{game.place === "city" ? "City" : game.place === "county" ? "County" : "Park"} complete!</p>
           <p className="text-sm">
             Every square of {game.city}
             {race && ranked[0] ? ` · ${ranked[0].id === state.me ? "you win" : `${ranked[0].name} wins`}` : ""}.
@@ -590,7 +650,7 @@ export function SquaresBoard({ api }: { api: BoardApi }) {
         </div>
         {note ? <p className="mt-2 text-sm text-muted">{note}</p> : null}
       </Card>
-      {game.cards ? <CardsSection state={state} nameOf={nameOf} onSwap={() => void swap()} /> : null}
+      {game.cards ? <CardsSection board={id} state={state} nameOf={nameOf} onSwap={() => void swap()} onDone={() => void load.current().then(() => refreshSquareGames(true))} /> : null}
       <Card>
         <Label>{race ? "The race" : "Who's filled what"}</Label>
         <ul className="mt-2 grid gap-1.5">
@@ -614,7 +674,7 @@ export function SquaresBoard({ api }: { api: BoardApi }) {
 }
 
 /** Your card (if you're holding one), friends' cards, and the ones you've played. */
-function CardsSection({ state, nameOf, onSwap }: { state: SquaresState; nameOf: (id: string) => string; onSwap: () => void }) {
+function CardsSection({ board, state, nameOf, onSwap, onDone }: { board: string; state: SquaresState; nameOf: (id: string) => string; onSwap: () => void; onDone: () => void }) {
   const mine = state.holding[state.me];
   const card = mine ? cardById(mine.card) : null;
   const [, tick] = useState(0);
@@ -624,18 +684,66 @@ function CardsSection({ state, nameOf, onSwap }: { state: SquaresState; nameOf: 
     return () => window.clearInterval(timer);
   }, [card?.wait]);
   const friends = Object.entries(state.holding).filter(([pid]) => pid !== state.me);
+  const [checking, setChecking] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [at, setAt] = useState<{ lat: number; lon: number } | null>(null);
+  const targets = mine?.targets ?? [];
+
+  /** "I'm here": a location read right now, and the card's nearest place has to be within 100 feet. */
+  async function imHere() {
+    if (!card || !targets.length || checking) return;
+    setChecking(true);
+    setMsg(null);
+    try {
+      const { readExactLocation } = await import("@/lib/nearby");
+      const fix = await readExactLocation();
+      setAt(fix);
+      const feetTo = (t: [string, string, number, number]) => Math.hypot((t[2] - fix.lat) * 69, (t[3] - fix.lon) * 69 * Math.cos((fix.lat * Math.PI) / 180)) * 5280;
+      const nearest = [...targets].sort((a, b) => feetTo(a) - feetTo(b))[0];
+      const feet = feetTo(nearest);
+      if (feet > 100) {
+        setMsg(`Not quite: ${nearest[1]} is ${feet < 1000 ? `${Math.round(feet)} ft` : `${(feet / 5280).toFixed(1)} mi`} away. Get within 100 ft.${fix.feet > 100 ? " (Your phone's location is fuzzy right now; try again in a moment.)" : ""}`);
+        return;
+      }
+      const res = await playCard({ data: { id: board, place: nearest[0], lat: fix.lat, lon: fix.lon } });
+      if (!res.done) {
+        setMsg(res.why ?? "That didn't count.");
+        return;
+      }
+      cardFinished(board, card.id, nearest[1]);
+      onDone();
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Couldn't check where you are.");
+    } finally {
+      setChecking(false);
+    }
+  }
   const left = card?.wait && mine ? Math.max(0, Math.ceil((mine.since + card.wait * 60_000 - Date.now()) / 60_000)) : null;
   return (
     <Card>
       <Label>Your card</Label>
       {card && mine ? (
         <div className="mt-3 flex gap-4">
-          <SquareCardArt id={card.id} width={112} style={{ transform: "rotate(-4deg)" }} />
+          {targets.length ? (
+            <button type="button" onClick={() => void imHere()} aria-label={`${card.name}: I'm here`} className="shrink-0 self-start">
+              <SquareCardArt id={card.id} width={112} style={{ transform: "rotate(-4deg)" }} />
+            </button>
+          ) : (
+            <SquareCardArt id={card.id} width={112} style={{ transform: "rotate(-4deg)" }} />
+          )}
           <div className="min-w-0 flex-1">
             <p className="font-serif text-xl leading-tight">{card.name}</p>
             <p className="mt-1 text-[15px]">{card.task}</p>
+            {targets.length ? <Nearest targets={targets} at={at} /> : null}
+            {targets.length ? (
+              <button type="button" disabled={checking} onClick={() => void imHere()} className="mt-3 h-10 w-full rounded-lg bg-ink text-sm text-bg disabled:opacity-60">
+                {checking ? "Checking where you are…" : "I'm here"}
+              </button>
+            ) : null}
+            {msg ? <p className="mt-2 text-sm text-muted">{msg}</p> : null}
             <p className="mt-2 text-xs text-faint">
-              {left != null ? `${left} min to go. ` : ""}No squares count for you until it's done; it checks itself off.
+              {left != null ? `${left} min to go. ` : ""}No squares count for you until it's done
+              {targets.length ? ". Stop at one of these, then tap the card: you need to be within 100 ft (somewhere you've been before counts)." : "; it checks itself off."}
             </p>
             {state.swapsLeft > 0 ? (
               <button type="button" onClick={onSwap} className="mt-3 h-9 rounded-full border border-line px-3 text-xs">
@@ -677,23 +785,55 @@ function CardsSection({ state, nameOf, onSwap }: { state: SquaresState; nameOf: 
 }
 
 /** "You drew a card": shown over the app when tracking deals you one. */
-export function DealtCard({ card, onClose }: { card: string; onClose: () => void }) {
+export function DealtCard({ card, onClose, done }: { card: string; onClose: () => void; done?: string }) {
   const info = cardById(card);
   if (!info || typeof document === "undefined") return null;
   // Over everything (the Boards screen included), wherever it's opened from.
   return createPortal(
     <div className="fixed inset-0 z-[80] grid place-items-center bg-black/60 p-6" role="dialog" aria-label="You drew a card" onClick={onClose}>
       <div className="flex max-w-xs flex-col items-center text-center" onClick={(event) => event.stopPropagation()}>
-        <p className="text-[11px] tracking-[0.18em] text-[#fbf8f0]/80 uppercase">City squares · you drew</p>
+        <p className="text-[11px] tracking-[0.18em] text-[#fbf8f0]/80 uppercase">{done ? "City squares · card done" : "City squares · you drew"}</p>
         <SquareCardArt id={card} width={180} className="mt-3 animate-[deal_420ms_ease-out]" style={{ transform: "rotate(-5deg)" }} />
         <p className="mt-5 font-serif text-2xl text-[#fbf8f0]">{info.name}</p>
-        <p className="mt-1 text-[15px] text-[#fbf8f0]/90">{info.task}</p>
-        {!info.wild ? <p className="mt-2 text-xs text-[#fbf8f0]/70">No squares count until it's done.</p> : null}
+        <p className="mt-1 text-[15px] text-[#fbf8f0]/90">{done ? `You made it to ${done}.` : info.task}</p>
+        {done ? <p className="mt-2 text-xs text-[#fbf8f0]/70">Squares count again.</p> : !info.wild ? <p className="mt-2 text-xs text-[#fbf8f0]/70">No squares count until it's done.</p> : null}
         <button type="button" onClick={onClose} className="mt-5 h-11 rounded-full bg-[#fbf8f0] px-6 text-sm text-[#1c1915]">
           Got it
         </button>
       </div>
     </div>,
     document.body,
+  );
+}
+
+/** The card's closest places, from where you are. */
+function Nearest({ targets, at }: { targets: [string, string, number, number][]; at: { lat: number; lon: number } | null }) {
+  const [read, setRead] = useState<{ lat: number; lon: number } | null>(null);
+  // From where you are now (a location read when the card opens), the last tracked point until then.
+  useEffect(() => {
+    let live = true;
+    void import("@/lib/nearby")
+      .then((mod) => mod.readDeviceLocation())
+      .then((fix) => live && setRead(fix))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+  const here = at ?? read ?? lastSquaresFix();
+  const miles = (lat: number, lon: number) => (here ? Math.hypot((lat - here.lat) * 69, (lon - here.lon) * 69 * Math.cos((here.lat * Math.PI) / 180)) : null);
+  const list = [...targets].map((t) => ({ t, d: miles(t[2], t[3]) })).sort((a, b) => (a.d ?? 0) - (b.d ?? 0)).slice(0, 3);
+  return (
+    <div className="mt-2">
+      <p className="text-[11px] tracking-[0.14em] text-faint uppercase">{here ? "Nearest" : `${targets.length} places`}</p>
+      <ul className="mt-1 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-0.5 text-sm">
+        {list.map(({ t, d }) => (
+          <li key={t[0]} className="flex min-w-0 gap-2">
+            <span className="min-w-0 flex-1 truncate">{t[1]}</span>
+            {d != null ? <span className="shrink-0 text-xs text-muted tabular-nums">{d < 0.02 ? "here" : d < 0.2 ? `${Math.round(d * 5280)} ft` : `${d.toFixed(1)} mi`}</span> : null}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

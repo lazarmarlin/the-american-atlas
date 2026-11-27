@@ -19,12 +19,12 @@
  */
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
-import { CARD_EVERY, CARD_SWAPS, cardById, drawCard, type SquareCard } from "@/lib/square-cards";
+import { CARD_EVERY, CARD_REACH_MILES, CARD_SWAPS, DECK_MAX, SQUARE_CARDS, cardById, drawCard, type Deck, type SquareCard } from "@/lib/square-cards";
 import { MAX_SQUARES, SQUARE_SIZES, type TravelMode, inGrid, maskFromText, packSquares, skipsFor, unpackSquares, type Grid } from "@/lib/city-grid";
 
 export type SquaresMode = "together" | "race";
 /** What's cut into squares: a city or town, a state park, or a national park. */
-export type SquaresPlace = "city" | "state" | "national";
+export type SquaresPlace = "city" | "county" | "state" | "national";
 
 export type SquaresGame = {
   /** The place's name (a city, or a park). */
@@ -62,14 +62,49 @@ export type SquaresState = {
   skipsAllowed: number;
   /** Paused now: who paused it and since when (ms). */
   paused: { by: string; since: number } | null;
-  /** Cards players are holding now (not done yet), by player. */
-  holding: Record<string, { card: string; since: number }>;
+  /** Cards players are holding now (not done yet), by player. Yours carries where you can go to do it. */
+  holding: Record<string, { card: string; since: number; targets?: [string, string, number, number][] }>;
   /** Cards you've played (done), newest first. */
   played: { card: string; at: number }[];
   swapsLeft: number;
 };
 
 /* ------------------------------------------------------------------ cards */
+
+/** A deck from the phone: "go to" cards only, each a list of [id, name, lat, lon], capped. */
+function parseDeck(value: unknown): Deck | null {
+  if (!value || typeof value !== "object") return null;
+  const out: Deck = {};
+  for (const card of SQUARE_CARDS) {
+    if (!card.cats) continue;
+    const list = (value as Record<string, unknown>)[card.id];
+    if (!Array.isArray(list)) continue;
+    out[card.id] = list
+      .slice(0, DECK_MAX)
+      .filter((p): p is [string, string, number, number] => Array.isArray(p) && typeof p[0] === "string" && typeof p[1] === "string" && Number.isFinite(p[2]) && Number.isFinite(p[3]))
+      .map(([id, name, lat, lon]) => [id.slice(0, 140), name.slice(0, 160), Math.round(lat * 1e5) / 1e5, Math.round(lon * 1e5) / 1e5]);
+  }
+  return out;
+}
+
+async function deckOf(sql: Sql, board: string): Promise<Deck | null> {
+  try {
+    const rows = await sql<{ deck: unknown }>`select deck from square_games where board_id = ${board}`;
+    const raw = rows[0]?.deck;
+    return parseDeck(typeof raw === "string" ? JSON.parse(raw) : raw);
+  } catch {
+    return null;
+  }
+}
+
+/** A card's places you can still use in this game (each place does one card per game). */
+async function targetsFor(sql: Sql, board: string, me: string, card: string, deck: Deck | null) {
+  const list = deck?.[card] ?? [];
+  if (!list.length) return [];
+  const used = await sql<{ place: string }>`select place from square_cards where board_id = ${board} and user_id = ${me} and place is not null`;
+  const gone = new Set(used.map((row) => row.place));
+  return list.filter(([id]) => !gone.has(id));
+}
 
 /** What a card is measured by, now: visits to places of its kinds, photos, or counties. */
 async function cardCount(sql: Sql, me: string, card: SquareCard): Promise<number> {
@@ -106,11 +141,13 @@ async function holdingCard(sql: Sql, board: string, me: string): Promise<CardRow
   const open = (await cardsOf(sql, board, me)).find((row) => row.done == null);
   if (!open) return null;
   const card = cardById(open.card);
+  // "Go to" cards in a game with a deck are done by getting there (playCard); older games count visits.
+  const byPlace = Boolean(card?.cats) && (await deckOf(sql, board)) != null;
   const done =
     !card ||
     card.wild ||
     (card.wait != null && Date.now() >= open.dealt + card.wait * 60_000) ||
-    ((card.cats || card.photo || card.county) && (await cardCount(sql, me, card)) > open.base);
+    (!byPlace && (card.cats || card.photo || card.county) && (await cardCount(sql, me, card)) > open.base);
   if (!done) return open;
   await sql`update square_cards set done_at = now() where board_id = ${board} and user_id = ${me} and done_at is null`;
   return null;
@@ -121,15 +158,18 @@ async function blocksOf(sql: Sql, board: string, me: string): Promise<Pauses> {
   return (await cardsOf(sql, board, me)).map((row) => [row.dealt, row.done]);
 }
 
-async function deal(sql: Sql, board: string, me: string, not: string | null): Promise<{ card: string; at: number; wild: boolean }> {
-  const card = drawCard(not);
+type Dealt = { card: string; at: number; wild: boolean; targets: [string, string, number, number][] };
+
+async function deal(sql: Sql, board: string, me: string, not: string | null): Promise<Dealt> {
+  const deck = await deckOf(sql, board);
+  const card = drawCard(not, deck);
   const base = await cardCount(sql, me, card);
   const rows = await sql<{ at: number }>`
     insert into square_cards (board_id, user_id, card, base, done_at)
     values (${board}, ${me}, ${card.id}, ${base}, ${card.wild ? new Date() : null})
     returning (extract(epoch from dealt_at) * 1000)::float8 as at
   `;
-  return { card: card.id, at: Math.round(Number(rows[0]?.at ?? Date.now())), wild: Boolean(card.wild) };
+  return { card: card.id, at: Math.round(Number(rows[0]?.at ?? Date.now())), wild: Boolean(card.wild), targets: card.cats ? await targetsFor(sql, board, me, card.id, deck) : [] };
 }
 
 /** Paused stretches, [from, to] in ms (to null: paused now). */
@@ -174,7 +214,7 @@ async function gameOf(sql: Sql, id: string): Promise<SquaresGame | null> {
   if (!row) return null;
   return {
     city: row.city,
-    place: row.place_kind === "state" || row.place_kind === "national" ? row.place_kind : "city",
+    place: row.place_kind === "state" || row.place_kind === "national" || row.place_kind === "county" ? row.place_kind : "city",
     travel: row.travel === "foot" || row.travel === "bike" ? row.travel : "car",
     cards: Boolean(row.cards),
     state: row.state,
@@ -210,7 +250,7 @@ async function cardState(sql: Sql, board: string, me: string, game: SquaresGame 
   for (const id of players) {
     const rows = await cardsOf(sql, board, id);
     const open = rows.find((row) => row.done == null);
-    if (open) holding[id] = { card: open.card, since: open.dealt };
+    if (open) holding[id] = { card: open.card, since: open.dealt, ...(id === me && cardById(open.card)?.cats ? { targets: await targetsFor(sql, board, me, open.card, await deckOf(sql, board)) } : {}) };
     if (id === me) played = rows.filter((row) => row.done != null).reverse().map((row) => ({ card: row.card, at: row.done ?? row.dealt }));
   }
   try {
@@ -242,7 +282,8 @@ export const setupSquares = createServerFn({ method: "POST" })
     return {
       id: idOf(input),
       geoid: String(row.geoid ?? "").slice(0, 40),
-      place: row.place === "state" || row.place === "national" ? (row.place as SquaresPlace) : ("city" as const),
+      place: row.place === "state" || row.place === "national" || row.place === "county" ? (row.place as SquaresPlace) : ("city" as const),
+      deck: parseDeck(row.deck),
       city: String(row.city ?? "").trim().slice(0, 80),
       state: String(row.state ?? "").toUpperCase().slice(0, 2),
       zoom,
@@ -269,8 +310,8 @@ export const setupSquares = createServerFn({ method: "POST" })
     if (total < 1) throw new Error("That city has no squares at this size. Try a smaller size.");
     if (total > MAX_SQUARES) throw new Error(`That's ${total.toLocaleString()} squares. Try a bigger size.`);
     const made = await sql<{ ok: boolean }>`
-      insert into square_games (board_id, geoid, city, place_kind, travel, cards, state, zoom, mode, x0, y0, w, h, mask, total)
-      values (${data.id}, ${data.geoid}, ${data.city}, ${data.place}, ${data.travel}, ${data.cards}, ${data.state}, ${data.zoom}, ${data.mode}, ${data.x0}, ${data.y0}, ${data.w}, ${data.h}, ${data.mask}, ${total})
+      insert into square_games (board_id, geoid, city, place_kind, travel, cards, deck, state, zoom, mode, x0, y0, w, h, mask, total)
+      values (${data.id}, ${data.geoid}, ${data.city}, ${data.place}, ${data.travel}, ${data.cards}, ${data.deck ? JSON.stringify(data.deck) : null}::jsonb, ${data.state}, ${data.zoom}, ${data.mode}, ${data.x0}, ${data.y0}, ${data.w}, ${data.h}, ${data.mask}, ${total})
       on conflict (board_id) do nothing
       returning true as ok
     `;
@@ -372,7 +413,7 @@ export const addSquares = createServerFn({ method: "POST" })
     await sql`delete from square_visits where board_id = ${data.id} and how = 'skip' and square = any(${fresh}::int[])`;
     if (added.length) await sql`update boards set updated_at = now() where id = ${data.id}`;
     // Now and then a new square deals a card.
-    let dealt: { card: string; at: number; wild: boolean } | null = null;
+    let dealt: Dealt | null = null;
     if (game.cards && added.length && added.some(() => Math.random() < 1 / CARD_EVERY)) {
       const last = (await cardsOf(sql, data.id, context.userId)).at(-1)?.card ?? null;
       dealt = await deal(sql, data.id, context.userId, last);
@@ -412,7 +453,7 @@ export const skipSquare = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-export type ActiveSquares = { id: string; blocks: Pauses; travel: TravelMode; zoom: number; x0: number; y0: number; w: number; h: number; mask: string; startedAt: number; mine: string; pauses: Pauses };
+export type ActiveSquares = { id: string; card: { id: string; targets: [string, string, number, number][] } | null; blocks: Pauses; travel: TravelMode; zoom: number; x0: number; y0: number; w: number; h: number; mask: string; startedAt: number; mine: string; pauses: Pauses };
 
 /** The games you're in, for tracking to fill in (with the squares you already have, so they're not sent again). */
 export const myActiveSquares = createServerFn({ method: "GET" })
@@ -444,6 +485,11 @@ export const myActiveSquares = createServerFn({ method: "GET" })
           mine: packSquares(mine.map((m) => Number(m.square))),
           pauses: (await pausesOf(sql, row.board_id)).list,
           blocks: await blocksOf(sql, row.board_id, context.userId),
+          card: await (async () => {
+            const held = await holdingCard(sql, row.board_id, context.userId);
+            if (!held || !cardById(held.card)?.cats) return null;
+            return { id: held.card, targets: await targetsFor(sql, row.board_id, context.userId, held.card, await deckOf(sql, row.board_id)) };
+          })(),
         });
       }
       return out;
@@ -488,4 +534,37 @@ export const swapCard = createServerFn({ method: "POST" })
     if (Number(used[0]?.n ?? 0) >= CARD_SWAPS) throw new Error("No swaps left.");
     await sql`update square_cards set done_at = now(), swapped = true where board_id = ${data.id} and user_id = ${context.userId} and done_at is null`;
     return { dealt: await deal(sql, data.id, context.userId, holding.card) };
+  });
+
+/**
+ * "I'm here": you've stopped at one of the card's places and tapped the card.
+ * Your location (fresh from the phone) has to be within 100 feet of the
+ * place; the place has to be one of the card's (inside the game's area) and
+ * not one that's already done a card for you in this game.
+ */
+export const playCard = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    const row = (input ?? {}) as Record<string, unknown>;
+    const place = String(row.place ?? "").slice(0, 140);
+    if (!place) throw new Error("Which place?");
+    const lat = Number(row.lat);
+    const lon = Number(row.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error("Where are you?");
+    return { id: idOf(input), place, lat, lon };
+  })
+  .handler(async ({ context, data }) => {
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    await open(sql, context.userId, data.id);
+    const held = await holdingCard(sql, data.id, context.userId);
+    if (!held) return { done: false, why: "You're not holding a card." };
+    const targets = await targetsFor(sql, data.id, context.userId, held.card, await deckOf(sql, data.id));
+    const place = targets.find(([id]) => id === data.place);
+    if (!place) return { done: false, why: "That place doesn't do this card (or it already did one)." };
+    const feet = Math.hypot((place[2] - data.lat) * 69, (place[3] - data.lon) * 69 * Math.cos((data.lat * Math.PI) / 180)) * 5280;
+    if (feet > CARD_REACH_MILES * 5280) return { done: false, why: `You're ${Math.round(feet).toLocaleString()} ft from ${place[1]}. Get within 100 ft.` };
+    await sql`update square_cards set done_at = now(), place = ${data.place} where board_id = ${data.id} and user_id = ${context.userId} and done_at is null`;
+    await sql`update boards set updated_at = now() where id = ${data.id}`;
+    return { done: true, card: held.card, place: place[1], at: Date.now() };
   });

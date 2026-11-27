@@ -22,7 +22,9 @@ import { cardById } from "@/lib/square-cards";
 import type { Pauses } from "@/lib/city-squares";
 
 /** pending: squares found but not sent yet, with when. */
-type Game = { id: string; grid: Grid; maxMph: number | null; startedAt: number; mine: Set<number>; pending: Map<number, number>; pauses: Pauses; blocks: Pauses };
+type Target = [string, string, number, number];
+/** card: the "go to" card you're holding, and its places inside the area. */
+type Game = { id: string; grid: Grid; maxMph: number | null; startedAt: number; mine: Set<number>; pending: Map<number, number>; pauses: Pauses; blocks: Pauses; card: { id: string; targets: Target[] } | null; playing: boolean };
 
 const paused = (pauses: Pauses, t: number) => pauses.some(([s, e]) => t >= s && (e == null || t <= e));
 const pauseBetween = (pauses: Pauses, a: number, b: number) => pauses.some(([s, e]) => s <= b && (e == null || e >= a));
@@ -61,7 +63,7 @@ export function refreshSquareGames(force = false): Promise<void> {
         const pauses = row.pauses ?? [];
         const blocks = row.blocks ?? [];
         const pending = new Map([...(old?.pending ?? [])].filter(([n, t]) => !mine.has(n) && !paused(pauses, t) && !paused(blocks, t)));
-        return { id: row.id, grid, maxMph: maxMphFor(row.travel), startedAt: row.startedAt, mine, pending, pauses, blocks };
+        return { id: row.id, grid, maxMph: maxMphFor(row.travel), startedAt: row.startedAt, mine, pending, pauses, blocks, card: row.card ?? null, playing: false };
       });
     })
     .catch(() => {
@@ -85,7 +87,8 @@ export function feedSquares(fixes: Fix[]) {
     const t = fix.t ?? Date.now();
     const prev = last && t >= last.t && t - last.t <= GAP_MS && miles(last, fix) <= GAP_MILES ? last : null;
     for (const game of games) {
-      if (t < game.startedAt || paused(game.pauses, t) || paused(game.blocks, t)) continue;
+      if (t < game.startedAt || paused(game.pauses, t)) continue;
+      if (paused(game.blocks, t)) continue;
       const joined = prev && prev.t >= game.startedAt && !pauseBetween(game.pauses, prev.t, t) && !pauseBetween(game.blocks, prev.t, t);
       if (game.maxMph != null) {
         // Too fast for this game (driving in an on-foot game): this stretch doesn't count.
@@ -106,6 +109,11 @@ export function feedSquares(fixes: Fix[]) {
   const many = games.some((g) => g.pending.size >= 25);
   window.clearTimeout(flushTimer);
   flushTimer = window.setTimeout(() => void flushSquares(), many ? 500 : 15_000);
+}
+
+/** The last fix seen (for "nearest" on a card). */
+export function lastSquaresFix() {
+  return last;
 }
 
 /** Send the squares found since the last send. */
@@ -148,6 +156,7 @@ export async function flushSquares() {
           if ("dealt" in res && res.dealt) {
             // A card: nothing more counts until it's done (wild ones are done already).
             game.blocks = [...game.blocks, [res.dealt.at, res.dealt.wild ? res.dealt.at : null]];
+            game.card = res.dealt.targets?.length ? { id: res.dealt.card, targets: res.dealt.targets } : null;
             for (const [n, t] of game.pending) if (t >= res.dealt.at && !res.dealt.wild) game.pending.delete(n);
             cardDealt(game.id, res.dealt.card);
             const card = cardById(res.dealt.card);

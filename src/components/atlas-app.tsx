@@ -314,6 +314,7 @@ function AtlasShell() {
   const squaresOnMap = useSquaresOnMap((state) => state.id);
   const squaresRev = useSquaresOnMap((state) => state.rev);
   const dealtCard = useSquaresOnMap((state) => state.dealt);
+  const finishedCard = useSquaresOnMap((state) => state.finished);
   const [squaresView, setSquaresView] = useState<SquaresState | null>(null);
   useEffect(() => {
     if (!user?.id) return;
@@ -3137,7 +3138,7 @@ function AtlasShell() {
           onColor={setGhostColor}
           onClose={() => setGhostOpen(false)}
         />
-        {dealtCard ? <DealtCard card={dealtCard.card} onClose={cardSeen} /> : null}
+        {finishedCard ? <DealtCard card={finishedCard.card} done={finishedCard.place} onClose={cardSeen} /> : dealtCard ? <DealtCard card={dealtCard.card} onClose={cardSeen} /> : null}
         {mailOpen && user?.id ? (
           <MessageBoard
             key={mailThread ? `${mailThread.kind}:${mailThread.id}` : "board"}
