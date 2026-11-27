@@ -313,6 +313,12 @@
   bottom: env(safe-area-inset-bottom);
 }
 
+/* With the map's button row along the bottom (not in Drive mode): the zoom buttons sit just
+   above it, so the last button in the row (messages) never slides under the minus. */
+.app-map.with-tools .maplibregl-map .maplibregl-ctrl-bottom-right {
+  bottom: calc(max(0.75rem, env(safe-area-inset-bottom)) + 2.75rem);
+}
+
 .app-map .maplibregl-map .maplibregl-ctrl-bottom-left {
   left: env(safe-area-inset-left);
   bottom: env(safe-area-inset-bottom);

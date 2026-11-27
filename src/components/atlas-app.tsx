@@ -2623,7 +2623,7 @@ function AtlasShell() {
           </button>
         </div>
       ) : null}
-      <section className="app-map relative min-h-0">
+      <section className={"app-map relative min-h-0" + (driving ? "" : " with-tools")}>
         {meta ? (
           <Suspense fallback={<div className="grid h-full place-items-center text-muted">Opening the map…</div>}>
             <AtlasMap
