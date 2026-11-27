@@ -6,14 +6,21 @@
  * sooner when there are lots).
  *
  * Not counted: rough fixes (poor accuracy), fixes from before the game
- * started, and gaps of more than two minutes or two miles (lost signal: the
- * straight line between might not be where you went).
+ * started or while it's paused, and gaps of more than two minutes or two
+ * miles (lost signal: the straight line between might not be where you went).
+ * A pause this phone hasn't heard of yet comes back from the server when it
+ * sends; those squares are dropped.
  */
 import type { Fix } from "@/lib/nearby";
 import { inGrid, maskFromText, packSquares, squareAt, squaresAlong, unpackSquares, type Grid } from "@/lib/city-grid";
 import { squaresChanged } from "@/lib/squares-map";
+import type { Pauses } from "@/lib/city-squares";
 
-type Game = { id: string; grid: Grid; startedAt: number; mine: Set<number>; pending: Set<number>; pendingAt: number };
+/** pending: squares found but not sent yet, with when. */
+type Game = { id: string; grid: Grid; startedAt: number; mine: Set<number>; pending: Map<number, number>; pauses: Pauses };
+
+const paused = (pauses: Pauses, t: number) => pauses.some(([s, e]) => t >= s && (e == null || t <= e));
+const pauseBetween = (pauses: Pauses, a: number, b: number) => pauses.some(([s, e]) => s <= b && (e == null || e >= a));
 
 const GAP_MS = 2 * 60_000;
 const GAP_MILES = 2;
@@ -44,9 +51,10 @@ export function refreshSquareGames(force = false) {
         const old = games.find((g) => g.id === row.id);
         const grid: Grid = { zoom: row.zoom, x0: row.x0, y0: row.y0, w: row.w, h: row.h, mask: maskFromText(row.mask), count: 0 };
         const mine = new Set(unpackSquares(row.mine));
-        // Squares found but not sent yet carry over.
-        const pending = new Set([...(old?.pending ?? [])].filter((n) => !mine.has(n)));
-        return { id: row.id, grid, startedAt: row.startedAt, mine, pending, pendingAt: old?.pendingAt ?? Infinity };
+        // Squares found but not sent yet carry over (not ones from a pause just learned of).
+        const pauses = row.pauses ?? [];
+        const pending = new Map([...(old?.pending ?? [])].filter(([n, t]) => !mine.has(n) && !paused(pauses, t)));
+        return { id: row.id, grid, startedAt: row.startedAt, mine, pending, pauses };
       });
     })
     .catch(() => {
@@ -70,12 +78,12 @@ export function feedSquares(fixes: Fix[]) {
     const t = fix.t ?? Date.now();
     const prev = last && t >= last.t && t - last.t <= GAP_MS && miles(last, fix) <= GAP_MILES ? last : null;
     for (const game of games) {
-      if (t < game.startedAt) continue;
-      const squares = prev && prev.t >= game.startedAt ? squaresAlong(game.grid, prev, fix) : [squareAt(game.grid, fix.lat, fix.lon)];
+      if (t < game.startedAt || paused(game.pauses, t)) continue;
+      const joined = prev && prev.t >= game.startedAt && !pauseBetween(game.pauses, prev.t, t);
+      const squares = joined && prev ? squaresAlong(game.grid, prev, fix) : [squareAt(game.grid, fix.lat, fix.lon)];
       for (const n of squares) {
         if (n < 0 || !inGrid(game.grid, n) || game.mine.has(n) || game.pending.has(n)) continue;
-        game.pending.add(n);
-        game.pendingAt = Math.min(game.pendingAt, t);
+        game.pending.set(n, t);
         found = true;
       }
     }
@@ -96,18 +104,31 @@ export async function flushSquares() {
     const { addSquares } = await import("@/lib/city-squares");
     for (const game of games) {
       if (!game.pending.size) continue;
-      const batch = [...game.pending];
-      const at = game.pendingAt;
-      try {
-        await addSquares({ data: { id: game.id, squares: packSquares(batch), at: Number.isFinite(at) ? at : Date.now() } });
-        for (const n of batch) {
-          game.mine.add(n);
-          game.pending.delete(n);
+      // In runs that don't cross a pause (the server turns away a batch that touches one).
+      const sorted = [...game.pending].sort((a, b) => a[1] - b[1]);
+      const runs: [number, number][][] = [];
+      for (const entry of sorted) {
+        const run = runs.at(-1);
+        if (run && !pauseBetween(game.pauses, run[run.length - 1][1], entry[1])) run.push(entry);
+        else runs.push([entry]);
+      }
+      for (const run of runs) {
+        try {
+          const res = await addSquares({ data: { id: game.id, squares: packSquares(run.map(([n]) => n)), at: run[0][1], last: run[run.length - 1][1] } });
+          if ("paused" in res && res.paused) {
+            // Paused (by a friend, maybe) since: those squares don't count.
+            game.pauses = res.pauses;
+            for (const [n, t] of run) if (paused(game.pauses, t)) game.pending.delete(n);
+            continue;
+          }
+          for (const [n] of run) {
+            game.mine.add(n);
+            game.pending.delete(n);
+          }
+          sent = true;
+        } catch {
+          // No signal: kept for the next send.
         }
-        game.pendingAt = game.pending.size ? game.pendingAt : Infinity;
-        sent = true;
-      } catch {
-        // No signal: kept for the next send.
       }
     }
   } finally {

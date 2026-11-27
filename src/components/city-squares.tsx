@@ -5,7 +5,7 @@
  * src/lib/city-squares.ts. Tracking fills the squares in (squares-tracker.ts).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Map as MapIcon, Search, Trophy } from "lucide-react";
+import { Map as MapIcon, Pause, Play, Search, Trophy } from "lucide-react";
 import {
   MAX_SQUARES,
   SQUARE_SIZES,
@@ -20,7 +20,7 @@ import {
   unpackSquares,
   type Grid,
 } from "@/lib/city-grid";
-import { setupSquares, skipSquare, squaresState, type SquaresMode, type SquaresState } from "@/lib/city-squares";
+import { pauseSquares, setupSquares, skipSquare, squaresState, type SquaresMode, type SquaresPlace, type SquaresState } from "@/lib/city-squares";
 import { setSquaresOnMap, squaresChanged, useSquaresOnMap } from "@/lib/squares-map";
 import { refreshSquareGames } from "@/lib/squares-tracker";
 import { KIND_LOOK, Label } from "@/components/board-ui";
@@ -31,6 +31,26 @@ const MINE = KIND_LOOK.squares.tint;
 const OTHERS = ["#3d8fd4", "#e0a040", "#b06ad6", "#e0607a"];
 
 type TownHit = { name: string; st: string; geoid: string; shape: GeoJSON.Polygon | GeoJSON.MultiPolygon };
+
+const PLACES: { id: SquaresPlace; label: string; search: string }[] = [
+  { id: "city", label: "City", search: "City or town (Columbus, OH)" },
+  { id: "state", label: "State park", search: "State park name" },
+  { id: "national", label: "National park", search: "National park name" },
+];
+
+/** The places of a kind, with their outlines: cities from the town outlines, parks from the park outlines. */
+async function loadPlaces(kind: SquaresPlace): Promise<TownHit[]> {
+  if (kind === "city") {
+    const fc = await (await import("@/lib/towns-overlay")).loadTowns();
+    return fc.features.map((f) => ({ name: f.properties.name, st: f.properties.st, geoid: f.properties.geoid, shape: f.geometry }));
+  }
+  const res = await fetch("/atlas/overlays/parks.geojson");
+  if (!res.ok) throw new Error(`parks: ${res.status}`);
+  const fc = (await res.json()) as GeoJSON.FeatureCollection<GeoJSON.Polygon | GeoJSON.MultiPolygon, { id: string; name: string; st: string; level: string }>;
+  return fc.features
+    .filter((f) => f.properties.level === kind && (f.geometry.type === "Polygon" || f.geometry.type === "MultiPolygon"))
+    .map((f) => ({ name: f.properties.name, st: f.properties.st, geoid: f.properties.id, shape: f.geometry }));
+}
 
 /* ------------------------------------------------------------------ state */
 
@@ -96,6 +116,7 @@ export function squareFeatures(state: SquaresState): GeoJSON.Feature[] | null {
 /* ------------------------------------------------------------------ setup */
 
 function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void }) {
+  const [kind, setKind] = useState<SquaresPlace>("city");
   const [towns, setTowns] = useState<TownHit[] | null>(null);
   const [q, setQ] = useState("");
   const [town, setTown] = useState<TownHit | null>(null);
@@ -108,23 +129,27 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
   useEffect(() => {
     if (!owner) return;
     let live = true;
-    void import("@/lib/towns-overlay")
-      .then((mod) => mod.loadTowns())
-      .then((fc) => live && setTowns(fc.features.map((f) => ({ name: f.properties.name, st: f.properties.st, geoid: f.properties.geoid, shape: f.geometry }))))
-      .catch(() => live && setNote("Couldn't load the list of cities. Check your connection."));
+    setTowns(null);
+    setTown(null);
+    setNote(null);
+    void loadPlaces(kind)
+      .then((list) => live && setTowns(list))
+      .catch(() => live && setNote("Couldn't load the list. Check your connection."));
     return () => {
       live = false;
     };
-  }, [owner]);
+  }, [owner, kind]);
 
   const hits = useMemo(() => {
     const term = q.trim().toLowerCase();
     if (!towns || term.length < 2) return [];
     const [name, st] = term.split(",").map((part) => part.trim());
-    const out = towns.filter((t) => t.name.toLowerCase().startsWith(name) && (!st || t.st.toLowerCase().startsWith(st)));
+    // Cities by how their name starts; parks by any word ("smoky" finds Great Smoky Mountains).
+    const match = (t: TownHit) => (kind === "city" ? t.name.toLowerCase().startsWith(name) : t.name.toLowerCase().includes(name));
+    const out = towns.filter((t) => match(t) && (!st || t.st.toLowerCase().startsWith(st)));
     out.sort((a, b) => Number(b.name.toLowerCase() === name) - Number(a.name.toLowerCase() === name) || a.name.length - b.name.length);
     return out.slice(0, 8);
-  }, [towns, q]);
+  }, [towns, q, kind]);
 
   const sizes = useMemo(() => {
     if (!town) return [];
@@ -141,7 +166,7 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
   if (!owner) {
     return (
       <Card>
-        <p className="text-sm text-muted">Waiting for {api.name(api.people[0]?.id)} to pick the city.</p>
+        <p className="text-sm text-muted">Waiting for {api.name(api.people[0]?.id)} to pick the place.</p>
       </Card>
     );
   }
@@ -158,7 +183,7 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
     setNote(null);
     try {
       const g = chosen.grid;
-      await setupSquares({ data: { id: api.board.id, geoid: town.geoid, city: town.name, state: town.st, zoom: g.zoom, mode, x0: g.x0, y0: g.y0, w: g.w, h: g.h, mask: maskToText(g.mask) } });
+      await setupSquares({ data: { id: api.board.id, geoid: town.geoid, city: town.name, place: kind, state: town.st, zoom: g.zoom, mode, x0: g.x0, y0: g.y0, w: g.w, h: g.h, mask: maskToText(g.mask) } });
       onStarted();
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Couldn't start the game.");
@@ -170,7 +195,16 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
   return (
     <>
       <Card>
-        <Label>Pick a city</Label>
+        <div className="grid grid-cols-3 rounded-xl bg-bg/60 p-1">
+          {PLACES.map((p) => (
+            <button key={p.id} type="button" aria-pressed={kind === p.id} onClick={() => setKind(p.id)} className={"h-10 rounded-lg text-sm " + (kind === p.id ? "bg-elevated text-ink shadow-sm" : "text-muted")}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-4">
+          <Label>{kind === "city" ? "Pick a city" : kind === "state" ? "Pick a state park" : "Pick a national park"}</Label>
+        </div>
         {town ? (
           <div className="mt-2 flex items-center gap-2">
             <p className="min-w-0 flex-1 font-serif text-2xl leading-tight">
@@ -184,7 +218,7 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
           <>
             <div className="mt-2 flex h-11 items-center gap-2 rounded-lg border border-line bg-bg px-3">
               <Search className="size-4 shrink-0 text-faint" aria-hidden />
-              <input value={q} onChange={(event) => setQ(event.target.value)} placeholder={towns ? "City or town (Columbus, OH)" : "Loading cities…"} disabled={!towns} className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-faint" aria-label="City or town" />
+              <input value={q} onChange={(event) => setQ(event.target.value)} placeholder={towns ? PLACES.find((p) => p.id === kind)?.search : "Loading…"} disabled={!towns} className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-faint" aria-label={kind === "city" ? "City or town" : "Park name"} />
             </div>
             {hits.length ? (
               <ul className="mt-2 overflow-hidden rounded-xl border border-line">
@@ -197,7 +231,7 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
                 ))}
               </ul>
             ) : q.trim().length >= 2 && towns ? (
-              <p className="mt-2 text-sm text-muted">No city or town by that name.</p>
+              <p className="mt-2 text-sm text-muted">{kind === "city" ? "No city or town by that name." : "No park by that name."}</p>
             ) : null}
           </>
         )}
@@ -398,6 +432,17 @@ export function SquaresBoard({ api }: { api: BoardApi }) {
   const pickedWall = picked != null ? view.walled.get(picked) : undefined;
   const nameOf = (pid: string) => (pid === state.me ? "You" : state.players.find((p) => p.id === pid)?.name ?? "Friend");
 
+  async function pause(on: boolean) {
+    try {
+      await pauseSquares({ data: { id, on } });
+      await load.current();
+      // This phone's tracking hears about it now (friends' phones when they next send).
+      void refreshSquareGames(true);
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Couldn't do that.");
+    }
+  }
+
   async function skip(on: boolean) {
     if (picked == null) return;
     try {
@@ -413,10 +458,19 @@ export function SquaresBoard({ api }: { api: BoardApi }) {
     <>
       {complete ? (
         <div className="mx-4 mt-4 rounded-2xl p-4 text-center text-bg" style={{ background: MINE }}>
-          <p className="font-serif text-3xl leading-tight">City complete!</p>
+          <p className="font-serif text-3xl leading-tight">{game.place === "city" ? "City" : "Park"} complete!</p>
           <p className="text-sm">
             Every square of {game.city}
             {race && ranked[0] ? ` · ${ranked[0].id === state.me ? "you win" : `${ranked[0].name} wins`}` : ""}.
+          </p>
+        </div>
+      ) : null}
+      {state.paused && !complete ? (
+        <div className="mx-4 mt-4 flex items-center gap-3 rounded-2xl border border-line bg-surface p-4">
+          <Pause className="size-5 shrink-0 text-muted" aria-hidden />
+          <p className="min-w-0 flex-1 text-sm">
+            Paused by {nameOf(state.paused.by)} since{" "}
+            {new Date(state.paused.since).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}. Tracking won't fill any squares until someone carries on.
           </p>
         </div>
       ) : null}
@@ -463,6 +517,14 @@ export function SquaresBoard({ api }: { api: BoardApi }) {
               {onMap ? "On the map" : "Show on the map"}
             </span>
           </Pill>
+          {!complete ? (
+            <Pill on={!!state.paused} onClick={() => void pause(!state.paused)}>
+              <span className="inline-flex items-center gap-1.5">
+                {state.paused ? <Play className="size-4" aria-hidden /> : <Pause className="size-4" aria-hidden />}
+                {state.paused ? "Carry on" : "Pause"}
+              </span>
+            </Pill>
+          ) : null}
           {!race ? <span className="text-xs text-faint">{skipsLeft} {skipsLeft === 1 ? "skip" : "skips"} left</span> : null}
         </div>
         {note ? <p className="mt-2 text-sm text-muted">{note}</p> : null}

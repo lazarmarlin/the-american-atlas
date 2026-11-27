@@ -8,15 +8,23 @@
  * Together: one card, everyone's squares fill it. Race: a square is whoever
  * got there first; most squares wins. Skips (squares nobody can get into)
  * only in Together, about one per 50 squares for the whole card.
+ *
+ * Any player can pause the game (one of you has to leave) and any player can
+ * carry on. While it's paused tracking adds nobody's squares: the server
+ * turns away squares from any paused stretch, even ones a phone sends later.
  */
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { MAX_SQUARES, SQUARE_SIZES, inGrid, maskFromText, packSquares, skipsFor, unpackSquares, type Grid } from "@/lib/city-grid";
 
 export type SquaresMode = "together" | "race";
+/** What's cut into squares: a city or town, a state park, or a national park. */
+export type SquaresPlace = "city" | "state" | "national";
 
 export type SquaresGame = {
+  /** The place's name (a city, or a park). */
   city: string;
+  place: SquaresPlace;
   state: string;
   geoid: string;
   zoom: number;
@@ -43,7 +51,32 @@ export type SquaresState = {
   /** Skipped squares (Together), packed, and how many skips the card has. */
   skips: string;
   skipsAllowed: number;
+  /** Paused now: who paused it and since when (ms). */
+  paused: { by: string; since: number } | null;
 };
+
+/** Paused stretches, [from, to] in ms (to null: paused now). */
+export type Pauses = [number, number | null][];
+
+async function pausesOf(sql: Sql, id: string): Promise<{ list: Pauses; open: { by: string; since: number } | null }> {
+  try {
+    const rows = await sql<{ s: number; e: number | null; by_user: string }>`
+      select (extract(epoch from started_at) * 1000)::float8 as s, (extract(epoch from ended_at) * 1000)::float8 as e, by_user
+      from square_pauses where board_id = ${id} order by started_at
+    `;
+    const list: Pauses = rows.map((row) => [Math.round(Number(row.s)), row.e == null ? null : Math.round(Number(row.e))]);
+    const last = rows.at(-1);
+    return { list, open: last && last.e == null ? { by: last.by_user, since: Math.round(Number(last.s)) } : null };
+  } catch {
+    // Before the migration.
+    return { list: [], open: null };
+  }
+}
+
+/** Whether a stretch of travel [from, to] touches a paused stretch. */
+export function overlapsPause(pauses: Pauses, from: number, to: number) {
+  return pauses.some(([s, e]) => s <= to && (e == null || e >= from));
+}
 
 type Sql = Awaited<ReturnType<typeof import("@/lib/db").getSql>>;
 const ZOOMS = new Set<number>(SQUARE_SIZES.map((size) => size.zoom));
@@ -56,14 +89,15 @@ async function open(sql: Sql, me: string, id: string) {
 }
 
 async function gameOf(sql: Sql, id: string): Promise<SquaresGame | null> {
-  const rows = await sql<{ city: string; state: string; geoid: string; zoom: number; mode: string; x0: number; y0: number; w: number; h: number; mask: string; total: number; started: number }>`
-    select city, state, geoid, zoom, mode, x0, y0, w, h, mask, total, (extract(epoch from started_at) * 1000)::float8 as started
+  const rows = await sql<{ city: string; place_kind: string; state: string; geoid: string; zoom: number; mode: string; x0: number; y0: number; w: number; h: number; mask: string; total: number; started: number }>`
+    select city, place_kind, state, geoid, zoom, mode, x0, y0, w, h, mask, total, (extract(epoch from started_at) * 1000)::float8 as started
     from square_games where board_id = ${id}
   `;
   const row = rows[0];
   if (!row) return null;
   return {
     city: row.city,
+    place: row.place_kind === "state" || row.place_kind === "national" ? row.place_kind : "city",
     state: row.state,
     geoid: row.geoid,
     zoom: Number(row.zoom),
@@ -107,7 +141,8 @@ export const setupSquares = createServerFn({ method: "POST" })
     if (!/^[A-Za-z0-9+/=]+$/.test(mask) || mask.length > 800_000) throw new Error("That grid doesn't look right");
     return {
       id: idOf(input),
-      geoid: String(row.geoid ?? "").slice(0, 12),
+      geoid: String(row.geoid ?? "").slice(0, 40),
+      place: row.place === "state" || row.place === "national" ? (row.place as SquaresPlace) : ("city" as const),
       city: String(row.city ?? "").trim().slice(0, 80),
       state: String(row.state ?? "").toUpperCase().slice(0, 2),
       zoom,
@@ -123,8 +158,8 @@ export const setupSquares = createServerFn({ method: "POST" })
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
     const { role } = await open(sql, context.userId, data.id);
-    if (role !== "owner") throw new Error("Only the person who made the board can pick the city.");
-    if (!data.city || !/^[A-Z]{2}$/.test(data.state)) throw new Error("Pick a city");
+    if (role !== "owner") throw new Error("Only the person who made the board can pick the place.");
+    if (!data.city || !/^[A-Z]{2}$/.test(data.state)) throw new Error("Pick a place");
     const grid: Grid = { zoom: data.zoom, x0: data.x0, y0: data.y0, w: data.w, h: data.h, mask: maskFromText(data.mask), count: 0 };
     if (grid.mask.length !== Math.ceil((data.w * data.h) / 8)) throw new Error("That grid doesn't look right");
     let total = 0;
@@ -132,12 +167,12 @@ export const setupSquares = createServerFn({ method: "POST" })
     if (total < 1) throw new Error("That city has no squares at this size. Try a smaller size.");
     if (total > MAX_SQUARES) throw new Error(`That's ${total.toLocaleString()} squares. Try a bigger size.`);
     const made = await sql<{ ok: boolean }>`
-      insert into square_games (board_id, geoid, city, state, zoom, mode, x0, y0, w, h, mask, total)
-      values (${data.id}, ${data.geoid}, ${data.city}, ${data.state}, ${data.zoom}, ${data.mode}, ${data.x0}, ${data.y0}, ${data.w}, ${data.h}, ${data.mask}, ${total})
+      insert into square_games (board_id, geoid, city, place_kind, state, zoom, mode, x0, y0, w, h, mask, total)
+      values (${data.id}, ${data.geoid}, ${data.city}, ${data.place}, ${data.state}, ${data.zoom}, ${data.mode}, ${data.x0}, ${data.y0}, ${data.w}, ${data.h}, ${data.mask}, ${total})
       on conflict (board_id) do nothing
       returning true as ok
     `;
-    if (!made[0]?.ok) throw new Error("This board already has a city.");
+    if (!made[0]?.ok) throw new Error("This board already has a place.");
     await sql`update boards set title = ${`${data.city} squares`.slice(0, 60)}, updated_at = now() where id = ${data.id}`;
     return { ok: true as const, total };
   });
@@ -182,6 +217,7 @@ export const squaresState = createServerFn({ method: "POST" })
       visits,
       skips,
       skipsAllowed: game && game.mode === "together" ? skipsFor(game.total) : 0,
+      paused: game ? (await pausesOf(sql, data.id)).open : null,
     };
   });
 
@@ -197,7 +233,9 @@ export const addSquares = createServerFn({ method: "POST" })
     const squares = unpackSquares(String(row.squares ?? "").slice(0, 60_000)).slice(0, 5000);
     if (squares.some((n) => !Number.isInteger(n) || n < 0)) throw new Error("Those squares don't look right");
     const at = Number(row.at);
-    return { id: idOf(input), squares, at: Number.isFinite(at) ? at : Date.now() };
+    const last = Number(row.last);
+    const from = Number.isFinite(at) ? at : Date.now();
+    return { id: idOf(input), squares, at: from, last: Number.isFinite(last) && last >= from ? last : from };
   })
   .handler(async ({ context, data }) => {
     const { getSql } = await import("@/lib/db");
@@ -206,6 +244,10 @@ export const addSquares = createServerFn({ method: "POST" })
     const game = await gameOf(sql, data.id);
     if (!game) throw new Error("Pick a city first.");
     const grid = gridOf(game);
+    // Nothing from while the game was paused (the phone splits its batches at pauses it knows about,
+    // and hears about the others here).
+    const pauses = await pausesOf(sql, data.id);
+    if (overlapsPause(pauses.list, data.at, data.last)) return { added: 0, paused: true as const, pauses: pauses.list };
     // Not before the game started, not in the future.
     const at = Math.min(Date.now(), Math.max(game.startedAt, data.at));
     const fresh = data.squares.filter((n) => inGrid(grid, n));
@@ -255,7 +297,7 @@ export const skipSquare = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-export type ActiveSquares = { id: string; zoom: number; x0: number; y0: number; w: number; h: number; mask: string; startedAt: number; mine: string };
+export type ActiveSquares = { id: string; zoom: number; x0: number; y0: number; w: number; h: number; mask: string; startedAt: number; mine: string; pauses: Pauses };
 
 /** The games you're in, for tracking to fill in (with the squares you already have, so they're not sent again). */
 export const myActiveSquares = createServerFn({ method: "GET" })
@@ -284,6 +326,7 @@ export const myActiveSquares = createServerFn({ method: "GET" })
           mask: row.mask,
           startedAt: Math.round(Number(row.started)),
           mine: packSquares(mine.map((m) => Number(m.square))),
+          pauses: (await pausesOf(sql, row.board_id)).list,
         });
       }
       return out;
@@ -291,4 +334,23 @@ export const myActiveSquares = createServerFn({ method: "GET" })
       // Before the migration.
       return [];
     }
+  });
+
+/** Pause the game (on) or carry on (off). Any player. */
+export const pauseSquares = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => ({ id: idOf(input), on: (input as { on?: unknown } | null)?.on !== false }))
+  .handler(async ({ context, data }) => {
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    await open(sql, context.userId, data.id);
+    if (!(await gameOf(sql, data.id))) throw new Error("Pick a city first.");
+    const { open: now } = await pausesOf(sql, data.id);
+    if (data.on && !now) {
+      await sql`insert into square_pauses (board_id, started_at, by_user) values (${data.id}, now(), ${context.userId}) on conflict do nothing`;
+    } else if (!data.on && now) {
+      await sql`update square_pauses set ended_at = now() where board_id = ${data.id} and ended_at is null`;
+    }
+    await sql`update boards set updated_at = now() where id = ${data.id}`;
+    return { ok: true as const };
   });

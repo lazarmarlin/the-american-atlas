@@ -141,7 +141,7 @@ export const BOARD_KINDS: { id: BoardKind; name: string; line: string; cats: Boa
   { id: "guess", name: "State line guess", line: "Guess the minutes to the next state. Closest wins.", cats: ["play"] },
   { id: "county", name: "Name that county", line: "Drive mode asks before each county line.", cats: ["play"] },
   { id: "trivia", name: "State trivia", line: "A question about each state as you cross into it.", cats: ["play"] },
-  { id: "squares", name: "City squares", line: "Cut a city into squares and visit every one.", cats: ["play"] },
+  { id: "squares", name: "City squares", line: "Cut a city or a park into squares and visit every one.", cats: ["play"] },
   { id: "journal", name: "Trip journal", line: "A line a day, with where you went.", cats: ["memories"] },
   { id: "bestof", name: "Best of the trip", line: "Best meal, best view, worst motel. Everyone picks.", cats: ["memories"] },
   { id: "postcards", name: "Postcards", line: "Who to send one to, and who's had theirs.", cats: ["memories"] },
