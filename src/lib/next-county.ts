@@ -99,19 +99,27 @@ export type CountyQuestion = { id: string; name: string; state: string; choices:
  */
 export async function countyAhead(lat: number, lon: number, heading: number, states: StateInfo[]): Promise<CountyQuestion | null> {
   const rad = (heading * Math.PI) / 180;
-  const miles = 1.5;
-  const aLat = lat + (miles * Math.cos(rad)) / 69;
-  const aLon = lon + (miles * Math.sin(rad)) / (69 * Math.cos((lat * Math.PI) / 180));
-  const near = states.filter((s) => aLon >= s.w - 0.5 && aLon <= s.e + 0.5 && aLat >= s.s - 0.5 && aLat <= s.n + 0.5);
+  const near = states.filter((s) => lon >= s.w - 0.6 && lon <= s.e + 0.6 && lat >= s.s - 0.6 && lat <= s.n + 0.6);
   const lists = await Promise.all(near.map(async (state) => ({ state: state.abbr, rows: (await loadCounties(state.abbr)) as CountyRec[] })));
-  let here: CountyRec | null = null;
+  const at = (aLat: number, aLon: number) => {
+    for (const { state, rows } of lists) {
+      const hit = countyContaining(aLat, aLon, rows);
+      if (hit) return { county: hit, state };
+    }
+    return null;
+  };
+  const here = at(lat, lon)?.county;
+  if (!here) return null;
+  // The first different county within about two miles (looked for every half mile, so a fix can't step over it).
   let ahead: { county: CountyRec; state: string } | null = null;
-  for (const { state, rows } of lists) {
-    here ??= countyContaining(lat, lon, rows);
-    const hit = countyContaining(aLat, aLon, rows);
-    if (hit && !ahead) ahead = { county: hit, state };
+  for (const miles of [0.5, 1, 1.5, 2]) {
+    const hit = at(lat + (miles * Math.cos(rad)) / 69, lon + (miles * Math.sin(rad)) / (69 * Math.cos((lat * Math.PI) / 180)));
+    if (hit && hit.county.id !== here.id) {
+      ahead = hit;
+      break;
+    }
   }
-  if (!ahead || !here || ahead.county.id === here.id) return null;
+  if (!ahead) return null;
   const { county, state } = ahead;
   const pool = (lists.find((l) => l.state === state)?.rows ?? [])
     .filter((c) => c.id !== county.id && c.name !== county.name)

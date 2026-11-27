@@ -72,7 +72,7 @@ export function triviaFor(state: string): TriviaQuestion | null {
   if (!fact || !name) return null;
   const others = shuffle(Object.keys(STATE_FACTS).filter((abbr) => abbr !== state)).slice(0, 2);
   if (Math.random() < 0.5) {
-    return { q: `Welcome to ${name}! What's its capital?`, answer: fact.capital, choices: shuffle([fact.capital, ...others.map((abbr) => STATE_FACTS[abbr].capital)]), state };
+    return { q: `What's the capital of ${name}?`, answer: fact.capital, choices: shuffle([fact.capital, ...others.map((abbr) => STATE_FACTS[abbr].capital)]), state };
   }
   return {
     q: `Which state is ${fact.nickname}?`,
