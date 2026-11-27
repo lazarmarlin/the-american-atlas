@@ -78,13 +78,23 @@ export function BoardsPage({
   const [open, setOpen] = useState<BoardOpen | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  useBackClose(onClose);
 
   function refresh() {
     return listBoards()
       .then(setRows)
       .catch((err) => setNote(err instanceof Error ? err.message : "Couldn't open boards."));
   }
+
+  // From a chat, back returns to that chat. From the boards list, back returns
+  // to the list. The swipe and the chevron use the same step.
+  function back() {
+    if (open && !focusId) {
+      setOpen(null);
+      setNote(null);
+      void refresh();
+    } else onClose();
+  }
+  useBackClose(back);
 
   function show(id: string) {
     setNote(null);
@@ -120,13 +130,7 @@ export function BoardsPage({
     <div role="dialog" aria-label="Boards" className="screen-top fixed inset-0 z-50 flex flex-col bg-bg">
       <ScreenHeader
         title="Boards"
-        onBack={() => {
-          if (open && !focusId) {
-            setOpen(null);
-            setNote(null);
-            void refresh();
-          } else onClose();
-        }}
+        onBack={back}
       />
       {note ? <p className="shrink-0 border-b border-line px-4 py-2 text-sm text-muted">{note}</p> : null}
       {open ? (
