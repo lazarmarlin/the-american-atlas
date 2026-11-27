@@ -14,6 +14,13 @@ import { displayLine, type GhostLines } from "@/lib/ghost-trail";
 import { loadTowns } from "@/lib/towns-overlay";
 import { youMarkerImage } from "@/lib/you-marker";
 import { heading, speedMph, turnBetween, zoomForSpeed } from "@/lib/motion";
+import { makeCuller, type Box } from "@/lib/map-cull";
+import type { Feature } from "geojson";
+
+function viewBox(map: MlMap): Box {
+  const b = map.getBounds();
+  return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+}
 
 const LOCATE_SVG =
   '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle class="atlas-locate-dot" cx="12" cy="12" r="3" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
@@ -336,12 +343,19 @@ export function AtlasMap({
   const keepView = useRef(false);
   const [ready, setReady] = useState(false);
   const overlaysLoaded = useRef(new Set<string>());
+  // Places, roads, a state's catalog and town outlines: only what's in or near the view goes to the map (src/lib/map-cull.ts).
+  const culler = useRef(makeCuller());
+  const showCulled = (map: MlMap, id: string, features?: Feature[]) => {
+    if (features) culler.current.set(id, features);
+    if (!culler.current.area()) culler.current.view(viewBox(map));
+    (map.getSource(id) as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: culler.current.pick(id) });
+  };
   /** Download the town outlines once (for the town layer or a selected town's outline). */
   const ensureTowns = (map: MlMap) => {
     if (overlaysLoaded.current.has("towns")) return;
     overlaysLoaded.current.add("towns");
     void loadTowns()
-      .then((towns) => (map.getSource("towns") as GeoJSONSource | undefined)?.setData(towns))
+      .then((towns) => showCulled(map, "towns", towns.features as Feature[]))
       .catch(() => overlaysLoaded.current.delete("towns"));
   };
   const [countiesReady, setCountiesReady] = useState(false);
@@ -1138,14 +1152,8 @@ export function AtlasMap({
     const map = mapRef.current;
     if (!ready || !map) return;
     const shown = preview && !marks.some((mark) => mark.id === preview.id) ? [...marks, preview] : marks;
-    (map.getSource("routes") as GeoJSONSource).setData({
-      type: "FeatureCollection",
-      features: lineFeatures(shown),
-    });
-    (map.getSource("places") as GeoJSONSource).setData({
-      type: "FeatureCollection",
-      features: dotFeatures(shown),
-    });
+    showCulled(map, "routes", lineFeatures(shown));
+    showCulled(map, "places", dotFeatures(shown));
 
     const accent = tokenColor("--color-accent", "#e23d2b");
     const ink = tokenColor("--color-ink", "#f3f0e6");
@@ -1264,15 +1272,36 @@ export function AtlasMap({
     if (!ready || !map) return;
     const roads = offers.filter((item) => isLine(item));
     const places = offers.filter((item) => !isLine(item));
-    (map.getSource("offers") as GeoJSONSource).setData({
-      type: "FeatureCollection",
-      features: offerLineFeatures(roads),
-    });
-    (map.getSource("offer-places") as GeoJSONSource).setData({
-      type: "FeatureCollection",
-      features: offerDotFeatures(places),
-    });
+    showCulled(map, "offers", offerLineFeatures(roads));
+    showCulled(map, "offer-places", offerDotFeatures(places));
   }, [offers, ready]);
+
+  // The view moved out of the culled area (or zoomed well in): hand the map what's near the new view.
+  // Looked at a few times a second while moving, so a long glide fills in as it goes.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    let last = 0;
+    let frame = 0;
+    const check = () => {
+      frame = 0;
+      if (!culler.current.view(viewBox(map))) return;
+      for (const id of culler.current.ids()) showCulled(map, id);
+    };
+    const onMove = () => {
+      const now = performance.now();
+      if (frame || now - last < 300) return;
+      last = now;
+      frame = requestAnimationFrame(check);
+    };
+    map.on("move", onMove);
+    map.on("moveend", check);
+    return () => {
+      map.off("move", onMove);
+      map.off("moveend", check);
+      cancelAnimationFrame(frame);
+    };
+  }, [ready]);
 
   useEffect(() => {
     const map = mapRef.current;
