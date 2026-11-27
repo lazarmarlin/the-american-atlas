@@ -1,4 +1,6 @@
 @import "tailwindcss" source("../src");
+/* Short screens (a phone on its side): tighter spacing on the drive dashboard. */
+@custom-variant short (@media (max-height: 520px));
 
 @theme {
   --color-bg: #121410;

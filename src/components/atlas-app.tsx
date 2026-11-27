@@ -2686,10 +2686,15 @@ function AtlasShell() {
         )}
         {driving ? (
           <div className="px-safe pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
-            <div ref={driveCard} className="pointer-events-auto w-[min(78%,24rem)] overflow-hidden rounded-card border border-line bg-surface/95 shadow-sm backdrop-blur-sm">
+            <div
+              ref={driveCard}
+              className="pointer-events-auto flex w-[min(78%,24rem)] flex-col overflow-hidden rounded-card border border-line bg-surface/95 shadow-sm backdrop-blur-sm short:w-[min(48%,22rem)]"
+              // Never taller than the screen: the middle scrolls if it has to; speed and buttons stay.
+              style={{ maxHeight: "calc(100dvh - max(0.75rem, env(safe-area-inset-top)) - max(0.75rem, env(safe-area-inset-bottom)))" }}
+            >
               {/* Glance strip: speed, then today's tally. */}
-              <div className="flex items-end gap-4 px-4 pt-3 pb-2">
-                <p className="font-serif text-5xl leading-none tabular-nums">
+              <div className="flex shrink-0 items-end gap-4 px-4 pt-3 pb-2 short:pt-2 short:pb-1.5">
+                <p className="font-serif text-5xl leading-none tabular-nums short:text-4xl">
                   {mph == null ? "—" : mph}
                   <span className="ml-1 font-sans text-base text-muted">mph</span>
                 </p>
@@ -2705,15 +2710,16 @@ function AtlasShell() {
                       ] as const
                     ).map(([n, label]) => (
                       <span key={label} className="leading-none">
-                        <span className="block font-serif text-2xl tabular-nums">{n.toLocaleString()}</span>
+                        <span className="block font-serif text-2xl tabular-nums short:text-xl">{n.toLocaleString()}</span>
                         <span className="text-[10px] tracking-widest text-faint uppercase">{label}</span>
                       </span>
                     ));
                   })()}
                 </div>
               </div>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               {nextUp && quiz.question?.kind !== "county" ? (
-                <div className="flex items-center gap-3 border-t border-line px-4 py-2.5">
+                <div className="flex items-center gap-3 border-t border-line px-4 py-2.5 short:py-1.5">
                   <Navigation2
                     className="size-6 shrink-0 text-accent transition-transform duration-500"
                     style={{
@@ -2723,9 +2729,9 @@ function AtlasShell() {
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block text-[10px] tracking-widest text-faint uppercase">Next county</span>
-                    <span className="block truncate text-lg leading-tight">{nextUp.name}</span>
+                    <span className="block truncate text-lg leading-tight short:text-base">{nextUp.name}</span>
                   </span>
-                  <span className="shrink-0 font-serif text-2xl tabular-nums">
+                  <span className="shrink-0 font-serif text-2xl tabular-nums short:text-xl">
                     {nextUp.miles < 1 ? "<1" : Math.round(nextUp.miles)}
                     <span className="ml-0.5 font-sans text-xs text-muted">mi</span>
                   </span>
@@ -2756,17 +2762,17 @@ function AtlasShell() {
                 </div>
               ) : null}
               {weather ? (
-                <div className="flex items-center gap-3 border-t border-line px-4 py-2">
+                <div className="flex items-center gap-3 border-t border-line px-4 py-2 short:py-1.5">
                   <WeatherIcon kind={weather.kind} className={"size-5 shrink-0 " + (weather.heads ? "text-ink" : "text-muted")} />
                   <span className={"min-w-0 flex-1 truncate text-[15px] " + (weather.heads ? "" : "text-muted")}>{weather.line}</span>
                 </div>
               ) : null}
               {ahead.length ? (
-                <div className="border-t border-line px-4 py-2">
+                <div className="border-t border-line px-4 py-2 short:py-1.5">
                   <p className="text-[10px] tracking-widest text-faint uppercase">Coming up</p>
-                  <ul className="mt-1 grid gap-1">
-                    {ahead.map((place) => (
-                      <li key={place.id} className="flex items-baseline gap-2">
+                  <ul className="mt-1 grid gap-1 short:gap-0.5">
+                    {ahead.map((place, index) => (
+                      <li key={place.id} className={"flex items-baseline gap-2 " + (index >= 2 ? "short:hidden" : "")}>
                         <span className="min-w-0 flex-1 truncate text-[15px]">{place.name}</span>
                         <span className="shrink-0 text-sm text-muted tabular-nums">{place.miles < 1 ? "<1" : Math.round(place.miles)} mi</span>
                       </li>
@@ -2774,9 +2780,10 @@ function AtlasShell() {
                   </ul>
                 </div>
               ) : null}
-              {passedNote ? <p className="truncate border-t border-line px-4 py-2 text-sm text-muted">{passedNote}</p> : null}
-              <div className="flex gap-2 border-t border-line p-2">
-                <button type="button" onClick={() => setHereOpen(true)} className="h-12 flex-1 rounded-lg border border-ink bg-elevated text-[15px]">
+              {passedNote ? <p className="truncate border-t border-line px-4 py-2 text-sm text-muted short:py-1.5">{passedNote}</p> : null}
+              </div>
+              <div className="flex shrink-0 gap-2 border-t border-line p-2 short:p-1.5">
+                <button type="button" onClick={() => setHereOpen(true)} className="h-12 flex-1 rounded-lg border border-ink bg-elevated text-[15px] short:h-10">
                   I'm here
                 </button>
                 <button
@@ -2784,7 +2791,7 @@ function AtlasShell() {
                   onClick={() => useDrive.getState().set({ voice: voice === "off" ? "highlights" : "off" })}
                   aria-label={voice === "off" ? "Turn on spoken announcements" : "Turn off spoken announcements"}
                   aria-pressed={voice !== "off"}
-                  className={"grid size-12 shrink-0 place-items-center rounded-lg border " + (voice !== "off" ? "border-ink bg-elevated text-ink" : "border-line text-muted")}
+                  className={"grid size-12 shrink-0 place-items-center rounded-lg border short:size-10 " + (voice !== "off" ? "border-ink bg-elevated text-ink" : "border-line text-muted")}
                 >
                   {voice !== "off" ? <Volume2 className="size-5" /> : <VolumeX className="size-5" />}
                 </button>
@@ -2793,7 +2800,7 @@ function AtlasShell() {
                   onClick={() => useDrive.getState().set({ headingUp: !headingUp })}
                   aria-label={headingUp ? "North up" : "Face the way you're going"}
                   aria-pressed={headingUp}
-                  className={"grid size-12 shrink-0 place-items-center rounded-lg border " + (headingUp ? "border-ink bg-elevated text-ink" : "border-line text-muted")}
+                  className={"grid size-12 shrink-0 place-items-center rounded-lg border short:size-10 " + (headingUp ? "border-ink bg-elevated text-ink" : "border-line text-muted")}
                 >
                   <Compass className="size-5" style={{ transform: `rotate(${headingUp && driveBearing != null ? -driveBearing : 0}deg)` }} />
                 </button>
