@@ -72,44 +72,89 @@ async function accessToken(acct: Account): Promise<string> {
   return access.token;
 }
 
-/**
- * Poke every phone of these people (not the sender). Never throws, and gives
- * up after a few seconds: a message is saved whether or not the poke goes out,
- * and the phones' own slower check still finds it.
- */
-export async function pokeUsers(userIds: string[], kind: "message" | "like" = "message") {
+export type PokeReport = {
+  configured: boolean;
+  phones: number;
+  sent: number;
+  /** What went wrong, in Google's words where there are any. */
+  problems: string[];
+};
+
+/** Sends the pokes and says how it went (for the test button; pokeUsers ignores it). */
+export async function sendPokes(userIds: string[], what: "message" | "like" | "test"): Promise<PokeReport> {
   const acct = serviceAccount();
+  const report: PokeReport = { configured: !!acct, phones: 0, sent: 0, problems: [] };
+  const raw = env("FIREBASE_SERVICE_ACCOUNT");
+  if (!acct) {
+    if (raw) report.problems.push("FIREBASE_SERVICE_ACCOUNT is set but isn't a readable service-account key (paste the whole .json file).");
+    return report;
+  }
   const ids = [...new Set(userIds.filter(Boolean))];
-  if (!acct || !ids.length) return;
-  const work = (async () => {
-    const { getSql } = await import("@/lib/db");
-    const sql = await getSql();
-    const rows = await sql<{ token: string }>`select token from push_tokens where user_id = any(${ids})`;
-    if (!rows.length) return;
-    const bearer = await accessToken(acct);
-    const url = `https://fcm.googleapis.com/v1/projects/${acct.project_id}/messages:send`;
-    const dead: string[] = [];
-    await Promise.all(
-      rows.map(async ({ token }) => {
+  if (!ids.length) return report;
+  const { getSql } = await import("@/lib/db");
+  const sql = await getSql();
+  const rows = await sql<{ token: string }>`select token from push_tokens where user_id = any(${ids})`;
+  report.phones = rows.length;
+  if (!rows.length) return report;
+  let bearer: string;
+  try {
+    bearer = await accessToken(acct);
+  } catch (err) {
+    report.problems.push(err instanceof Error ? err.message : "Google sign-in for push failed");
+    return report;
+  }
+  const url = `https://fcm.googleapis.com/v1/projects/${acct.project_id}/messages:send`;
+  const dead: string[] = [];
+  await Promise.all(
+    rows.map(async ({ token }) => {
+      try {
         const res = await fetch(url, {
           method: "POST",
           headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
           body: JSON.stringify({
             message: {
               token,
-              data: { kind: "poke", what: kind },
+              data: { kind: "poke", what },
               // Wakes the phone even when it's asleep; collapses repeats into one.
-              android: { priority: "high", collapse_key: "atlas-poke", ttl: "3600s" },
+              android: { priority: "high", ...(what === "test" ? {} : { collapse_key: "atlas-poke" }), ttl: "3600s" },
             },
           }),
-        }).catch(() => null);
-        if (!res || res.ok) return;
+        });
+        if (res.ok) {
+          report.sent += 1;
+          return;
+        }
         const text = await res.text().catch(() => "");
-        // The app was uninstalled or the token replaced: forget it.
-        if (res.status === 404 || /UNREGISTERED|INVALID_ARGUMENT.*registration/i.test(text)) dead.push(token);
-      }),
-    );
-    if (dead.length) await sql`delete from push_tokens where token = any(${dead})`;
-  })();
-  await Promise.race([work.catch(() => undefined), new Promise((resolve) => setTimeout(resolve, 4000))]);
+        if (res.status === 404 || /UNREGISTERED/.test(text)) {
+          dead.push(token);
+          report.problems.push("A phone's token was out of date (removed; open the app on it to register again).");
+          return;
+        }
+        let why = text.slice(0, 300);
+        try {
+          why = (JSON.parse(text) as { error?: { message?: string } }).error?.message ?? why;
+        } catch {
+          // Not JSON.
+        }
+        report.problems.push(`Google said ${res.status}: ${why}`);
+      } catch (err) {
+        report.problems.push(err instanceof Error ? err.message : "Couldn't reach Google");
+      }
+    }),
+  );
+  if (dead.length) await sql`delete from push_tokens where token = any(${dead})`;
+  return report;
+}
+
+/**
+ * Poke every phone of these people (not the sender). Never throws, and gives
+ * up after a few seconds: a message is saved whether or not the poke goes out,
+ * and the phones' own slower check still finds it.
+ */
+export async function pokeUsers(userIds: string[], kind: "message" | "like" = "message") {
+  if (!serviceAccount() || !userIds.length) return;
+  const work = sendPokes(userIds, kind).then((report) => {
+    if (report.problems.length) console.warn("push:", report.problems.join(" | "));
+  });
+  await Promise.race([work.catch((err) => console.warn("push failed:", err)), new Promise((resolve) => setTimeout(resolve, 4000))]);
 }

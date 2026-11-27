@@ -19,7 +19,32 @@ const Watch = registerPlugin<{
   stop(): Promise<void>;
   pushToken(): Promise<{ token: string | null; reason?: string }>;
   setPushOn(options: { on: boolean }): Promise<void>;
+  pushStatus(): Promise<{ on: boolean; lastPoke: number; firebase: boolean }>;
 }>("MessageWatch");
+
+export type PushState = {
+  /** This build has Firebase in it. */
+  firebase: boolean;
+  /** The server took this phone's token and can send. */
+  on: boolean;
+  lastPoke: number;
+};
+
+/** How push stands on this phone (null on the web or an older app). */
+export async function pushState(): Promise<PushState | null> {
+  if (!nativeApp) return null;
+  try {
+    return await Watch.pushStatus();
+  } catch {
+    return null;
+  }
+}
+
+/** Register again (after the server's key was added, say), then report. */
+export async function refreshPush() {
+  await startPush();
+  return pushState();
+}
 
 let pushTokenNow: string | null = null;
 
