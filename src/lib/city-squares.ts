@@ -9,12 +9,17 @@
  * got there first; most squares wins. Skips (squares nobody can get into)
  * only in Together, about one per 50 squares for the whole card.
  *
+ * With modifier cards on (src/lib/square-cards.ts), now and then a new square
+ * deals you a card, and until you've done what it says, squares you pass
+ * through don't count (for you).
+ *
  * Any player can pause the game (one of you has to leave) and any player can
  * carry on. While it's paused tracking adds nobody's squares: the server
  * turns away squares from any paused stretch, even ones a phone sends later.
  */
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
+import { CARD_EVERY, CARD_SWAPS, cardById, drawCard, type SquareCard } from "@/lib/square-cards";
 import { MAX_SQUARES, SQUARE_SIZES, type TravelMode, inGrid, maskFromText, packSquares, skipsFor, unpackSquares, type Grid } from "@/lib/city-grid";
 
 export type SquaresMode = "together" | "race";
@@ -27,6 +32,8 @@ export type SquaresGame = {
   place: SquaresPlace;
   /** On foot, bike or car: squares only count at that speed or slower. */
   travel: TravelMode;
+  /** Modifier cards on. */
+  cards: boolean;
   state: string;
   geoid: string;
   zoom: number;
@@ -55,7 +62,75 @@ export type SquaresState = {
   skipsAllowed: number;
   /** Paused now: who paused it and since when (ms). */
   paused: { by: string; since: number } | null;
+  /** Cards players are holding now (not done yet), by player. */
+  holding: Record<string, { card: string; since: number }>;
+  /** Cards you've played (done), newest first. */
+  played: { card: string; at: number }[];
+  swapsLeft: number;
 };
+
+/* ------------------------------------------------------------------ cards */
+
+/** What a card is measured by, now: visits to places of its kinds, photos, or counties. */
+async function cardCount(sql: Sql, me: string, card: SquareCard): Promise<number> {
+  if (card.photo) {
+    const rows = await sql<{ n: number }>`select count(*)::int as n from photos where user_id = ${me}`;
+    return Number(rows[0]?.n ?? 0);
+  }
+  const cats = card.county ? ["county"] : card.cats ?? [];
+  if (!cats.length) return 0;
+  // A place counts once per visit (one without visit rows is its first).
+  const rows = await sql<{ n: number }>`
+    select coalesce(sum(greatest(1, case when left(ltrim(coalesce(visits, '')), 1) = '[' then jsonb_array_length(visits::jsonb) else 0 end)), 0)::int as n
+    from marks where user_id = ${me} and category = any(${cats}::text[])
+  `;
+  return Number(rows[0]?.n ?? 0);
+}
+
+type CardRow = { card: string; dealt: number; done: number | null; base: number };
+
+async function cardsOf(sql: Sql, board: string, me: string): Promise<CardRow[]> {
+  try {
+    const rows = await sql<{ card: string; dealt: number; done: number | null; base: number }>`
+      select card, (extract(epoch from dealt_at) * 1000)::float8 as dealt, (extract(epoch from done_at) * 1000)::float8 as done, base
+      from square_cards where board_id = ${board} and user_id = ${me} order by dealt_at
+    `;
+    return rows.map((row) => ({ card: row.card, dealt: Math.round(Number(row.dealt)), done: row.done == null ? null : Math.round(Number(row.done)), base: Number(row.base) }));
+  } catch {
+    return [];
+  }
+}
+
+/** The card you're holding, if it's not done yet (checked now: done ones are marked done). */
+async function holdingCard(sql: Sql, board: string, me: string): Promise<CardRow | null> {
+  const open = (await cardsOf(sql, board, me)).find((row) => row.done == null);
+  if (!open) return null;
+  const card = cardById(open.card);
+  const done =
+    !card ||
+    card.wild ||
+    (card.wait != null && Date.now() >= open.dealt + card.wait * 60_000) ||
+    ((card.cats || card.photo || card.county) && (await cardCount(sql, me, card)) > open.base);
+  if (!done) return open;
+  await sql`update square_cards set done_at = now() where board_id = ${board} and user_id = ${me} and done_at is null`;
+  return null;
+}
+
+/** Your stretches of holding a card, [from, to] (to null: holding one now). */
+async function blocksOf(sql: Sql, board: string, me: string): Promise<Pauses> {
+  return (await cardsOf(sql, board, me)).map((row) => [row.dealt, row.done]);
+}
+
+async function deal(sql: Sql, board: string, me: string, not: string | null): Promise<{ card: string; at: number; wild: boolean }> {
+  const card = drawCard(not);
+  const base = await cardCount(sql, me, card);
+  const rows = await sql<{ at: number }>`
+    insert into square_cards (board_id, user_id, card, base, done_at)
+    values (${board}, ${me}, ${card.id}, ${base}, ${card.wild ? new Date() : null})
+    returning (extract(epoch from dealt_at) * 1000)::float8 as at
+  `;
+  return { card: card.id, at: Math.round(Number(rows[0]?.at ?? Date.now())), wild: Boolean(card.wild) };
+}
 
 /** Paused stretches, [from, to] in ms (to null: paused now). */
 export type Pauses = [number, number | null][];
@@ -91,8 +166,8 @@ async function open(sql: Sql, me: string, id: string) {
 }
 
 async function gameOf(sql: Sql, id: string): Promise<SquaresGame | null> {
-  const rows = await sql<{ city: string; place_kind: string; travel: string; state: string; geoid: string; zoom: number; mode: string; x0: number; y0: number; w: number; h: number; mask: string; total: number; started: number }>`
-    select city, place_kind, travel, state, geoid, zoom, mode, x0, y0, w, h, mask, total, (extract(epoch from started_at) * 1000)::float8 as started
+  const rows = await sql<{ city: string; place_kind: string; travel: string; cards: boolean; state: string; geoid: string; zoom: number; mode: string; x0: number; y0: number; w: number; h: number; mask: string; total: number; started: number }>`
+    select city, place_kind, travel, cards, state, geoid, zoom, mode, x0, y0, w, h, mask, total, (extract(epoch from started_at) * 1000)::float8 as started
     from square_games where board_id = ${id}
   `;
   const row = rows[0];
@@ -101,6 +176,7 @@ async function gameOf(sql: Sql, id: string): Promise<SquaresGame | null> {
     city: row.city,
     place: row.place_kind === "state" || row.place_kind === "national" ? row.place_kind : "city",
     travel: row.travel === "foot" || row.travel === "bike" ? row.travel : "car",
+    cards: Boolean(row.cards),
     state: row.state,
     geoid: row.geoid,
     zoom: Number(row.zoom),
@@ -124,6 +200,27 @@ const idOf = (input: unknown) => {
   if (!/^bd-[a-z0-9]{8,24}$/.test(id)) throw new Error("Unknown board");
   return id;
 };
+
+async function cardState(sql: Sql, board: string, me: string, game: SquaresGame | null, players: string[]) {
+  const holding: SquaresState["holding"] = {};
+  let played: SquaresState["played"] = [];
+  let swapsLeft = CARD_SWAPS;
+  if (!game?.cards) return { holding, played, swapsLeft: 0 };
+  await holdingCard(sql, board, me);
+  for (const id of players) {
+    const rows = await cardsOf(sql, board, id);
+    const open = rows.find((row) => row.done == null);
+    if (open) holding[id] = { card: open.card, since: open.dealt };
+    if (id === me) played = rows.filter((row) => row.done != null).reverse().map((row) => ({ card: row.card, at: row.done ?? row.dealt }));
+  }
+  try {
+    const used = await sql<{ n: number }>`select count(*)::int as n from square_cards where board_id = ${board} and user_id = ${me} and swapped`;
+    swapsLeft = Math.max(0, CARD_SWAPS - Number(used[0]?.n ?? 0));
+  } catch {
+    // Before the migration.
+  }
+  return { holding, played, swapsLeft };
+}
 
 /** Start the game: the city and its grid (worked out on the phone from the city's outline), size and mode. Once, by the board's owner. */
 export const setupSquares = createServerFn({ method: "POST" })
@@ -151,6 +248,7 @@ export const setupSquares = createServerFn({ method: "POST" })
       zoom,
       mode: row.mode === "race" ? ("race" as const) : ("together" as const),
       travel: row.travel === "foot" || row.travel === "bike" ? (row.travel as TravelMode) : ("car" as const),
+      cards: row.cards === true,
       x0: int(row.x0),
       y0: int(row.y0),
       w,
@@ -171,8 +269,8 @@ export const setupSquares = createServerFn({ method: "POST" })
     if (total < 1) throw new Error("That city has no squares at this size. Try a smaller size.");
     if (total > MAX_SQUARES) throw new Error(`That's ${total.toLocaleString()} squares. Try a bigger size.`);
     const made = await sql<{ ok: boolean }>`
-      insert into square_games (board_id, geoid, city, place_kind, travel, state, zoom, mode, x0, y0, w, h, mask, total)
-      values (${data.id}, ${data.geoid}, ${data.city}, ${data.place}, ${data.travel}, ${data.state}, ${data.zoom}, ${data.mode}, ${data.x0}, ${data.y0}, ${data.w}, ${data.h}, ${data.mask}, ${total})
+      insert into square_games (board_id, geoid, city, place_kind, travel, cards, state, zoom, mode, x0, y0, w, h, mask, total)
+      values (${data.id}, ${data.geoid}, ${data.city}, ${data.place}, ${data.travel}, ${data.cards}, ${data.state}, ${data.zoom}, ${data.mode}, ${data.x0}, ${data.y0}, ${data.w}, ${data.h}, ${data.mask}, ${total})
       on conflict (board_id) do nothing
       returning true as ok
     `;
@@ -222,6 +320,7 @@ export const squaresState = createServerFn({ method: "POST" })
       skips,
       skipsAllowed: game && game.mode === "together" ? skipsFor(game.total) : 0,
       paused: game ? (await pausesOf(sql, data.id)).open : null,
+      ...(await cardState(sql, data.id, context.userId, game, players.map((p) => p.id))),
     };
   });
 
@@ -252,6 +351,12 @@ export const addSquares = createServerFn({ method: "POST" })
     // and hears about the others here).
     const pauses = await pausesOf(sql, data.id);
     if (overlapsPause(pauses.list, data.at, data.last)) return { added: 0, paused: true as const, pauses: pauses.list };
+    // Holding a card that isn't done: nothing counts until it is (nor squares from while you held one).
+    if (game.cards) {
+      await holdingCard(sql, data.id, context.userId);
+      const blocks = await blocksOf(sql, data.id, context.userId);
+      if (overlapsPause(blocks, data.at, data.last)) return { added: 0, blocked: true as const, blocks };
+    }
     // Not before the game started, not in the future.
     const at = Math.min(Date.now(), Math.max(game.startedAt, data.at));
     const fresh = data.squares.filter((n) => inGrid(grid, n));
@@ -266,7 +371,13 @@ export const addSquares = createServerFn({ method: "POST" })
     // A visited square no longer needs anyone's skip.
     await sql`delete from square_visits where board_id = ${data.id} and how = 'skip' and square = any(${fresh}::int[])`;
     if (added.length) await sql`update boards set updated_at = now() where id = ${data.id}`;
-    return { added: added.length };
+    // Now and then a new square deals a card.
+    let dealt: { card: string; at: number; wild: boolean } | null = null;
+    if (game.cards && added.length && added.some(() => Math.random() < 1 / CARD_EVERY)) {
+      const last = (await cardsOf(sql, data.id, context.userId)).at(-1)?.card ?? null;
+      dealt = await deal(sql, data.id, context.userId, last);
+    }
+    return { added: added.length, dealt };
   });
 
 /** Skip a square nobody can get into (Together only), or take the skip back. */
@@ -301,7 +412,7 @@ export const skipSquare = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-export type ActiveSquares = { id: string; travel: TravelMode; zoom: number; x0: number; y0: number; w: number; h: number; mask: string; startedAt: number; mine: string; pauses: Pauses };
+export type ActiveSquares = { id: string; blocks: Pauses; travel: TravelMode; zoom: number; x0: number; y0: number; w: number; h: number; mask: string; startedAt: number; mine: string; pauses: Pauses };
 
 /** The games you're in, for tracking to fill in (with the squares you already have, so they're not sent again). */
 export const myActiveSquares = createServerFn({ method: "GET" })
@@ -332,6 +443,7 @@ export const myActiveSquares = createServerFn({ method: "GET" })
           startedAt: Math.round(Number(row.started)),
           mine: packSquares(mine.map((m) => Number(m.square))),
           pauses: (await pausesOf(sql, row.board_id)).list,
+          blocks: await blocksOf(sql, row.board_id, context.userId),
         });
       }
       return out;
@@ -358,4 +470,22 @@ export const pauseSquares = createServerFn({ method: "POST" })
     }
     await sql`update boards set updated_at = now() where id = ${data.id}`;
     return { ok: true as const };
+  });
+
+/** Swap the card you're holding for another (one that can't be done nearby). A few per game. */
+export const swapCard = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => ({ id: idOf(input) }))
+  .handler(async ({ context, data }) => {
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    await open(sql, context.userId, data.id);
+    const game = await gameOf(sql, data.id);
+    if (!game?.cards) throw new Error("This game has no cards.");
+    const holding = await holdingCard(sql, data.id, context.userId);
+    if (!holding) throw new Error("You're not holding a card.");
+    const used = await sql<{ n: number }>`select count(*)::int as n from square_cards where board_id = ${data.id} and user_id = ${context.userId} and swapped`;
+    if (Number(used[0]?.n ?? 0) >= CARD_SWAPS) throw new Error("No swaps left.");
+    await sql`update square_cards set done_at = now(), swapped = true where board_id = ${data.id} and user_id = ${context.userId} and done_at is null`;
+    return { dealt: await deal(sql, data.id, context.userId, holding.card) };
   });

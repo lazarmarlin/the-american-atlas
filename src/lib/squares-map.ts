@@ -14,7 +14,11 @@ function read() {
   }
 }
 
-export const useSquaresOnMap = create<{ id: string | null; rev: number }>(() => ({ id: typeof window === "undefined" ? null : read(), rev: 0 }));
+export const useSquaresOnMap = create<{ id: string | null; rev: number; dealt: { board: string; card: string } | null }>(() => ({
+  id: typeof window === "undefined" ? null : read(),
+  rev: 0,
+  dealt: null,
+}));
 
 export function setSquaresOnMap(id: string | null) {
   try {
@@ -29,4 +33,13 @@ export function setSquaresOnMap(id: string | null) {
 /** Squares changed (tracking added some, someone skipped one): the map draws them again. */
 export function squaresChanged() {
   useSquaresOnMap.setState((state) => ({ rev: state.rev + 1 }));
+}
+
+/** A modifier card was just dealt to you: the app shows it. */
+export function cardDealt(board: string, card: string) {
+  useSquaresOnMap.setState((state) => ({ dealt: { board, card }, rev: state.rev + 1 }));
+}
+
+export function cardSeen() {
+  useSquaresOnMap.setState({ dealt: null });
 }

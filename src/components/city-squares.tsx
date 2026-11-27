@@ -5,6 +5,7 @@
  * src/lib/city-squares.ts. Tracking fills the squares in (squares-tracker.ts).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Map as MapIcon, Pause, Play, Search, Trophy } from "lucide-react";
 import {
   MAX_SQUARES,
@@ -22,10 +23,12 @@ import {
   unpackSquares,
   type Grid,
 } from "@/lib/city-grid";
-import { pauseSquares, setupSquares, skipSquare, squaresState, type SquaresMode, type SquaresPlace, type SquaresState } from "@/lib/city-squares";
+import { pauseSquares, setupSquares, skipSquare, squaresState, swapCard, type SquaresMode, type SquaresPlace, type SquaresState } from "@/lib/city-squares";
 import { setSquaresOnMap, squaresChanged, useSquaresOnMap } from "@/lib/squares-map";
 import { refreshSquareGames } from "@/lib/squares-tracker";
 import { KIND_LOOK, Label } from "@/components/board-ui";
+import { SquareCardArt } from "@/components/square-card-art";
+import { CARD_EVERY, cardById } from "@/lib/square-cards";
 import { Card, Pill, type BoardApi } from "@/components/board-kinds";
 
 const MINE = KIND_LOOK.squares.tint;
@@ -124,7 +127,8 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
   const [town, setTown] = useState<TownHit | null>(null);
   const [zoom, setZoom] = useState<number | null>(null);
   const [mode, setMode] = useState<SquaresMode>("together");
-  const [travel, setTravel] = useState<TravelMode>("foot");
+  const [travel, setTravel] = useState<TravelMode>("car");
+  const [cards, setCards] = useState(true);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const owner = api.board.role === "owner";
@@ -135,6 +139,8 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
     setTowns(null);
     setTown(null);
     setNote(null);
+    // Cities are usually driven; parks walked.
+    setTravel(kind === "city" ? "car" : "foot");
     void loadPlaces(kind)
       .then((list) => live && setTowns(list))
       .catch(() => live && setNote("Couldn't load the list. Check your connection."));
@@ -186,7 +192,7 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
     setNote(null);
     try {
       const g = chosen.grid;
-      await setupSquares({ data: { id: api.board.id, geoid: town.geoid, city: town.name, place: kind, travel, state: town.st, zoom: g.zoom, mode, x0: g.x0, y0: g.y0, w: g.w, h: g.h, mask: maskToText(g.mask) } });
+      await setupSquares({ data: { id: api.board.id, geoid: town.geoid, city: town.name, place: kind, travel, cards, state: town.st, zoom: g.zoom, mode, x0: g.x0, y0: g.y0, w: g.w, h: g.h, mask: maskToText(g.mask) } });
       onStarted();
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Couldn't start the game.");
@@ -284,6 +290,31 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
                   ? "Squares only count up to 25 mph, so driving through doesn't."
                   : "Any speed counts, driving included."}
             </p>
+          </Card>
+          <Card>
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <Label>Modifier cards</Label>
+                <p className="mt-1 text-xs text-faint">Now and then a new square deals you a card, like "visit a historical marker". Until you do it, no more squares count for you.</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={cards}
+                aria-label="Modifier cards"
+                onClick={() => setCards(!cards)}
+                className={"relative mt-1 h-7 w-12 shrink-0 rounded-full transition-colors " + (cards ? "bg-ink" : "bg-line")}
+              >
+                <span className={"absolute top-1 size-5 rounded-full bg-bg transition-all " + (cards ? "left-6" : "left-1")} />
+              </button>
+            </div>
+            {cards ? (
+              <div className="mt-3 flex gap-1.5 overflow-hidden" aria-hidden>
+                {["historic", "hungry", "grass", "museum", "wild"].map((cid, i) => (
+                  <SquareCardArt key={cid} id={cid} width={52} style={{ transform: `rotate(${(i - 2) * 4}deg)` }} />
+                ))}
+              </div>
+            ) : null}
           </Card>
           <Card>
             <Label>With friends</Label>
@@ -452,6 +483,16 @@ export function SquaresBoard({ api }: { api: BoardApi }) {
   const pickedWall = picked != null ? view.walled.get(picked) : undefined;
   const nameOf = (pid: string) => (pid === state.me ? "You" : state.players.find((p) => p.id === pid)?.name ?? "Friend");
 
+  async function swap() {
+    try {
+      await swapCard({ data: { id } });
+      await load.current();
+      void refreshSquareGames(true);
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Couldn't swap it.");
+    }
+  }
+
   async function pause(on: boolean) {
     try {
       await pauseSquares({ data: { id, on } });
@@ -549,6 +590,7 @@ export function SquaresBoard({ api }: { api: BoardApi }) {
         </div>
         {note ? <p className="mt-2 text-sm text-muted">{note}</p> : null}
       </Card>
+      {game.cards ? <CardsSection state={state} nameOf={nameOf} onSwap={() => void swap()} /> : null}
       <Card>
         <Label>{race ? "The race" : "Who's filled what"}</Label>
         <ul className="mt-2 grid gap-1.5">
@@ -568,5 +610,90 @@ export function SquaresBoard({ api }: { api: BoardApi }) {
         </p>
       </Card>
     </>
+  );
+}
+
+/** Your card (if you're holding one), friends' cards, and the ones you've played. */
+function CardsSection({ state, nameOf, onSwap }: { state: SquaresState; nameOf: (id: string) => string; onSwap: () => void }) {
+  const mine = state.holding[state.me];
+  const card = mine ? cardById(mine.card) : null;
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!card?.wait) return;
+    const timer = window.setInterval(() => tick((n) => n + 1), 15_000);
+    return () => window.clearInterval(timer);
+  }, [card?.wait]);
+  const friends = Object.entries(state.holding).filter(([pid]) => pid !== state.me);
+  const left = card?.wait && mine ? Math.max(0, Math.ceil((mine.since + card.wait * 60_000 - Date.now()) / 60_000)) : null;
+  return (
+    <Card>
+      <Label>Your card</Label>
+      {card && mine ? (
+        <div className="mt-3 flex gap-4">
+          <SquareCardArt id={card.id} width={112} style={{ transform: "rotate(-4deg)" }} />
+          <div className="min-w-0 flex-1">
+            <p className="font-serif text-xl leading-tight">{card.name}</p>
+            <p className="mt-1 text-[15px]">{card.task}</p>
+            <p className="mt-2 text-xs text-faint">
+              {left != null ? `${left} min to go. ` : ""}No squares count for you until it's done; it checks itself off.
+            </p>
+            {state.swapsLeft > 0 ? (
+              <button type="button" onClick={onSwap} className="mt-3 h-9 rounded-full border border-line px-3 text-xs">
+                Can't do it here · swap ({state.swapsLeft} left)
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <p className="mt-1 text-sm text-muted">No card. About 1 in {CARD_EVERY} new squares deals one.</p>
+      )}
+      {friends.length ? (
+        <div className="mt-4">
+          <p className="text-[11px] tracking-[0.14em] text-faint uppercase">Friends holding</p>
+          <ul className="mt-2 grid gap-2">
+            {friends.map(([pid, held]) => (
+              <li key={pid} className="flex items-center gap-3 text-sm">
+                <SquareCardArt id={held.card} width={30} />
+                <span className="min-w-0 flex-1">
+                  {nameOf(pid)} · {cardById(held.card)?.name}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {state.played.length ? (
+        <div className="mt-4">
+          <p className="text-[11px] tracking-[0.14em] text-faint uppercase">Played ({state.played.length})</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {state.played.slice(0, 24).map((p) => (
+              <SquareCardArt key={p.at + p.card} id={p.card} width={30} dim />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+/** "You drew a card": shown over the app when tracking deals you one. */
+export function DealtCard({ card, onClose }: { card: string; onClose: () => void }) {
+  const info = cardById(card);
+  if (!info || typeof document === "undefined") return null;
+  // Over everything (the Boards screen included), wherever it's opened from.
+  return createPortal(
+    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/60 p-6" role="dialog" aria-label="You drew a card" onClick={onClose}>
+      <div className="flex max-w-xs flex-col items-center text-center" onClick={(event) => event.stopPropagation()}>
+        <p className="text-[11px] tracking-[0.18em] text-[#fbf8f0]/80 uppercase">City squares · you drew</p>
+        <SquareCardArt id={card} width={180} className="mt-3 animate-[deal_420ms_ease-out]" style={{ transform: "rotate(-5deg)" }} />
+        <p className="mt-5 font-serif text-2xl text-[#fbf8f0]">{info.name}</p>
+        <p className="mt-1 text-[15px] text-[#fbf8f0]/90">{info.task}</p>
+        {!info.wild ? <p className="mt-2 text-xs text-[#fbf8f0]/70">No squares count until it's done.</p> : null}
+        <button type="button" onClick={onClose} className="mt-5 h-11 rounded-full bg-[#fbf8f0] px-6 text-sm text-[#1c1915]">
+          Got it
+        </button>
+      </div>
+    </div>,
+    document.body,
   );
 }

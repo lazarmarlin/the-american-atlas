@@ -10,17 +10,19 @@
  * miles (lost signal: the straight line between might not be where you went).
  * In an on-foot or bike game, stretches faster than its limit (12 or 25 mph)
  * don't count either, and a lone fix with nothing to measure speed against
- * waits for the next one.
+ * waits for the next one. Nor while you're holding a modifier card that isn't
+ * done (the server says so when it deals one, or when a send is turned away).
  * A pause this phone hasn't heard of yet comes back from the server when it
  * sends; those squares are dropped.
  */
 import type { Fix } from "@/lib/nearby";
 import { inGrid, maxMphFor, maskFromText, packSquares, squareAt, squaresAlong, unpackSquares, type Grid } from "@/lib/city-grid";
-import { squaresChanged } from "@/lib/squares-map";
+import { cardDealt, squaresChanged } from "@/lib/squares-map";
+import { cardById } from "@/lib/square-cards";
 import type { Pauses } from "@/lib/city-squares";
 
 /** pending: squares found but not sent yet, with when. */
-type Game = { id: string; grid: Grid; maxMph: number | null; startedAt: number; mine: Set<number>; pending: Map<number, number>; pauses: Pauses };
+type Game = { id: string; grid: Grid; maxMph: number | null; startedAt: number; mine: Set<number>; pending: Map<number, number>; pauses: Pauses; blocks: Pauses };
 
 const paused = (pauses: Pauses, t: number) => pauses.some(([s, e]) => t >= s && (e == null || t <= e));
 const pauseBetween = (pauses: Pauses, a: number, b: number) => pauses.some(([s, e]) => s <= b && (e == null || e >= a));
@@ -43,8 +45,9 @@ function miles(a: { lat: number; lon: number }, b: { lat: number; lon: number })
 }
 
 /** Look up the games you're in (on start, after a game starts, and every 10 minutes). */
-export function refreshSquareGames(force = false) {
-  if (loading) return loading;
+export function refreshSquareGames(force = false): Promise<void> {
+  // Asked again while a look is under way (a game just started): look again after it, or the new game is missed.
+  if (loading) return force ? loading.then(() => refreshSquareGames(true)) : loading;
   if (!force && Date.now() - loadedAt < RELOAD_MS) return Promise.resolve();
   loading = import("@/lib/city-squares")
     .then((mod) => mod.myActiveSquares())
@@ -56,8 +59,9 @@ export function refreshSquareGames(force = false) {
         const mine = new Set(unpackSquares(row.mine));
         // Squares found but not sent yet carry over (not ones from a pause just learned of).
         const pauses = row.pauses ?? [];
-        const pending = new Map([...(old?.pending ?? [])].filter(([n, t]) => !mine.has(n) && !paused(pauses, t)));
-        return { id: row.id, grid, maxMph: maxMphFor(row.travel), startedAt: row.startedAt, mine, pending, pauses };
+        const blocks = row.blocks ?? [];
+        const pending = new Map([...(old?.pending ?? [])].filter(([n, t]) => !mine.has(n) && !paused(pauses, t) && !paused(blocks, t)));
+        return { id: row.id, grid, maxMph: maxMphFor(row.travel), startedAt: row.startedAt, mine, pending, pauses, blocks };
       });
     })
     .catch(() => {
@@ -81,8 +85,8 @@ export function feedSquares(fixes: Fix[]) {
     const t = fix.t ?? Date.now();
     const prev = last && t >= last.t && t - last.t <= GAP_MS && miles(last, fix) <= GAP_MILES ? last : null;
     for (const game of games) {
-      if (t < game.startedAt || paused(game.pauses, t)) continue;
-      const joined = prev && prev.t >= game.startedAt && !pauseBetween(game.pauses, prev.t, t);
+      if (t < game.startedAt || paused(game.pauses, t) || paused(game.blocks, t)) continue;
+      const joined = prev && prev.t >= game.startedAt && !pauseBetween(game.pauses, prev.t, t) && !pauseBetween(game.blocks, prev.t, t);
       if (game.maxMph != null) {
         // Too fast for this game (driving in an on-foot game): this stretch doesn't count.
         if (!joined || !prev) continue;
@@ -118,7 +122,7 @@ export async function flushSquares() {
       const runs: [number, number][][] = [];
       for (const entry of sorted) {
         const run = runs.at(-1);
-        if (run && !pauseBetween(game.pauses, run[run.length - 1][1], entry[1])) run.push(entry);
+        if (run && !pauseBetween(game.pauses, run[run.length - 1][1], entry[1]) && !pauseBetween(game.blocks, run[run.length - 1][1], entry[1])) run.push(entry);
         else runs.push([entry]);
       }
       for (const run of runs) {
@@ -130,11 +134,25 @@ export async function flushSquares() {
             for (const [n, t] of run) if (paused(game.pauses, t)) game.pending.delete(n);
             continue;
           }
+          if ("blocked" in res && res.blocked) {
+            // Holding a card: squares from since then don't count.
+            game.blocks = res.blocks;
+            for (const [n, t] of run) if (paused(game.blocks, t)) game.pending.delete(n);
+            continue;
+          }
           for (const [n] of run) {
             game.mine.add(n);
             game.pending.delete(n);
           }
           sent = true;
+          if ("dealt" in res && res.dealt) {
+            // A card: nothing more counts until it's done (wild ones are done already).
+            game.blocks = [...game.blocks, [res.dealt.at, res.dealt.wild ? res.dealt.at : null]];
+            for (const [n, t] of game.pending) if (t >= res.dealt.at && !res.dealt.wild) game.pending.delete(n);
+            cardDealt(game.id, res.dealt.card);
+            const card = cardById(res.dealt.card);
+            if (card && !card.wild) void import("@/lib/voice").then((v) => v.announce(`City squares card: ${card.name}. ${card.task}`, "highlights", true)).catch(() => undefined);
+          }
         } catch {
           // No signal: kept for the next send.
         }

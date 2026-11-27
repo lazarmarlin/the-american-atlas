@@ -75,7 +75,8 @@ import { freshPoints, GHOST_KEEP_HOURS, loadGhost, mergeLiveCache, syncGhost, th
 import { feedSquares, flushSquares, refreshSquareGames } from "@/lib/squares-tracker";
 import { useSquaresOnMap } from "@/lib/squares-map";
 import { squaresState, type SquaresState } from "@/lib/city-squares";
-import { squareFeatures } from "@/components/city-squares";
+import { DealtCard, squareFeatures } from "@/components/city-squares";
+import { cardSeen } from "@/lib/squares-map";
 import { clearLiveTrail, incomingLive, pingLive, pullLiveTrail, pushLiveTrail, seenAgo, useLiveShare, type LiveFriend } from "@/lib/live-share";
 import { loadAccountSettings, saveAccountSettings, type AccountSettings } from "@/lib/account-settings";
 import { clearGhostCache, pullGhostCache, pushGhostCache } from "@/lib/ghost-cache";
@@ -312,6 +313,7 @@ function AtlasShell() {
   // City squares: the games tracking fills in, and the one drawn on the map (if any).
   const squaresOnMap = useSquaresOnMap((state) => state.id);
   const squaresRev = useSquaresOnMap((state) => state.rev);
+  const dealtCard = useSquaresOnMap((state) => state.dealt);
   const [squaresView, setSquaresView] = useState<SquaresState | null>(null);
   useEffect(() => {
     if (!user?.id) return;
@@ -3135,6 +3137,7 @@ function AtlasShell() {
           onColor={setGhostColor}
           onClose={() => setGhostOpen(false)}
         />
+        {dealtCard ? <DealtCard card={dealtCard.card} onClose={cardSeen} /> : null}
         {mailOpen && user?.id ? (
           <MessageBoard
             key={mailThread ? `${mailThread.kind}:${mailThread.id}` : "board"}
