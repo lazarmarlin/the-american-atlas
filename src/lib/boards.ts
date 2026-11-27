@@ -7,7 +7,32 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import type { Thread } from "@/lib/messages";
 
-export type BoardKind = "todo" | "pack" | "trip" | "wish" | "car" | "split";
+export type BoardKind =
+  | "todo"
+  | "pack"
+  | "trip"
+  | "wish"
+  | "car"
+  | "split"
+  | "meals"
+  | "check"
+  | "postcards"
+  | "budget"
+  | "fuel"
+  | "journal"
+  | "bestof"
+  | "plates"
+  | "bingo"
+  | "alpha"
+  | "cows"
+  | "chains"
+  | "guess"
+  | "county"
+  | "trivia";
+export const ALL_KINDS: BoardKind[] = ["todo", "pack", "trip", "wish", "car", "split", "meals", "check", "postcards", "budget", "fuel", "journal", "bestof", "plates", "bingo", "alpha", "cows", "chains", "guess", "county", "trivia"];
+export type BoardCategory = "plan" | "money" | "car" | "play" | "memories";
+/** Small extra facts on an item or a board (a game's score, a fill-up's gallons). */
+export type BoardMeta = Record<string, string | number | boolean | null>;
 export type BoardRole = "owner" | "edit" | "check";
 /** A place on a wish list (from the atlas). */
 export type BoardPlace = { id: string; name: string; state: string; lat: number | null; lon: number | null; category: string };
@@ -31,6 +56,10 @@ export type BoardItem = {
   paidBy?: string | null;
   among?: string[];
   payment?: boolean;
+  /** Who did it (a game's spotter, a journal line's writer), and when (ms). */
+  by?: string | null;
+  at?: number | null;
+  meta?: BoardMeta;
 };
 export type BoardDoc = {
   start: string | null;
@@ -38,6 +67,8 @@ export type BoardDoc = {
   items: BoardItem[];
   /** Car care: the cars, each with an odometer reading and who drives it when. */
   cars?: BoardCar[];
+  /** Board-wide settings (a budget's amount, a game's round). */
+  extra?: BoardMeta;
 };
 
 /**
@@ -54,6 +85,8 @@ export type BoardCar = {
 export type BoardCard = { id: string; title: string; kind: BoardKind };
 export type BoardPerson = { id: string; name: string };
 export type BoardInfo = BoardCard & {
+  /** A line for the list (a budget's money left, a game's score). */
+  summary?: string | null;
   role: BoardRole;
   updatedAt: number;
   done: number;
@@ -75,15 +108,41 @@ export type BoardOpen = BoardCard & {
   carMiles?: Record<string, number>;
   /** Who's looking (to say "You"). */
   me?: string;
+  /** Fuel log: miles driven before each fill-up (from the odometer, or tracking), by item id. */
+  fuelMiles?: Record<string, number>;
 };
 
-export const BOARD_KINDS: { id: BoardKind; name: string; line: string }[] = [
-  { id: "todo", name: "To-do", line: "Things to get done. A friend can check them off." },
-  { id: "pack", name: "Packing list", line: "What to bring. Check it off as it goes in the bag." },
-  { id: "trip", name: "Trip plan", line: "The stops, and the days, for whoever's coming." },
-  { id: "wish", name: "Wish list", line: "Places to get to. Ticks itself off when you do." },
-  { id: "car", name: "Car care", line: "Oil, tires, and the rest, due by the miles you drive." },
-  { id: "split", name: "Split costs", line: "Who paid for what, and who owes whom." },
+export const BOARD_CATEGORIES: { id: BoardCategory; name: string }[] = [
+  { id: "plan", name: "Plan" },
+  { id: "money", name: "Money" },
+  { id: "car", name: "Car" },
+  { id: "play", name: "Play" },
+  { id: "memories", name: "Memories" },
+];
+
+/** Every kind of board, with the categories it shows under (the fuel log is both Money and Car). */
+export const BOARD_KINDS: { id: BoardKind; name: string; line: string; cats: BoardCategory[] }[] = [
+  { id: "trip", name: "Trip plan", line: "The stops, and the days, for whoever's coming.", cats: ["plan"] },
+  { id: "pack", name: "Packing list", line: "What to bring. Check it off as it goes in the bag.", cats: ["plan"] },
+  { id: "todo", name: "To-do", line: "Things to get done. A friend can check them off.", cats: ["plan"] },
+  { id: "wish", name: "Wish list", line: "Places to get to. Ticks itself off when you do.", cats: ["plan"] },
+  { id: "meals", name: "Camp meals", line: "Meals and groceries, so nobody forgets the coffee.", cats: ["plan"] },
+  { id: "split", name: "Split costs", line: "Who paid for what, and who owes whom.", cats: ["money"] },
+  { id: "budget", name: "Trip budget", line: "Set an amount, see what's left for each day.", cats: ["money"] },
+  { id: "fuel", name: "Fuel log", line: "Fill-ups, what they cost, and miles per gallon.", cats: ["money", "car"] },
+  { id: "car", name: "Car care", line: "Oil, tires, and the rest, due by the miles you drive.", cats: ["car"] },
+  { id: "check", name: "Pre-trip check", line: "Tires, fluids, lights: run through it before you go.", cats: ["car"] },
+  { id: "plates", name: "License plates", line: "Spot a plate from every state. The map fills in.", cats: ["play"] },
+  { id: "bingo", name: "Road trip bingo", line: "Everyone gets their own card. First to five wins.", cats: ["play"] },
+  { id: "alpha", name: "Alphabet race", line: "A to Z from the signs, in order. Who gets to Z?", cats: ["play"] },
+  { id: "cows", name: "Cow count", line: "Count the cows on your side. A cemetery takes them all.", cats: ["play"] },
+  { id: "chains", name: "Chain spotting", line: "The regional chains, ticked off as you pass them.", cats: ["play"] },
+  { id: "guess", name: "State line guess", line: "Guess the minutes to the next state. Closest wins.", cats: ["play"] },
+  { id: "county", name: "Name that county", line: "Drive mode asks before each county line.", cats: ["play"] },
+  { id: "trivia", name: "State trivia", line: "A question about each state as you cross into it.", cats: ["play"] },
+  { id: "journal", name: "Trip journal", line: "A line a day, with where you went.", cats: ["memories"] },
+  { id: "bestof", name: "Best of the trip", line: "Best meal, best view, worst motel. Everyone picks.", cats: ["memories"] },
+  { id: "postcards", name: "Postcards", line: "Who to send one to, and who's had theirs.", cats: ["memories"] },
 ];
 
 const BOARD_RE = /^bd-[a-z0-9]{8,24}$/;
@@ -91,14 +150,95 @@ const ITEM_RE = /^bi-[a-z0-9]{6,16}$/;
 const USER_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const GROUP_RE = /^cg-[a-z0-9]{6,24}$/;
 
-const NAMES: Record<BoardKind, string> = { todo: "To-do", pack: "Packing list", trip: "Trip plan", wish: "Wish list", car: "Car care", split: "Split costs" };
+const NAMES = Object.fromEntries(BOARD_KINDS.map((kind) => [kind.id, kind.name])) as Record<BoardKind, string>;
+const META_KEY = /^[a-zA-Z]{1,16}$/;
+
+/** Small facts: up to 16 short keys with short values. */
+function cleanMeta(value: unknown): BoardMeta | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const out: BoardMeta = {};
+  let n = 0;
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (n >= 16 || !META_KEY.test(key)) continue;
+    if (raw === null || typeof raw === "boolean") out[key] = raw;
+    else if (typeof raw === "number" && Number.isFinite(raw) && Math.abs(raw) < 1e13) out[key] = raw;
+    else if (typeof raw === "string") out[key] = raw.slice(0, 200);
+    else continue;
+    n += 1;
+  }
+  return n ? out : undefined;
+}
 const PLACE_RE = /^[\w:._ -]{1,140}$/;
 const CAR_RE = /^car-[a-z0-9]{1,16}$/;
 
 type Sql = Awaited<ReturnType<typeof import("@/lib/db").getSql>>;
 
+/** Games and shared memories: everyone on the board adds their own moves, even if they may only check things off. */
+export const PLAYER_KINDS = new Set<BoardKind>(["plates", "bingo", "alpha", "cows", "chains", "guess", "county", "trivia", "journal", "bestof"]);
+
+/** A short, stable tag for a person (part of their game rows' ids). */
+export function userTag(id: string) {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36).padStart(6, "0").slice(-6);
+}
+
+const dollars = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: cents % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
+
+/** One line for the boards list. */
+export function boardSummary(kind: BoardKind, doc: BoardDoc): string | null {
+  const items = doc.items;
+  const players = new Set(items.map((item) => item.by).filter(Boolean)).size;
+  switch (kind) {
+    case "budget": {
+      const budget = Number(doc.extra?.budget) || 0;
+      const spent = items.reduce((sum, item) => sum + (item.amount ?? 0), 0);
+      return budget ? `${dollars(Math.max(0, budget - spent))} left of ${dollars(budget)}` : `${dollars(spent)} spent`;
+    }
+    case "fuel": {
+      const spent = items.reduce((sum, item) => sum + (item.amount ?? 0), 0);
+      return items.length ? `${items.length} ${items.length === 1 ? "fill-up" : "fill-ups"} · ${dollars(spent)}` : "No fill-ups yet";
+    }
+    case "journal":
+      return items.length ? `${items.length} ${items.length === 1 ? "entry" : "entries"}` : "Nothing written yet";
+    case "bestof": {
+      const cats = items.filter((item) => item.meta?.cat === true).length;
+      return `${cats} ${cats === 1 ? "category" : "categories"} · ${items.length - cats} picks`;
+    }
+    case "plates": {
+      const states = new Set(items.filter((item) => item.meta?.plate && item.meta?.ca !== true).map((item) => item.meta?.plate));
+      return `${states.size} of 51 states`;
+    }
+    case "bingo":
+      return items.some((item) => item.meta?.bingo) ? "Somebody has bingo!" : `${players || 0} ${players === 1 ? "player" : "players"}`;
+    case "alpha": {
+      const far = items.reduce((max, item) => Math.max(max, Number(item.meta?.n) || 0), 0);
+      return far ? `Furthest: ${String.fromCharCode(64 + far)}` : "Nobody's started";
+    }
+    case "cows": {
+      const total = items.reduce((sum, item) => sum + (Number(item.meta?.cows) || 0), 0);
+      return `${total.toLocaleString()} cows`;
+    }
+    case "chains":
+      return `${items.filter((item) => item.done).length} of ${items.length} spotted`;
+    case "guess":
+      return doc.extra?.roundAt && doc.extra?.result == null ? "A round is on" : "No round on";
+    case "county":
+    case "trivia": {
+      const right = items.reduce((sum, item) => sum + (Number(item.meta?.right) || 0), 0);
+      const asked = items.reduce((sum, item) => sum + (Number(item.meta?.asked) || 0), 0);
+      return asked ? `${right} of ${asked} right` : "No questions yet";
+    }
+    default:
+      return null;
+  }
+}
+
 export function kindOf(value: unknown): BoardKind {
-  return value === "pack" || value === "trip" || value === "wish" || value === "car" || value === "split" ? value : "todo";
+  return ALL_KINDS.includes(value as BoardKind) ? (value as BoardKind) : "todo";
 }
 
 const whole = (value: unknown, max: number) => {
@@ -115,6 +255,9 @@ function day(value: unknown) {
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
 }
 
+/** Games keep a row per player per square (bingo, the alphabet), so they get more room. */
+const MAX_ITEMS = 400;
+
 export function emptyDoc(): BoardDoc {
   return { start: null, end: null, items: [] };
 }
@@ -122,7 +265,7 @@ export function emptyDoc(): BoardDoc {
 export function cleanDoc(value: unknown): BoardDoc {
   const row = (value ?? {}) as Record<string, unknown>;
   const items: BoardItem[] = [];
-  for (const item of Array.isArray(row.items) ? row.items.slice(0, 80) : []) {
+  for (const item of Array.isArray(row.items) ? row.items.slice(0, MAX_ITEMS) : []) {
     const raw = item as Record<string, unknown>;
     const id = String(raw.id ?? "");
     const text = String(raw.text ?? "").trim().slice(0, 80);
@@ -152,6 +295,10 @@ export function cleanDoc(value: unknown): BoardDoc {
       if (raw.payment) out.payment = true;
     }
     if (CAR_RE.test(String(raw.carId ?? ""))) out.carId = String(raw.carId);
+    if (USER_RE.test(String(raw.by ?? ""))) out.by = String(raw.by);
+    if (Number.isFinite(Number(raw.at)) && Number(raw.at) > 0) out.at = Math.round(Number(raw.at));
+    const meta = cleanMeta(raw.meta);
+    if (meta) out.meta = meta;
     items.push(out);
   }
   const cars: BoardCar[] = [];
@@ -172,7 +319,8 @@ export function cleanDoc(value: unknown): BoardDoc {
   if (!cars.length && legacy && whole(legacy.odometer, 3000000) != null && day(legacy.at)) {
     cars.push({ id: "car-1", name: "", odometer: whole(legacy.odometer, 3000000), at: day(legacy.at), drivers: [] });
   }
-  return { start: day(row.start), end: day(row.end), items, ...(cars.length ? { cars } : {}) };
+  const extra = cleanMeta(row.extra);
+  return { start: day(row.start), end: day(row.end), items, ...(cars.length ? { cars } : {}), ...(extra ? { extra } : {}) };
 }
 
 /**
@@ -208,11 +356,21 @@ export function mergeDoc(base: BoardDoc, mine: BoardDoc, theirs: BoardDoc): Boar
   // Added by them since I loaded it.
   for (const them of theirs.items) if (!mineIds.has(them.id) && !baseById.has(them.id)) items.push(them);
   const cars = same(mine.cars, base.cars) ? theirs.cars : mine.cars;
+  // Board settings key by key: mine where I changed one, theirs otherwise.
+  const extra: BoardMeta = { ...(theirs.extra ?? {}) };
+  for (const key of new Set([...Object.keys(mine.extra ?? {}), ...Object.keys(base.extra ?? {})])) {
+    const now = mine.extra?.[key];
+    if (!same(now, base.extra?.[key])) {
+      if (now === undefined) delete extra[key];
+      else extra[key] = now;
+    }
+  }
   return {
     start: mine.start !== base.start ? mine.start : theirs.start,
     end: mine.end !== base.end ? mine.end : theirs.end,
-    items: items.slice(0, 80),
+    items: items.slice(0, MAX_ITEMS),
     ...(cars?.length ? { cars } : {}),
+    ...(Object.keys(extra).length ? { extra } : {}),
   };
 }
 
@@ -406,6 +564,100 @@ export function spentOf(doc: BoardDoc) {
   return doc.items.reduce((sum, item) => sum + (item.payment ? 0 : item.amount ?? 0), 0);
 }
 
+/**
+ * A player who may only check things off still plays: their own rows (by =
+ * them) are added, changed or taken back, and checks on anything are kept.
+ * Nobody else's rows change.
+ */
+function playerMoves(current: BoardDoc, mine: BoardDoc, base: BoardDoc, me: string, kind?: BoardKind): BoardDoc {
+  const mineById = new Map(mine.items.map((item) => [item.id, item]));
+  const baseMine = new Set(base.items.filter((item) => item.by === me).map((item) => item.id));
+  const items: BoardItem[] = [];
+  for (const item of current.items) {
+    const next = mineById.get(item.id);
+    if (item.by === me) {
+      if (next && next.by === me) items.push(next);
+      else if (!next && baseMine.has(item.id)) continue;
+      else items.push(item);
+    } else items.push(next ? { ...item, done: next.done } : item);
+  }
+  const have = new Set(current.items.map((item) => item.id));
+  for (const item of mine.items) if (item.by === me && !have.has(item.id) && !baseMine.has(item.id)) items.push(item);
+  // Anyone playing the state line guess can start the next round.
+  let extra = current.extra;
+  if (kind === "guess") {
+    const roundNow = Number(mine.extra?.roundAt) || 0;
+    if (roundNow && roundNow !== (Number(base.extra?.roundAt) || 0) && roundNow > (Number(current.extra?.roundAt) || 0) && roundNow <= Date.now() + 60000) {
+      extra = { ...(current.extra ?? {}), roundAt: roundNow, from: String(mine.extra?.from ?? "").slice(0, 2), result: null, to: null };
+    }
+  }
+  return { ...current, items: items.slice(0, MAX_ITEMS), ...(extra ? { extra } : {}) };
+}
+
+/**
+ * Chain spotting: a chain is spotted when anyone on the board has one on
+ * their map, added since the board was made (so last year's doesn't count).
+ */
+async function tickChains(sql: Sql, boardId: string, ownerId: string, doc: BoardDoc): Promise<{ doc: BoardDoc; ticked: string[] }> {
+  const open = doc.items.filter((item) => !item.done);
+  if (!open.length) return { doc, ticked: [] };
+  const members = await memberIds(sql, boardId, ownerId);
+  const made = await sql<{ created_at: unknown }>`select created_at from boards where id = ${boardId}`;
+  const since = made[0]?.created_at instanceof Date ? (made[0].created_at as Date).toISOString() : String(made[0]?.created_at ?? "1970-01-01");
+  const rows = await sql<{ name: string; user_id: string; created_at: unknown }>`
+    select name, user_id, created_at from marks
+    where user_id = any(${members}::text[]) and created_at >= ${since}::timestamptz
+    order by created_at
+    limit 4000
+  `;
+  if (!rows.length) return { doc, ticked: [] };
+  const norm = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const ticked: string[] = [];
+  const items = doc.items.map((item) => {
+    if (item.done) return item;
+    const want = norm(String(item.meta?.match ?? item.text));
+    const hit = rows.find((row) => norm(row.name).startsWith(want));
+    if (!hit) return item;
+    ticked.push(item.text);
+    const at = new Date(String(hit.created_at)).getTime();
+    return { ...item, done: true, by: hit.user_id, at: Number.isFinite(at) ? at : Date.now() };
+  });
+  if (!ticked.length) return { doc, ticked };
+  const next = { ...doc, items };
+  await sql`update boards set doc = ${JSON.stringify(next)}::jsonb, updated_at = now() where id = ${boardId}`;
+  return { doc: next, ticked };
+}
+
+/**
+ * Fuel log: miles driven since the fill-up before. From the odometer when
+ * both have one; otherwise what the filler's phone tracked on the days
+ * between (the fill-up day itself counts toward the later one).
+ */
+async function fuelMiles(sql: Sql, ownerId: string, doc: BoardDoc): Promise<Record<string, number>> {
+  const fills = doc.items
+    .filter((item) => day(item.meta?.day))
+    .sort((a, b) => String(a.meta?.day).localeCompare(String(b.meta?.day)) || (a.at ?? 0) - (b.at ?? 0));
+  const out: Record<string, number> = {};
+  for (let i = 1; i < fills.length; i++) {
+    const prev = fills[i - 1];
+    const fill = fills[i];
+    const odoNow = Number(fill.meta?.odo);
+    const odoBefore = Number(prev.meta?.odo);
+    if (odoNow > 0 && odoBefore > 0 && odoNow > odoBefore) {
+      out[fill.id] = odoNow - odoBefore;
+      continue;
+    }
+    const who = fill.by ?? ownerId;
+    const rows = await sql<{ miles: number | null }>`
+      select coalesce(sum(miles), 0)::float as miles from drive_days
+      where user_id = ${who} and day >= ${String(prev.meta?.day)}::date and day < ${String(fill.meta?.day)}::date
+    `;
+    const miles = Math.round(Number(rows[0]?.miles) || 0);
+    if (miles > 0) out[fill.id] = miles;
+  }
+  return out;
+}
+
 /** Lets the other people in a chat open this board. Only the person who made it. */
 export async function grantBoard(sql: Sql, me: string, boardId: string, thread: Thread, role: "check" | "edit"): Promise<BoardCard> {
   if (!BOARD_RE.test(boardId)) throw new Error("Unknown board");
@@ -440,17 +692,15 @@ async function dressed(
   const kind = kindOf(board.kind);
   let next = doc;
   let at = updatedAt;
-  if (kind === "wish") {
-    const ticked = await tickWish(sql, id, board.owner_id, doc);
+  if (kind === "wish" || kind === "chains") {
+    const ticked = kind === "wish" ? await tickWish(sql, id, board.owner_id, doc) : await tickChains(sql, id, board.owner_id, doc);
     if (ticked.ticked.length) at = Date.now();
     next = ticked.doc;
   }
   const out: BoardOpen = { id, title: board.title, kind, role, doc: next, updatedAt: at, me };
-  if (kind === "split" || kind === "wish") out.people = await boardPeople(sql, id, board.owner_id);
-  if (kind === "car") {
-    out.carMiles = await carMiles(sql, board.owner_id, next);
-    out.people = await boardPeople(sql, id, board.owner_id);
-  }
+  out.people = await boardPeople(sql, id, board.owner_id);
+  if (kind === "car") out.carMiles = await carMiles(sql, board.owner_id, next);
+  if (kind === "fuel") out.fuelMiles = await fuelMiles(sql, board.owner_id, next);
   return out;
 }
 
@@ -463,14 +713,15 @@ export const tickWishes = createServerFn({ method: "POST" })
   .handler(async ({ context }) => {
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
-    const rows = await sql<{ id: string; owner_id: string; title: string; doc: unknown }>`
-      select b.id, b.owner_id, b.title, b.doc from boards b
-      where b.kind = 'wish' and (b.owner_id = ${context.userId} or exists (select 1 from board_shares s where s.board_id = b.id and s.user_id = ${context.userId}))
+    const rows = await sql<{ id: string; owner_id: string; title: string; doc: unknown; kind: string }>`
+      select b.id, b.owner_id, b.title, b.doc, b.kind from boards b
+      where b.kind in ('wish', 'chains') and (b.owner_id = ${context.userId} or exists (select 1 from board_shares s where s.board_id = b.id and s.user_id = ${context.userId}))
       limit 40
     `;
     const ticked: { board: string; place: string }[] = [];
     for (const row of rows) {
-      const result = await tickWish(sql, row.id, row.owner_id, readDoc(row.doc));
+      const doc = readDoc(row.doc);
+      const result = row.kind === "chains" ? await tickChains(sql, row.id, row.owner_id, doc) : await tickWish(sql, row.id, row.owner_id, doc);
       for (const place of result.ticked) ticked.push({ board: row.title, place });
     }
     return { ticked };
@@ -495,8 +746,10 @@ export const listBoards = createServerFn({ method: "GET" })
       const kind = kindOf(row.kind);
       let extra: Partial<BoardInfo> = {};
       if (kind === "wish") doc = (await tickWish(sql, row.id, row.owner_id, doc)).doc;
+      if (kind === "chains") doc = (await tickChains(sql, row.id, row.owner_id, doc)).doc;
       if (kind === "car") extra = { due: carDue(doc, await carMiles(sql, row.owner_id, doc)), cars: doc.cars?.length ?? 0 };
       if (kind === "split") extra = { spent: spentOf(doc) };
+      extra = { ...extra, summary: boardSummary(kind, doc) };
       out.push({
         id: row.id,
         kind: kindOf(row.kind),
@@ -560,8 +813,11 @@ export const saveBoard = createServerFn({ method: "POST" })
     const sql = await getSql();
     const { board, role } = await loadAccess(sql, context.userId, data.id);
     const current = readDoc(board.doc);
+    const kind = kindOf(board.kind);
     const doc =
-      role === "check"
+      role === "check" && PLAYER_KINDS.has(kind)
+        ? playerMoves(current, data.doc, data.base ?? current, context.userId, kind)
+        : role === "check"
         ? {
             ...current,
             items: current.items.map((item) => {
@@ -687,4 +943,100 @@ export const driveCar = createServerFn({ method: "POST" })
       if (JSON.stringify(next) !== JSON.stringify(doc)) await sql`update boards set doc = ${JSON.stringify(next)}::jsonb, updated_at = now() where id = ${row.id}`;
     }
     return { ok: true };
+  });
+
+/** Boards you can play on (owner, or shared with you), newest first. */
+async function playable(sql: Sql, me: string, kinds: BoardKind[]) {
+  return sql<{ id: string; owner_id: string; title: string; kind: string; doc: unknown }>`
+    select b.id, b.owner_id, b.title, b.kind, b.doc from boards b
+    where b.kind = any(${kinds}::text[]) and (b.owner_id = ${me} or exists (select 1 from board_shares s where s.board_id = b.id and s.user_id = ${me}))
+    order by b.updated_at desc
+    limit 20
+  `;
+}
+
+export type MyGames = {
+  county: { id: string; title: string } | null;
+  trivia: { id: string; title: string } | null;
+  /** State line guess boards with a round on, and the state the round started in. */
+  guess: { id: string; title: string; roundAt: number; from: string }[];
+};
+
+/** The games Drive mode helps with: quizzes to ask, and state-line rounds to settle. */
+export const myGames = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<MyGames> => {
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    const rows = await playable(sql, context.userId, ["county", "trivia", "guess"]);
+    const first = (kind: string) => {
+      const row = rows.find((r) => r.kind === kind);
+      return row ? { id: row.id, title: row.title } : null;
+    };
+    const guess = rows
+      .filter((row) => row.kind === "guess")
+      .flatMap((row) => {
+        const doc = readDoc(row.doc);
+        const roundAt = Number(doc.extra?.roundAt) || 0;
+        return roundAt && doc.extra?.result == null ? [{ id: row.id, title: row.title, roundAt, from: String(doc.extra?.from ?? "") }] : [];
+      });
+    return { county: first("county"), trivia: first("trivia"), guess };
+  });
+
+/** A quiz answer from Drive mode: your tally on that game's board goes up. */
+export const addGameResult = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    const row = (input ?? {}) as Record<string, unknown>;
+    const kind = row.kind === "trivia" ? ("trivia" as const) : ("county" as const);
+    return { kind, right: Boolean(row.right), q: String(row.q ?? "").slice(0, 120) };
+  })
+  .handler(async ({ context, data }) => {
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    const rows = await playable(sql, context.userId, [data.kind]);
+    const row = rows[0];
+    if (!row) return { ok: false, right: 0, asked: 0 };
+    const doc = readDoc(row.doc);
+    const id = `bi-sc${userTag(context.userId)}`;
+    const mine = doc.items.find((item) => item.id === id);
+    const right = (Number(mine?.meta?.right) || 0) + (data.right ? 1 : 0);
+    const asked = (Number(mine?.meta?.asked) || 0) + 1;
+    const streak = data.right ? (Number(mine?.meta?.streak) || 0) + 1 : 0;
+    const best = Math.max(Number(mine?.meta?.best) || 0, streak);
+    const item: BoardItem = { id, text: "score", note: "", done: false, by: context.userId, at: Date.now(), meta: { right, asked, streak, best, last: data.q, lastRight: data.right } };
+    const items = mine ? doc.items.map((it) => (it.id === id ? item : it)) : [...doc.items, item];
+    await sql`update boards set doc = ${JSON.stringify({ ...doc, items })}::jsonb, updated_at = now() where id = ${row.id}`;
+    return { ok: true, right, asked };
+  });
+
+/** You crossed into another state: settle any state-line rounds that were on. */
+export const settleStateLine = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    const row = (input ?? {}) as Record<string, unknown>;
+    const state = String(row.state ?? "").toUpperCase();
+    if (!/^[A-Z]{2}$/.test(state)) throw new Error("Unknown state");
+    return { state };
+  })
+  .handler(async ({ context, data }) => {
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    const rows = await playable(sql, context.userId, ["guess"]);
+    const settled: string[] = [];
+    for (const row of rows) {
+      const doc = readDoc(row.doc);
+      const roundAt = Number(doc.extra?.roundAt) || 0;
+      if (!roundAt || doc.extra?.result != null || doc.extra?.from === data.state) continue;
+      const minutes = Math.max(0, Math.round((Date.now() - roundAt) / 60000));
+      const extra = { ...(doc.extra ?? {}), result: minutes, crossedAt: Date.now(), to: data.state };
+      // The closest guess this round wins it.
+      const guesses = doc.items.filter((item) => item.meta?.round === roundAt && typeof item.meta?.min === "number");
+      guesses.sort((a, b) => Math.abs(Number(a.meta?.min) - minutes) - Math.abs(Number(b.meta?.min) - minutes) || (a.at ?? 0) - (b.at ?? 0));
+      const winner = guesses[0]?.id;
+      const items = doc.items.map((item) => (item.id === winner ? { ...item, meta: { ...(item.meta ?? {}), won: true } } : item));
+      await sql`update boards set doc = ${JSON.stringify({ ...doc, items, extra })}::jsonb, updated_at = now() where id = ${row.id}`;
+      settled.push(row.title);
+    }
+    return { settled };
   });

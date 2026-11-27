@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerE
 import { ScreenHeader } from "@/components/screen-header";
 import { createPortal } from "react-dom";
 import { useChat } from "@/lib/chat-store";
-import { deleteMessage, emptyReactions, listThread, votePoll, loadThreadPhoto, messageBoard, searchChats, sendToThread, setThreadPin, toggleReaction, type BoardItem, type ChatDay, type ChatHere, type ChatHit, type ChatMessage, type ChatPlace, type ChatPoll, type ChatTrail, type ReactionMark, type Thread } from "@/lib/messages";
-import { milesBetween, type Fix } from "@/lib/nearby";
+import { deleteMessage, emptyReactions, guessWhere, listThread, votePoll, loadThreadPhoto, messageBoard, searchChats, sendToThread, setThreadPin, toggleReaction, type BoardItem, type ChatDay, type ChatHere, type ChatHit, type ChatMessage, type ChatPlace, type ChatPoll, type ChatTrail, type ChatWhere, type ReactionMark, type Thread } from "@/lib/messages";
+import { StateTiles, TILE_NAMES } from "@/components/state-tiles";
+import { loadMeta } from "@/lib/atlas-model";
+import { milesBetween, readDeviceLocation, type Fix } from "@/lib/nearby";
 import { readGps } from "@/lib/photo-file";
 import { categoryName } from "@/lib/place-kinds";
 import { pushBack, useBackClose } from "@/lib/sheet-back";
@@ -18,9 +20,10 @@ import { Clock, Copy, Download, LogOut, Map as MapIcon, MapPinPlus, Maximize2, M
 import { TripSketch, tripDates } from "@/components/trip-recap";
 import { Images, ImageIcon, Settings } from "lucide-react";
 import { WallpaperScreen, wallpaperFor } from "@/components/chat-wallpaper";
-import { ArrowUp, Camera, Check, ListTodo, LocateFixed, MapPinned, Mic, Plus, Route, Send, Vote } from "lucide-react";
+import { ArrowUp, Camera, Check, HelpCircle, ListTodo, LocateFixed, MapPinned, Mic, Plus, Route, Send, Vote } from "lucide-react";
 import { allowMic } from "@/lib/mic";
-import { BoardKindIcon, BoardsPage, KIND_LOOK } from "@/components/boards-page";
+import { BoardsPage } from "@/components/boards-page";
+import { BoardKindIcon, KIND_LOOK } from "@/components/board-ui";
 import { ChatLookScreen, applyShared } from "@/components/chat-look";
 import { LOOK_DEFAULT, nickOf, readLook, useLookVersion, wallVeil, withAlpha, type ChatLook } from "@/lib/chat-look";
 import { loadTheme } from "@/lib/chat-theme";
@@ -54,6 +57,7 @@ function blurb(row: ChatMessage) {
   if (row.kind === "day") return row.day ? `A day · ${row.day.day}` : "A day";
   if (row.kind === "board") return row.board?.title || "A board";
   if (row.kind === "poll") return row.poll ? `Poll: ${row.poll.q}` : "A poll";
+  if (row.kind === "where") return "Where am I?";
   return row.body;
 }
 
@@ -587,6 +591,47 @@ export function ChatThread({
     await deliver(message, { thread, id, kind: "trail", trail: { name, points: packed, day }, replyTo: quoting?.id }, setNote);
   }
 
+  /** "Where am I?": the spot you're in, hidden until each friend has guessed the state. */
+  async function sendWhere() {
+    setAttach(false);
+    let fix = you;
+    if (!fix) {
+      try {
+        fix = await readDeviceLocation();
+      } catch (err) {
+        setNote(err instanceof Error ? err.message : "Location isn't on.");
+        return;
+      }
+    }
+    const spot = (you && hereName) || (await nameHere(fix, places));
+    if (!spot.state) {
+      setNote("Can't tell which state you're in yet.");
+      return;
+    }
+    const id = newId();
+    const where: ChatWhere = { spot: { label: spot.label, state: spot.state, lat: spot.lat, lon: spot.lon }, mine: null, guesses: [] };
+    const message = optimistic({ id, kind: "where", body: "", thumb: "", lat: null, lon: null, takenAt: null, place: null, where });
+    await deliver(message, { thread, id, kind: "where", where: { label: spot.label, state: spot.state, lat: spot.lat, lon: spot.lon } }, setNote);
+  }
+
+  async function guess(message: ChatMessage, state: string) {
+    try {
+      const meta = await loadMeta();
+      const info = meta.states.find((row) => row.abbr === state);
+      if (!info) throw new Error("Pick a state");
+      const result = await guessWhere({ data: { thread, id: message.id, state, lat: (info.s + info.n) / 2, lon: (info.w + info.e) / 2 } });
+      setRows((prev) =>
+        (prev ?? []).map((row) =>
+          row.id === message.id
+            ? { ...row, where: { spot: result.spot, mine: { state: result.state, miles: result.miles }, guesses: [...(row.where?.guesses ?? []), { name: "You", state: result.state, miles: result.miles }].sort((a, b) => a.miles - b.miles) } }
+            : row,
+        ),
+      );
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Couldn't send that guess.");
+    }
+  }
+
   async function sendPoll(q: string, options: string[]) {
     setPollOpen(false);
     const id = newId();
@@ -949,6 +994,7 @@ export function ChatThread({
                     </span>
                   </button>
                 ) : null}
+                {row.kind === "where" && row.where ? <WhereCard where={row.where} mine={mine} from={row.fromName} onGuess={(state) => guess(row, state)} onOpen={onOpenHere} /> : null}
                 {row.kind === "poll" && row.poll ? <PollCard poll={row.poll} mine={mine} pending={sending.current.has(row.id)} onVote={(choice) => void vote(row, choice)} /> : null}
                 {row.kind === "text" ? <p className="break-words">{linkParts(row.body)}</p> : null}
               </div>
@@ -1168,6 +1214,7 @@ export function ChatThread({
                     setPollOpen(true);
                   },
                 ],
+                ["Where am I?", <HelpCircle key="i" className="size-5" />, () => void sendWhere()],
               ] as const
             ).map(([label, icon, onClick]) => (
               <button
@@ -1245,7 +1292,7 @@ export function ChatThread({
                 {menu.fromId === meId ? "You" : menu.fromName} · {stampText(menu.at)}
               </p>
               <p className="truncate text-sm">
-                {menu.kind === "photo" ? (menu.body ? menu.body : "Photo") : menu.kind === "voice" ? "Voice note" : menu.kind === "place" ? menu.place?.name : menu.kind === "trip" ? menu.trip?.name : menu.kind === "trail" ? menu.trail?.name : menu.kind === "here" ? menu.here?.label : menu.kind === "day" ? "A day" : menu.kind === "board" ? menu.board?.title || "A board" : menu.kind === "poll" ? menu.poll?.q || "A poll" : menu.body}
+                {menu.kind === "photo" ? (menu.body ? menu.body : "Photo") : menu.kind === "voice" ? "Voice note" : menu.kind === "place" ? menu.place?.name : menu.kind === "trip" ? menu.trip?.name : menu.kind === "trail" ? menu.trail?.name : menu.kind === "here" ? menu.here?.label : menu.kind === "day" ? "A day" : menu.kind === "board" ? menu.board?.title || "A board" : menu.kind === "poll" ? menu.poll?.q || "A poll" : menu.kind === "where" ? "Where am I?" : menu.body}
               </p>
             </div>
           </div>
@@ -2221,6 +2268,62 @@ function agoText(ms: number) {
   if (dayOf(ms) === dayOf(Date.now() - 86400000)) return "Yesterday";
   if (gap < 6 * 86400000) return new Date(ms).toLocaleDateString(undefined, { weekday: "short" });
   return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric", ...(new Date(ms).getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}) });
+}
+
+/** "Where am I?": pick a state to guess; then the spot, and everyone's guesses. */
+function WhereCard({ where, mine, from, onGuess, onOpen }: { where: ChatWhere; mine: boolean; from: string; onGuess: (state: string) => Promise<void>; onOpen?: (lat: number, lon: number, label?: string) => void }) {
+  const [pick, setPick] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const spot = where.spot;
+  return (
+    <div className="w-60 max-w-full py-1">
+      <span className="flex items-center gap-1.5 text-xs tracking-widest text-faint uppercase">
+        <HelpCircle className="size-3.5" aria-hidden="true" />
+        {mine ? "Your spot · they guess" : `Where's ${from}?`}
+      </span>
+      {!spot ? (
+        <>
+          <p className="mt-1 text-sm text-muted">Pick the state you think they're in.</p>
+          <div className="mt-2">
+            <StateTiles onTap={setPick} look={(abbr) => ({ on: abbr === pick })} />
+          </div>
+          <button
+            type="button"
+            disabled={!pick || busy}
+            onClick={() => {
+              if (!pick) return;
+              setBusy(true);
+              void onGuess(pick).finally(() => setBusy(false));
+            }}
+            className="mt-2 h-10 w-full rounded-lg bg-ink text-sm text-bg disabled:bg-elevated disabled:text-faint"
+          >
+            {busy ? "Guessing…" : pick ? `Guess ${TILE_NAMES[pick] ?? pick}` : "Pick a state"}
+          </button>
+        </>
+      ) : (
+        <>
+          {where.mine ? <p className="mt-1 font-serif text-2xl leading-tight">{where.mine.miles === 0 ? "Right state!" : `${where.mine.miles.toLocaleString()} miles off`}</p> : null}
+          <button type="button" onClick={() => onOpen?.(spot.lat, spot.lon, spot.label)} className="mt-1 block text-left">
+            <span className="block font-serif text-lg leading-tight">{spot.label}</span>
+            <span className="block text-xs text-muted">{TILE_NAMES[spot.state] ?? spot.state}{onOpen ? " · on the map" : ""}</span>
+          </button>
+          {where.guesses.length ? (
+            <ul className="mt-2 grid gap-0.5 text-sm">
+              {where.guesses.map((g, i) => (
+                <li key={`${g.name}${i}`} className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate">{g.name}</span>
+                  <span className="text-xs text-faint">{g.state}</span>
+                  <span className="tabular-nums">{g.miles === 0 ? "Right" : `${g.miles.toLocaleString()} mi`}</span>
+                </li>
+              ))}
+            </ul>
+          ) : mine ? (
+            <p className="mt-2 text-xs text-faint">No guesses yet.</p>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
 }
 
 /** A poll in a chat: each choice is a bar that fills with the votes; tap to vote, tap again to take it back. */

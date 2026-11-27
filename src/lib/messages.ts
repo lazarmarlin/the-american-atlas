@@ -8,7 +8,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import type { TripCard } from "@/lib/trips";
 import { trailCard, type ChatTrail } from "@/lib/trail-card";
-import type { BoardCard } from "@/lib/boards";
+import { ALL_KINDS, type BoardCard } from "@/lib/boards";
 
 export type ChatPlace = {
   id: string;
@@ -68,11 +68,23 @@ export type ChatPoll = {
   mine: number;
 };
 
+/**
+ * "Where am I?": a spot friends guess by picking a state. The spot stays
+ * hidden from each of them until they've guessed.
+ */
+export type ChatWhere = {
+  /** Shown to the sender, and to anyone who has guessed. */
+  spot: { label: string; state: string; lat: number; lon: number } | null;
+  /** My guess (a state, and how many miles off; 0 = the right state). */
+  mine: { state: string; miles: number } | null;
+  guesses: { name: string; state: string; miles: number }[];
+};
+
 export type ChatMessage = {
   id: string;
   fromId: string;
   fromName: string;
-  kind: "text" | "link" | "photo" | "place" | "trip" | "trail" | "here" | "day" | "voice" | "board" | "poll";
+  kind: "text" | "link" | "photo" | "place" | "trip" | "trail" | "here" | "day" | "voice" | "board" | "poll" | "where";
   body: string;
   thumb: string;
   at: number;
@@ -86,6 +98,7 @@ export type ChatMessage = {
   day?: ChatDay | null;
   board?: BoardCard | null;
   poll?: ChatPoll | null;
+  where?: ChatWhere | null;
   reply?: ChatReply | null;
   reactions?: ChatReaction;
   /** Stuck to the top of this chat. */
@@ -185,7 +198,7 @@ export async function namesFor(sql: Sql, ids: string[]) {
   return new Map(rows.map((row) => [row.id, row.name]));
 }
 
-const KINDS = ["link", "photo", "place", "trip", "trail", "here", "day", "voice", "board", "poll"] as const;
+const KINDS = ["link", "photo", "place", "trip", "trail", "here", "day", "voice", "board", "poll", "where"] as const;
 function kindOf(value: unknown): ChatMessage["kind"] {
   return (KINDS as readonly unknown[]).includes(value) ? (value as ChatMessage["kind"]) : "text";
 }
@@ -294,6 +307,7 @@ function quoteOf(kind: ChatMessage["kind"], body: string) {
   if (kind === "day") return readDay(body)?.day || "A day";
   if (kind === "board") return readBoard(body)?.title || "A board";
   if (kind === "poll") return readPollCard(body)?.q || "A poll";
+  if (kind === "where") return "Where am I?";
   return (body || "").slice(0, 80);
 }
 
@@ -321,7 +335,7 @@ function readBoard(body: string): BoardCard | null {
   try {
     const row = JSON.parse(body) as BoardCard;
     if (!row || typeof row.id !== "string" || typeof row.title !== "string") return null;
-    const kind = (["pack", "trip", "wish", "car", "split"] as const).find((k) => k === row.kind) ?? "todo";
+    const kind = ALL_KINDS.find((k) => k === row.kind) ?? "todo";
     return { id: row.id, title: row.title, kind };
   } catch {
     return null;
@@ -373,6 +387,31 @@ function cleanHere(value: unknown): ChatHere {
     state: /^[A-Z]{2}$/.test(state) ? state : "",
     placeId,
   };
+}
+
+type WhereSpot = NonNullable<ChatWhere["spot"]>;
+
+function cleanWhere(value: unknown): WhereSpot {
+  const here = cleanHere(value);
+  if (!here.state) throw new Error("Can't tell which state you're in.");
+  // To about a tenth of a mile: close enough to score, not your doorstep.
+  return { label: here.label, state: here.state, lat: Math.round(here.lat * 1000) / 1000, lon: Math.round(here.lon * 1000) / 1000 };
+}
+
+function readWhere(body: string): WhereSpot | null {
+  try {
+    const row = JSON.parse(body) as WhereSpot;
+    if (!row || typeof row.label !== "string" || !/^[A-Z]{2}$/.test(row.state) || !Number.isFinite(row.lat) || !Number.isFinite(row.lon)) return null;
+    return row;
+  } catch {
+    return null;
+  }
+}
+
+function milesApart(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const r = Math.PI / 180;
+  const a = Math.sin(((lat2 - lat1) * r) / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(((lon2 - lon1) * r) / 2) ** 2;
+  return 3958.8 * 2 * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
 function cleanDay(value: unknown): ChatDay {
@@ -458,6 +497,26 @@ export const listThread = createServerFn({ method: "POST" })
           select message_id, user_id, choice from poll_votes where message_id = any(${pollIds}::text[]) order by voted_at
         `
       : [];
+    const whereIds = rows.filter((row) => row.kind === "where").map((row) => row.id);
+    const guessRows = whereIds.length
+      ? await sql<{ message_id: string; user_id: string; state: string; miles: number }>`
+          select message_id, user_id, state, miles from where_guesses where message_id = any(${whereIds}::text[]) order by miles, guessed_at
+        `
+      : [];
+    const guesserNames = guessRows.length ? await namesFor(sql, [...new Set(guessRows.map((row) => row.user_id))]) : new Map<string, string>();
+    const whereOf = (row: Row): ChatWhere | null => {
+      const spot = readWhere(row.body);
+      if (!spot) return null;
+      const all = guessRows.filter((g) => g.message_id === row.id);
+      const mineRow = all.find((g) => g.user_id === context.userId);
+      const open = row.from_id === context.userId || !!mineRow;
+      return {
+        spot: open ? spot : null,
+        mine: mineRow ? { state: mineRow.state, miles: mineRow.miles } : null,
+        // Others' guesses only once you've had yours (or it's your spot).
+        guesses: open ? all.map((g) => ({ name: g.user_id === context.userId ? "You" : guesserNames.get(g.user_id) ?? "Friend", state: g.state, miles: g.miles })) : [],
+      };
+    };
     const voterNames = voteRows.length ? await namesFor(sql, [...new Set(voteRows.map((row) => row.user_id))]) : new Map<string, string>();
     const pollOf = (row: Row): ChatPoll | null => {
       const card = readPollCard(row.body);
@@ -503,7 +562,7 @@ export const listThread = createServerFn({ method: "POST" })
         fromId: row.from_id,
         fromName: names.get(row.from_id) ?? "Friend",
         kind,
-        body: kind === "place" || kind === "trip" || kind === "trail" || kind === "here" || kind === "day" || kind === "board" || kind === "poll" ? "" : row.body || "",
+        body: kind === "place" || kind === "trip" || kind === "trail" || kind === "here" || kind === "day" || kind === "board" || kind === "poll" || kind === "where" ? "" : row.body || "",
         thumb: have.has(row.id) ? "" : row.thumb || "",
         at,
         lat: row.lat ?? null,
@@ -516,6 +575,7 @@ export const listThread = createServerFn({ method: "POST" })
         day: kind === "day" ? readDay(row.body) : null,
         board: kind === "board" ? readBoard(row.body) : null,
         poll: kind === "poll" ? pollOf(row) : null,
+        where: kind === "where" ? whereOf(row) : null,
         reply,
         reactions,
         pinned: row.id === pinId,
@@ -585,6 +645,10 @@ function parseSend(input: unknown) {
   }
   if (kind === "poll") {
     return { ...base, body: JSON.stringify(cleanPoll(row.poll)) };
+  }
+  if (kind === "where") {
+    // Not on the message's own lat/lon, so it stays hidden until guessed.
+    return { ...base, body: JSON.stringify(cleanWhere(row.where)) };
   }
   if (kind === "place") {
     const place = (row.place ?? {}) as Record<string, unknown>;
@@ -828,6 +892,7 @@ export const searchChats = createServerFn({ method: "POST" })
       from messages m
       where (m.from_id = ${me} or m.to_id = ${me})
         and m.body ilike ${like}
+        and m.kind <> 'where'
         and not exists (select 1 from message_hidden h where h.user_id = ${me} and h.message_id = m.id)
       order by m.created_at desc
       limit 20
@@ -838,6 +903,7 @@ export const searchChats = createServerFn({ method: "POST" })
       join chat_groups g on g.id = m.group_id
       join chat_group_members mem on mem.group_id = m.group_id and mem.user_id = ${me}
       where m.body ilike ${like}
+        and m.kind <> 'where'
         and not exists (select 1 from message_hidden h where h.user_id = ${me} and h.message_id = m.id)
       order by m.created_at desc
       limit 20
@@ -890,6 +956,8 @@ const preview = (kind: string, body: string) =>
               ? `Board: ${readBoard(body)?.title ?? ""}`.trim()
             : kind === "poll"
               ? `Poll: ${readPollCard(body)?.q ?? ""}`.trim()
+            : kind === "where"
+              ? "Where am I? Guess the state"
             : kind === "place"
               ? `Shared ${readPlace(body)?.name ?? "a place"}`
               : kind === "link"
@@ -1165,4 +1233,42 @@ export const votePoll = createServerFn({ method: "POST" })
         on conflict (message_id, user_id) do update set choice = excluded.choice, voted_at = now()
       `;
     return { ok: true };
+  });
+
+/**
+ * A guess at "Where am I?": a state, and the middle of it (from the phone's
+ * atlas) for how many miles off it is. The right state scores 0. One guess
+ * each; it can't be changed once the spot is shown.
+ */
+export const guessWhere = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: unknown) => {
+    const row = (input ?? {}) as Record<string, unknown>;
+    const state = String(row.state ?? "").toUpperCase();
+    if (!/^[A-Z]{2}$/.test(state)) throw new Error("Pick a state");
+    const lat = num(row.lat, 90);
+    const lon = num(row.lon, 180);
+    if (lat == null || lon == null) throw new Error("Pick a state");
+    return { thread: parseThread(row.thread), id: parseMessageId(row.id), state, lat, lon };
+  })
+  .handler(async ({ context, data }) => {
+    const sql = await openThread(context.userId, data.thread);
+    const found =
+      data.thread.kind === "group"
+        ? await sql<{ body: string; from_id: string }>`select body, from_id from group_messages where id = ${data.id} and group_id = ${data.thread.id} and kind = 'where'`
+        : await sql<{ body: string; from_id: string }>`
+            select body, from_id from messages
+            where id = ${data.id} and kind = 'where'
+              and ((from_id = ${context.userId} and to_id = ${data.thread.id}) or (from_id = ${data.thread.id} and to_id = ${context.userId}))
+          `;
+    const spot = found[0] ? readWhere(found[0].body) : null;
+    if (!spot) throw new Error("That one's gone.");
+    if (found[0].from_id === context.userId) throw new Error("That's your own spot.");
+    const miles = data.state === spot.state ? 0 : Math.max(1, Math.round(milesApart(data.lat, data.lon, spot.lat, spot.lon)));
+    await sql`
+      insert into where_guesses (message_id, user_id, state, miles) values (${data.id}, ${context.userId}, ${data.state}, ${miles})
+      on conflict (message_id, user_id) do nothing
+    `;
+    const mine = await sql<{ state: string; miles: number }>`select state, miles from where_guesses where message_id = ${data.id} and user_id = ${context.userId}`;
+    return { state: mine[0]?.state ?? data.state, miles: mine[0]?.miles ?? miles, spot };
   });

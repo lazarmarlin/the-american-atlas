@@ -80,3 +80,57 @@ export async function nextCounty(lat: number, lon: number, states: StateInfo[], 
   }
   return best;
 }
+
+/** The state a point is in (by its counties), or null. */
+export async function stateAtPoint(lat: number, lon: number, states: StateInfo[]): Promise<string | null> {
+  const near = states.filter((s) => lon >= s.w && lon <= s.e && lat >= s.s && lat <= s.n);
+  for (const state of near) {
+    const rows = (await loadCounties(state.abbr)) as CountyRec[];
+    if (countyContaining(lat, lon, rows)) return state.abbr;
+  }
+  return null;
+}
+
+export type CountyQuestion = { id: string; name: string; state: string; choices: string[] };
+
+/**
+ * Name that county: the county about a mile and a half ahead, if it isn't
+ * the one you're in, with two other counties from nearby as wrong answers.
+ */
+export async function countyAhead(lat: number, lon: number, heading: number, states: StateInfo[]): Promise<CountyQuestion | null> {
+  const rad = (heading * Math.PI) / 180;
+  const near = states.filter((s) => lon >= s.w - 0.6 && lon <= s.e + 0.6 && lat >= s.s - 0.6 && lat <= s.n + 0.6);
+  const lists = await Promise.all(near.map(async (state) => ({ state: state.abbr, rows: (await loadCounties(state.abbr)) as CountyRec[] })));
+  const at = (aLat: number, aLon: number) => {
+    for (const { state, rows } of lists) {
+      const hit = countyContaining(aLat, aLon, rows);
+      if (hit) return { county: hit, state };
+    }
+    return null;
+  };
+  const here = at(lat, lon)?.county;
+  if (!here) return null;
+  // The first different county within about two miles (looked for every half mile, so a fix can't step over it).
+  let ahead: { county: CountyRec; state: string } | null = null;
+  for (const miles of [0.5, 1, 1.5, 2]) {
+    const hit = at(lat + (miles * Math.cos(rad)) / 69, lon + (miles * Math.sin(rad)) / (69 * Math.cos((lat * Math.PI) / 180)));
+    if (hit && hit.county.id !== here.id) {
+      ahead = hit;
+      break;
+    }
+  }
+  if (!ahead) return null;
+  const { county, state } = ahead;
+  const pool = (lists.find((l) => l.state === state)?.rows ?? [])
+    .filter((c) => c.id !== county.id && c.name !== county.name)
+    .map((c) => ({ c, d: Math.hypot(c.lon - county.lon, c.lat - county.lat) }))
+    .sort((a, b) => a.d - b.d)
+    .slice(1, 9)
+    .map((row) => row.c.name);
+  const decoys: string[] = [];
+  for (const name of pool) if (decoys.length < 2 && !decoys.includes(name)) decoys.splice(Math.floor(Math.random() * (decoys.length + 1)), 0, name);
+  if (decoys.length < 2) return null;
+  const choices = [...decoys];
+  choices.splice(Math.floor(Math.random() * 3), 0, county.name);
+  return { id: county.id, name: county.name, state, choices };
+}
