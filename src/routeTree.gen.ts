@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ApiNotifyRouteImport } from './routes/api/notify'
+import { Route as ApiPushStatusRouteImport } from './routes/api/push-status'
 import { Route as ApiTrackRouteImport } from './routes/api/track'
 import { Route as AuthNativeRouteImport } from './routes/auth/native'
 import { Route as AuthNativeExchangeRouteImport } from './routes/auth/native-exchange'
@@ -30,6 +31,11 @@ const LoginRoute = LoginRouteImport.update({
 const ApiNotifyRoute = ApiNotifyRouteImport.update({
   id: '/api/notify',
   path: '/api/notify',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPushStatusRoute = ApiPushStatusRouteImport.update({
+  id: '/api/push-status',
+  path: '/api/push-status',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiTrackRoute = ApiTrackRouteImport.update({
@@ -57,6 +63,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/api/notify': typeof ApiNotifyRoute
+  '/api/push-status': typeof ApiPushStatusRoute
   '/api/track': typeof ApiTrackRoute
   '/auth/native': typeof AuthNativeRoute
   '/auth/native-exchange': typeof AuthNativeExchangeRoute
@@ -66,6 +73,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/api/notify': typeof ApiNotifyRoute
+  '/api/push-status': typeof ApiPushStatusRoute
   '/api/track': typeof ApiTrackRoute
   '/auth/native': typeof AuthNativeRoute
   '/auth/native-exchange': typeof AuthNativeExchangeRoute
@@ -76,6 +84,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/api/notify': typeof ApiNotifyRoute
+  '/api/push-status': typeof ApiPushStatusRoute
   '/api/track': typeof ApiTrackRoute
   '/auth/native': typeof AuthNativeRoute
   '/auth/native-exchange': typeof AuthNativeExchangeRoute
@@ -87,6 +96,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/api/notify'
+    | '/api/push-status'
     | '/api/track'
     | '/auth/native'
     | '/auth/native-exchange'
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/api/notify'
+    | '/api/push-status'
     | '/api/track'
     | '/auth/native'
     | '/auth/native-exchange'
@@ -105,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/api/notify'
+    | '/api/push-status'
     | '/api/track'
     | '/auth/native'
     | '/auth/native-exchange'
@@ -115,6 +127,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
   ApiNotifyRoute: typeof ApiNotifyRoute
+  ApiPushStatusRoute: typeof ApiPushStatusRoute
   ApiTrackRoute: typeof ApiTrackRoute
   AuthNativeRoute: typeof AuthNativeRoute
   AuthNativeExchangeRoute: typeof AuthNativeExchangeRoute
@@ -142,6 +155,13 @@ declare module '@tanstack/react-router' {
       path: '/api/notify'
       fullPath: '/api/notify'
       preLoaderRoute: typeof ApiNotifyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/push-status': {
+      id: '/api/push-status'
+      path: '/api/push-status'
+      fullPath: '/api/push-status'
+      preLoaderRoute: typeof ApiPushStatusRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/track': {
@@ -179,6 +199,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
   ApiNotifyRoute: ApiNotifyRoute,
+  ApiPushStatusRoute: ApiPushStatusRoute,
   ApiTrackRoute: ApiTrackRoute,
   AuthNativeRoute: AuthNativeRoute,
   AuthNativeExchangeRoute: AuthNativeExchangeRoute,
