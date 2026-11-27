@@ -10,6 +10,7 @@ import { Check, Minus, Trophy, Undo2 } from "lucide-react";
 import { userTag, type BoardItem } from "@/lib/boards";
 import { STATE_NAMES } from "@/lib/state-names";
 import { KIND_LOOK, Label } from "@/components/board-ui";
+import { STATE_TILES as TILES, StateTiles, TILE_NAMES } from "@/components/state-tiles";
 import { Card, Pill, type BoardApi } from "@/components/board-kinds";
 
 /** Players on the board, most points first. */
@@ -35,22 +36,11 @@ function Leaderboard({ api, rows, unit }: { api: BoardApi; rows: { id: string; s
 
 /* ---------------------------------------------------------- license plates */
 
-/** A tile map of the states: [abbr, column, row]. */
-const TILES: [string, number, number][] = [
-  ["AK", 0, 0], ["ME", 10, 0],
-  ["VT", 9, 1], ["NH", 10, 1],
-  ["WA", 0, 2], ["ID", 1, 2], ["MT", 2, 2], ["ND", 3, 2], ["MN", 4, 2], ["IL", 5, 2], ["WI", 6, 2], ["MI", 7, 2], ["NY", 8, 2], ["RI", 9, 2], ["MA", 10, 2],
-  ["OR", 0, 3], ["NV", 1, 3], ["WY", 2, 3], ["SD", 3, 3], ["IA", 4, 3], ["IN", 5, 3], ["OH", 6, 3], ["PA", 7, 3], ["NJ", 8, 3], ["CT", 9, 3],
-  ["CA", 0, 4], ["UT", 1, 4], ["CO", 2, 4], ["NE", 3, 4], ["MO", 4, 4], ["KY", 5, 4], ["WV", 6, 4], ["VA", 7, 4], ["MD", 8, 4], ["DE", 9, 4],
-  ["AZ", 1, 5], ["NM", 2, 5], ["KS", 3, 5], ["AR", 4, 5], ["TN", 5, 5], ["NC", 6, 5], ["SC", 7, 5], ["DC", 8, 5],
-  ["OK", 3, 6], ["LA", 4, 6], ["MS", 5, 6], ["AL", 6, 6], ["GA", 7, 6],
-  ["HI", 0, 7], ["TX", 3, 7], ["FL", 8, 7],
-];
 const PROVINCES: [string, string][] = [
   ["BC", "British Columbia"], ["AB", "Alberta"], ["SK", "Saskatchewan"], ["MB", "Manitoba"], ["ON", "Ontario"], ["QC", "Quebec"],
   ["NB", "New Brunswick"], ["NS", "Nova Scotia"], ["PE", "Prince Edward Island"], ["NL", "Newfoundland and Labrador"], ["YT", "Yukon"], ["NT", "Northwest Territories"], ["NU", "Nunavut"],
 ];
-const PLATE_NAMES: Record<string, string> = { ...STATE_NAMES, DC: "Washington, D.C." };
+const PLATE_NAMES = TILE_NAMES;
 
 export function PlatesGame({ api }: { api: BoardApi }) {
   const { board } = api;
@@ -88,28 +78,15 @@ export function PlatesGame({ api }: { api: BoardApi }) {
         </div>
         <p className="text-xs text-faint">{lastItem ? `${lastItem.text}, spotted by ${api.name(lastItem.by)}` : "Tap a state when someone spots its plate."}</p>
         {/* The map. */}
-        <div className="mt-3 grid gap-[3px]" style={{ gridTemplateColumns: "repeat(11, minmax(0, 1fr))" }}>
-          {Array.from({ length: 8 * 11 }, (_, cell) => {
-            const col = cell % 11;
-            const row = Math.floor(cell / 11);
-            const tile = TILES.find(([, c, r]) => c === col && r === row);
-            if (!tile) return <span key={cell} />;
-            const [abbr] = tile;
-            const item = spotted.get(abbr);
-            return (
-              <button
-                key={abbr}
-                type="button"
-                aria-pressed={!!item}
-                aria-label={`${PLATE_NAMES[abbr]}${item ? `, spotted by ${api.name(item.by)}` : ""}`}
-                onClick={() => toggle(abbr, PLATE_NAMES[abbr] ?? abbr)}
-                className={"grid aspect-square place-items-center rounded-[5px] text-[10px] font-medium tracking-tight transition-colors " + (item ? "text-bg" : "bg-bg/70 text-faint active:bg-elevated")}
-                style={item ? { background: tint } : undefined}
-              >
-                {abbr}
-              </button>
-            );
-          })}
+        <div className="mt-3">
+          <StateTiles
+            onTap={(abbr) => toggle(abbr, PLATE_NAMES[abbr] ?? abbr)}
+            look={(abbr) => ({ on: spotted.has(abbr), color: tint })}
+            label={(abbr) => {
+              const item = spotted.get(abbr);
+              return `${PLATE_NAMES[abbr]}${item ? `, spotted by ${api.name(item.by)}` : ""}`;
+            }}
+          />
         </div>
         <Leaderboard api={api} rows={[...counts].map(([id, score]) => ({ id, score }))} unit="spotted" />
       </Card>
