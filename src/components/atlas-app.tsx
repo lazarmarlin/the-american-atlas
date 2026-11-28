@@ -2298,10 +2298,27 @@ function AtlasShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, spot]);
 
+  /** Close an "I'm here" spot: back into the chat it came from, if it came from one. */
+  function closeSpot() {
+    const was = spot;
+    setSpot(null);
+    if (!was?.from) return;
+    if (was.viaMail) {
+      setMailThread(was.from);
+      setMailOpen(true);
+    } else {
+      setTab("friends");
+      setResumeChat(was.from);
+      setSheetInstant(true);
+      setSheet(was.sheet);
+      window.setTimeout(() => setSheetInstant(false), 80);
+    }
+  }
+
   const sheetBack = useRef<() => boolean>(() => false);
   sheetBack.current = () => {
     if (spot?.label) {
-      setSpot(null);
+      closeSpot();
       return true;
     }
     // A place card (from the list or the map) closes first, at any sheet height.
@@ -3249,10 +3266,10 @@ function AtlasShell() {
               setSheet(8);
               window.setTimeout(() => setSheetInstant(false), 80);
             }}
-            onOpenHere={(lat, lon, label) => {
+            onOpenHere={(lat, lon, label, from) => {
               setMailOpen(false);
               setMailThread(null);
-              setSpot({ id: `here:${lat.toFixed(3)},${lon.toFixed(3)}`, lat, lon, from: null, sheet, label: label ?? "Here" });
+              setSpot({ id: `here:${lat.toFixed(3)},${lon.toFixed(3)}`, lat, lon, from: from ?? null, sheet, viaMail: true, label: label ?? "Here" });
               setSheetInstant(true);
               setSheet(8);
               window.setTimeout(() => setSheetInstant(false), 80);
@@ -3384,7 +3401,7 @@ function AtlasShell() {
             <div className="pointer-events-auto flex w-[min(20rem,calc(100vw-5.5rem))] items-center gap-2 rounded-card border border-line bg-surface/95 py-2 pr-1 pl-3 shadow-sm backdrop-blur-sm">
               <LocateFixed className="size-4 shrink-0 text-accent" aria-hidden />
               <span className="min-w-0 flex-1 text-sm leading-snug">{spot.label}</span>
-              <button type="button" onClick={() => setSpot(null)} aria-label="Close" className="grid size-9 shrink-0 place-items-center rounded-full text-muted active:bg-elevated">
+              <button type="button" onClick={closeSpot} aria-label="Close" className="grid size-9 shrink-0 place-items-center rounded-full text-muted active:bg-elevated">
                 <X className="size-4" />
               </button>
             </div>
@@ -3880,9 +3897,9 @@ function AtlasShell() {
                 visitedOn: [...mark.visits].map((visit) => visit.visitedOn).filter(Boolean).sort().at(-1) ?? null,
               }))}
               you={tracker ?? you}
-              onOpenHere={(lat, lon, label) => {
+              onOpenHere={(lat, lon, label, from) => {
                 setFriendId(null);
-                setSpot({ id: `here:${lat.toFixed(3)},${lon.toFixed(3)}`, lat, lon, from: null, sheet, label: label ?? "Here" });
+                setSpot({ id: `here:${lat.toFixed(3)},${lon.toFixed(3)}`, lat, lon, from: from ?? null, sheet, label: label ?? "Here" });
                 setSheetInstant(true);
                 setSheet(8);
                 window.setTimeout(() => setSheetInstant(false), 80);

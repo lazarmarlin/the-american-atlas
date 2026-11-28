@@ -41,7 +41,7 @@ export function SharedInChat({
   onClose: () => void;
   onOpenPlace?: (place: ChatPlace) => void;
   onOpenTrail?: (lines: [number, number][][]) => void;
-  onOpenHere?: (lat: number, lon: number, label?: string) => void;
+  onOpenHere?: (lat: number, lon: number, label?: string, from?: Thread) => void;
   onOpenBoard?: (id: string) => void;
 }) {
   const [rows, setRows] = useState<ChatMessage[] | null>(null);
@@ -106,7 +106,7 @@ function SharedRow({
   row: ChatMessage;
   onOpenPlace?: (place: ChatPlace) => void;
   onOpenTrail?: (lines: [number, number][][]) => void;
-  onOpenHere?: (lat: number, lon: number, label?: string) => void;
+  onOpenHere?: (lat: number, lon: number, label?: string, from?: Thread) => void;
   onOpenBoard?: (id: string) => void;
   onClose: () => void;
 }) {

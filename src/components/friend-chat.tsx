@@ -136,7 +136,7 @@ export function ChatThread({
   onAddToMap: (photo: ChatPhoto, place: ChatPlaceOption) => Promise<void>;
   onOpenPlace?: (place: ChatPlace) => void;
   onOpenTrail?: (lines: [number, number][][]) => void;
-  onOpenHere?: (lat: number, lon: number, label?: string) => void;
+  onOpenHere?: (lat: number, lon: number, label?: string, from?: Thread) => void;
   onOpenBoard?: (id: string) => void;
   /** Where you are, so "I'm here" can send the place you're in. */
   you?: Fix | null;
@@ -980,7 +980,7 @@ export function ChatThread({
                             visitedOn: null,
                             visited: false,
                           });
-                        } else onOpenHere?.(here.lat, here.lon, `${mine ? "You were" : `${row.fromName} was`} here · ${here.label} · ${timeText(row.at)}`);
+                        } else onOpenHere?.(here.lat, here.lon, `${mine ? "You were" : `${row.fromName} was`} here · ${here.label} · ${timeText(row.at)}`, thread);
                       }}
                       className="my-1.5 h-10 w-full rounded-lg border border-line text-sm"
                     >
@@ -1020,7 +1020,7 @@ export function ChatThread({
                           const stop = row.day?.stops[0];
                           const lat = place?.lat ?? stop?.lat;
                           const lon = place?.lon ?? stop?.lon;
-                          if (lat != null && lon != null) onOpenHere(lat, lon);
+                          if (lat != null && lon != null) onOpenHere(lat, lon, undefined, thread);
                         }}
                         className="my-1.5 h-10 w-full rounded-lg border border-line text-sm"
                       >
@@ -1040,7 +1040,7 @@ export function ChatThread({
                     </span>
                   </button>
                 ) : null}
-                {row.kind === "where" && row.where ? <WhereCard where={row.where} mine={mine} from={row.fromName} onGuess={(state) => guess(row, state)} onOpen={onOpenHere} /> : null}
+                {row.kind === "where" && row.where ? <WhereCard where={row.where} mine={mine} from={row.fromName} onGuess={(state) => guess(row, state)} onOpen={(lat, lon, label) => onOpenHere?.(lat, lon, label, thread)} /> : null}
                 {row.kind === "poll" && row.poll ? <PollCard poll={row.poll} mine={mine} pending={sending.current.has(row.id)} onVote={(choice) => void vote(row, choice)} /> : null}
                 {row.kind === "text" ? <p className="break-words">{linkParts(row.body)}</p> : null}
                 {row.kind === "sticker" && row.sticker ? <ChatStickerView id={row.sticker.id} icon={row.sticker.icon} color={row.sticker.color} /> : null}
@@ -2067,7 +2067,7 @@ export function MessageBoard({
   onAddToMap: (photo: ChatPhoto, place: ChatPlaceOption) => Promise<void>;
   onOpenPlace?: (place: ChatPlace, from?: Thread) => void;
   onOpenTrail?: (lines: [number, number][][]) => void;
-  onOpenHere?: (lat: number, lon: number, label?: string) => void;
+  onOpenHere?: (lat: number, lon: number, label?: string, from?: Thread) => void;
   onOpenBoard?: (id: string) => void;
   you?: Fix | null;
   onClose: () => void;
