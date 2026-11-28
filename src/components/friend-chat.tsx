@@ -883,7 +883,7 @@ export function ChatThread({
                 className={
                   row.kind === "sticker"
                     ? "max-w-[78%] select-none " + textClass
-                    : "max-w-[78%] rounded-2xl px-3 py-1.5 leading-snug select-none " + textClass + (row.kind === "text" ? "" : " w-64") + (mine ? " rounded-br-md bg-elevated" : " rounded-bl-md border border-line")
+                    : "max-w-[78%] rounded-2xl px-3 py-1.5 leading-snug select-none " + textClass + (row.kind === "text" ? "" : row.kind === "photo" ? " w-fit max-w-64" : " w-64") + (mine ? " rounded-br-md bg-elevated" : " rounded-bl-md border border-line")
                 }
                 style={row.kind === "sticker" ? undefined : bubblePaint(mine, look)}
               >
@@ -2448,8 +2448,8 @@ function ChatImage({ thread, meId, id, thumb }: { thread: Thread; meId: string; 
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
-  // The whole picture at its own shape (a tall camera shot isn't cut off); very tall ones get narrower, not cropped.
-  return <img ref={box} src={sharp ?? thumb} alt="" className="mx-auto block h-auto max-h-[60dvh] w-auto max-w-full rounded-md" />;
+  // The whole picture at its own shape, at most 320 px tall (a fixed size, so the keyboard opening doesn't squeeze it).
+  return <img ref={box} src={sharp ?? thumb} alt="" className="mx-auto block h-auto max-h-80 w-auto max-w-full rounded-md" />;
 }
 
 function initials(name: string) {
