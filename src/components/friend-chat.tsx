@@ -2357,7 +2357,8 @@ function ChatImage({ thread, meId, id, thumb }: { thread: Thread; meId: string; 
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
-  return <img ref={box} src={sharp ?? thumb} alt="" className="max-h-72 w-full rounded-md object-cover" />;
+  // The whole picture at its own shape (a tall camera shot isn't cut off); very tall ones get narrower, not cropped.
+  return <img ref={box} src={sharp ?? thumb} alt="" className="mx-auto block h-auto max-h-[60dvh] w-auto max-w-full rounded-md" />;
 }
 
 function initials(name: string) {
