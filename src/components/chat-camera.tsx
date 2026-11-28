@@ -67,6 +67,9 @@ export function ChatCamera({
   const [facing, setFacing] = useState<"environment" | "user">("environment");
   const [live, setLive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Bumped by "Try again". */
+  const [attempt, setAttempt] = useState(0);
+  const snapInput = useRef<HTMLInputElement>(null);
   const [flash, setFlash] = useState(false);
   /** The picture taken (or picked), as a data URL, and its size. */
   const [shot, setShot] = useState<{ src: string; w: number; h: number } | null>(null);
@@ -112,39 +115,94 @@ export function ChatCamera({
     let dead = false;
     setLive(false);
     setError(null);
+    const stop = () => {
+      stream.current?.getTracks().forEach((track) => track.stop());
+      stream.current = null;
+    };
+    /** getUserMedia, but not forever (a stream that turns up late is switched straight off). */
+    const ask = (wanted: MediaTrackConstraints | true, ms: number) =>
+      new Promise<MediaStream>((resolve, reject) => {
+        let done = false;
+        const timer = window.setTimeout(() => {
+          done = true;
+          reject(new DOMException("timeout", "TimeoutError"));
+        }, ms);
+        navigator.mediaDevices.getUserMedia({ video: wanted, audio: false }).then(
+          (media) => {
+            window.clearTimeout(timer);
+            if (done || dead) media.getTracks().forEach((track) => track.stop());
+            else {
+              done = true;
+              resolve(media);
+            }
+          },
+          (err) => {
+            window.clearTimeout(timer);
+            if (!done) {
+              done = true;
+              reject(err);
+            }
+          },
+        );
+      });
+    /** Pictures are actually coming in (some phones hand over a stream that never shows anything). */
+    const showing = (node: HTMLVideoElement, ms: number) =>
+      new Promise<boolean>((resolve) => {
+        const t0 = performance.now();
+        const look = () => {
+          if (dead) resolve(false);
+          else if (node.videoWidth > 0 && node.readyState >= 2) resolve(true);
+          else if (performance.now() - t0 > ms) resolve(false);
+          else window.setTimeout(look, 100);
+        };
+        look();
+      });
     void (async () => {
+      let last: unknown = null;
       try {
-        if (!navigator.mediaDevices?.getUserMedia) throw new Error("none");
-        await allowCamera().catch((err) => {
+        if (!navigator.mediaDevices?.getUserMedia) throw new DOMException("none", "NotSupportedError");
+        // The phone's permission ask, but never stuck on it: the camera itself asks too.
+        await Promise.race([allowCamera(), new Promise<void>((resolve) => window.setTimeout(resolve, 15000))]).catch((err) => {
           if (String(err?.message ?? err).includes("denied")) throw new DOMException("denied", "NotAllowedError");
         });
-        const media = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1920 } },
-          audio: false,
-        });
-        if (dead) {
-          media.getTracks().forEach((track) => track.stop());
-          return;
+        // A sharp picture first; if this phone's camera won't start that way, plainer.
+        const tries: (MediaTrackConstraints | true)[] = [{ facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } }, { facingMode: { ideal: facing } }, true];
+        for (const wanted of tries) {
+          if (dead) return;
+          try {
+            const media = await ask(wanted, 8000);
+            stream.current = media;
+            const node = video.current;
+            if (!node) return;
+            node.muted = true;
+            node.srcObject = media;
+            void node.play().catch(() => undefined);
+            if (await showing(node, 4000)) {
+              if (!dead) setLive(true);
+              return;
+            }
+            stop();
+            last = new DOMException("no picture", "NotReadableError");
+          } catch (err) {
+            last = err;
+            // No permission: asking another way won't help.
+            if (err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "SecurityError")) throw err;
+          }
         }
-        stream.current = media;
-        const node = video.current;
-        if (node) {
-          node.srcObject = media;
-          await node.play().catch(() => undefined);
-        }
-        setLive(true);
+        throw last ?? new DOMException("none", "NotReadableError");
       } catch (err) {
         if (dead) return;
-        const denied = err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "SecurityError");
-        setError(denied ? "The camera needs permission. Allow the camera for Atlas, or pick a photo instead." : "Couldn't start the camera. You can pick a photo instead.");
+        stop();
+        const name = err instanceof Error || err instanceof DOMException ? err.name : "";
+        const denied = name === "NotAllowedError" || name === "SecurityError";
+        setError(denied ? "The camera needs permission. Allow the camera for this app in the phone's settings." : `The camera here didn't start${name && name !== "Error" ? ` (${name})` : ""}.`);
       }
     })();
     return () => {
       dead = true;
-      stream.current?.getTracks().forEach((track) => track.stop());
-      stream.current = null;
+      stop();
     };
-  }, [facing, shot]);
+  }, [facing, shot, attempt]);
 
   function retake() {
     setShot(null);
@@ -322,7 +380,15 @@ export function ChatCamera({
         }}
       >
         {!shot ? (
-          <video ref={video} playsInline muted className={"absolute inset-0 size-full object-cover " + (facing === "user" ? "-scale-x-100" : "")} />
+          // No poster: Android shows a big grey play button until the picture comes in.
+          <video
+            ref={video}
+            playsInline
+            muted
+            autoPlay
+            poster={NO_POSTER}
+            className={"absolute inset-0 size-full bg-black object-cover transition-opacity duration-200 " + (live ? "opacity-100" : "opacity-0") + (facing === "user" ? " -scale-x-100" : "")}
+          />
         ) : null}
         {shot && rect ? (
           <>
@@ -412,13 +478,20 @@ export function ChatCamera({
           </>
         ) : null}
         {flash ? <div className="pointer-events-none absolute inset-0 bg-white" /> : null}
-        {!shot && !live && !error ? <p className="absolute inset-x-0 top-1/2 text-center text-sm text-white/70">Starting the camera…</p> : null}
         {error && !shot ? (
-          <div className="absolute inset-x-6 top-1/2 -translate-y-1/2 rounded-2xl bg-black/60 p-4 text-center text-sm">
+          <div className="absolute inset-x-6 top-1/2 -translate-y-1/2 rounded-2xl bg-white/10 p-4 text-center text-sm">
             <p>{error}</p>
-            <button type="button" onClick={() => pick.current?.click()} className="mt-3 h-11 w-full rounded-full bg-white text-sm font-medium text-black">
-              Pick a photo
+            <button type="button" onClick={() => snapInput.current?.click()} className="mt-3 h-11 w-full rounded-full bg-white text-sm font-medium text-black">
+              Use the phone's camera
             </button>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setAttempt((n) => n + 1)} className="h-11 rounded-full border border-white/30 text-sm">
+                Try again
+              </button>
+              <button type="button" onClick={() => pick.current?.click()} className="h-11 rounded-full border border-white/30 text-sm">
+                Pick a photo
+              </button>
+            </div>
           </div>
         ) : null}
 
@@ -477,6 +550,19 @@ export function ChatCamera({
         )}
         {error && shot ? <p className="absolute inset-x-4 -top-8 text-center text-sm text-white">{error}</p> : null}
       </div>
+      {/* The phone's own camera app, if the one in here won't start. */}
+      <input
+        ref={snapInput}
+        type="file"
+        accept="image/*"
+        capture={facing === "user" ? "user" : "environment"}
+        className="sr-only"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) picked(file);
+        }}
+      />
       <input
         ref={pick}
         type="file"
@@ -502,3 +588,6 @@ export function ChatCamera({
 
 /** A sticker's size on the picture before resizing, in screen pixels. */
 const STICKER_PX = 120;
+
+/** A see-through poster for the video, instead of Android's grey play button. */
+const NO_POSTER = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
