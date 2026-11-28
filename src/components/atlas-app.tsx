@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import { ScreenHeader } from "@/components/screen-header";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Sun, Cloud, CloudFog, CloudRain, CloudLightning, CloudSnow, Snowflake } from "lucide-react";
-import { Award, Car, ChartColumn, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleParking, CirclePlus, Compass, GripVertical, Images, ListTodo, Locate, LocateFixed, Mail, MapPinned, Navigation, Navigation2, Route as RouteIcon, Search, Settings, Users, Volume2, VolumeX, X } from "lucide-react";
+import { Award, Car, ChartColumn, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleParking, CirclePlus, Compass, GripVertical, Images, Locate, LocateFixed, MapPinned, Navigation, Navigation2, Route as RouteIcon, Search, Settings, Users, Volume2, VolumeX, X } from "lucide-react";
 import { useCurrentUser, useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
   loadMeta,
@@ -31,6 +31,10 @@ import { missedFixes, nativeDelivery, noteHandledFix } from "@/lib/native-tracki
 import { startChatChecks, useChat } from "@/lib/chat-store";
 import { onNotificationOpen } from "@/lib/message-watch";
 import { SendPlaceSheet, SendToSheet } from "@/components/chat-send";
+import { AppTabBar, type AppTab } from "@/components/app-tab-bar";
+import { FriendFaces } from "@/components/friend-faces";
+import { ChatCamera } from "@/components/chat-camera";
+import { chatPhotoData } from "@/lib/chat-photo";
 import { MessageBoard } from "@/components/friend-chat";
 import { BoardsPage } from "@/components/boards-page";
 import { StopsLog, type GroupSpot } from "@/components/stops-log";
@@ -503,6 +507,13 @@ function AtlasShell() {
   const [boardsOpen, setBoardsOpen] = useState(false);
   // Car care due soon (a dot on the Boards button; a phone note once a day).
   const [carDue, setCarDue] = useState(0);
+  // The tab bar's camera: take a picture, then pick who gets it.
+  const [snapOpen, setSnapOpen] = useState(false);
+  const [snap, setSnap] = useState<{ image: string; thumb: string; lat: number | null; lon: number | null; takenAt: number } | null>(null);
+  /** Friends' faces showing along the bottom of the map (the zoom buttons sit above them). */
+  const [facesCount, setFacesCount] = useState(0);
+  /** Boards was opened from the tab bar (so it stops above it), not from a chat. */
+  const [boardsTabbed, setBoardsTabbed] = useState(false);
   useEffect(() => {
     if (!user?.id || boardsOpen) return;
     let live = true;
@@ -2155,6 +2166,55 @@ function AtlasShell() {
   }, [marks, offers, stateAbbr, viewBase, viewZoom]);
 
   const cardOnly = mapCard && focus != null;
+
+  // The tab bar: Map (the menu tucked away), Chats, Boards, and You (the menu up).
+  const tabsOn = Boolean(user?.id) && !driving;
+  const lastSheetUp = useRef(50);
+  useEffect(() => {
+    if (sheet > 12) lastSheetUp.current = sheet;
+  }, [sheet]);
+  const activeTab: AppTab = mailOpen ? "chats" : boardsOpen && boardsTabbed ? "boards" : sheet > 12 && !cardOnly ? "you" : "map";
+  function pickTab(next: AppTab) {
+    setGhostOpen(false);
+    if (next !== "chats") {
+      setMailOpen(false);
+      setMailThread(null);
+    }
+    if (next !== "boards") {
+      setBoardsOpen(false);
+      setBoardsTabbed(false);
+      setBoardFocus(null);
+    }
+    if (next === "map") {
+      if (cardOnly) closeCard();
+      setSheet(8);
+    } else if (next === "you") {
+      // Already up: tapping again makes it taller (or back to half).
+      if (activeTab === "you") setSheet(sheet >= 80 ? 50 : 100);
+      else setSheet(sheet > 12 ? sheet : lastSheetUp.current);
+    } else if (next === "chats") {
+      setMailOpen(true);
+    } else {
+      setBoardFocus(null);
+      setBoardsTabbed(true);
+      setBoardsOpen(true);
+    }
+  }
+  /** Hold a friend's face: where they are (if they share it), otherwise their page. */
+  function holdFace(id: string, name: string) {
+    const pin = livePins.find((item) => item.id === id);
+    if (pin) {
+      setSpot({ id: `friend:${id}`, lat: pin.lat, lon: pin.lon, from: null, sheet, label: `${name} · ${pin.live ? "live now" : `seen ${seenAgo(pin.seenAt)}`}` });
+      setSheetInstant(true);
+      setSheet(8);
+      window.setTimeout(() => setSheetInstant(false), 80);
+    } else {
+      setFriendId(id);
+      setTab("friends");
+      setSheet(58);
+    }
+  }
+
   // Driving: a tapped place's card fills the screen and closes on its own after
   // 12 seconds untouched (any touch on it starts the count again).
   const [cardTouch, setCardTouch] = useState(0);
@@ -2629,7 +2689,7 @@ function AtlasShell() {
 
   return (
     <main
-      className={"app-shell bg-bg text-ink" + (sheetInstant ? " sheet-drag" : "") + (cardOnly ? " sheet-card" : "") + (driving ? " drive-mode" : "")}
+      className={"app-shell bg-bg text-ink" + (sheetInstant ? " sheet-drag" : "") + (cardOnly ? " sheet-card" : "") + (driving ? " drive-mode" : "") + (tabsOn ? " has-tabs" : "")}
       style={cardOnly ? undefined : { ["--sheet" as string]: sheet <= 12 ? "var(--sheet-peek)" : `${sheet}dvh` }}
     >
       {popped ? null : <UpdatePrompt hold={driving} />}
@@ -2663,7 +2723,7 @@ function AtlasShell() {
           </button>
         </div>
       ) : null}
-      <section className={"app-map relative min-h-0" + (driving ? "" : " with-tools")}>
+      <section className={"app-map relative min-h-0" + (driving ? "" : " with-tools") + (tabsOn && facesCount && !toolsTucked ? " with-faces" : "")}>
         {meta ? (
           <Suspense fallback={<div className="grid h-full place-items-center text-muted">Opening the map…</div>}>
             <AtlasMap
@@ -3025,11 +3085,6 @@ function AtlasShell() {
                   <>
                     <span className={"ghost-dot size-2 rounded-full " + (locating ? "is-live" : "opacity-60")} style={{ background: ghostColor }} />
                     {locating && liveViewers.length ? <span className="size-2 animate-pulse rounded-full bg-accent" /> : null}
-                    {unreadTotal ? (
-                      <span className="grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] font-medium text-accent-ink">
-                        {unreadTotal > 99 ? "99+" : unreadTotal}
-                      </span>
-                    ) : null}
                   </>
                 ) : null}
               </button>
@@ -3080,44 +3135,22 @@ function AtlasShell() {
             {/* On a narrow phone the row only fits with Drive as just its icon. */}
             <span className="max-[370px]:sr-only">Drive</span>
           </button>
-          {user?.id ? (
-            <button
-              type="button"
-              aria-label="Boards"
-              onClick={() => {
-                if (sheet > 8) setSheet(8);
-                setGhostOpen(false);
-                setBoardFocus(null);
-                setBoardsOpen(true);
-              }}
-              className="relative grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line bg-surface/95 text-accent shadow-sm backdrop-blur-sm"
-            >
-              <ListTodo className="size-5" />
-              {carDue ? <span className="absolute top-1.5 right-1.5 size-2.5 rounded-full border-2 border-surface bg-accent" aria-label="Car care due" /> : null}
-            </button>
-          ) : null}
-          {user?.id ? (
-            <button
-              type="button"
-              aria-label={unreadTotal ? `Messages, ${unreadTotal} new` : "Messages"}
-              onClick={() => {
-                if (sheet > 8) setSheet(8);
-                setGhostOpen(false);
-                setMailOpen(true);
-              }}
-              className="relative grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line bg-surface/95 shadow-sm backdrop-blur-sm"
-            >
-              <Mail className="size-5" />
-              {unreadTotal ? (
-                <span className="absolute -top-1 -right-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] font-medium text-accent-ink">
-                  {unreadTotal > 99 ? "99+" : unreadTotal}
-                </span>
-              ) : null}
-            </button>
-          ) : null}
+          {/* Boards and Messages are on the tab bar now (Chats, Boards). */}
                 </>
               ) : null}
             </div>
+          ) : null}
+          {tabsOn && !toolsTucked && user?.id ? (
+            <FriendFaces
+              meId={user.id}
+              onCount={setFacesCount}
+              onOpen={(id) => {
+                setGhostOpen(false);
+                setMailThread({ kind: "friend", id });
+                setMailOpen(true);
+              }}
+              onHold={holdFace}
+            />
           ) : null}
         </div>
         {recapTrip && trips.some((trip) => trip.id === recapTrip.id) ? (
@@ -3156,6 +3189,7 @@ function AtlasShell() {
               visitedOn: [...mark.visits].map((visit) => visit.visitedOn).filter(Boolean).sort().at(-1) ?? null,
             }))}
             initial={mailThread}
+            tabbed={tabsOn}
             onClose={() => {
               setMailOpen(false);
               setMailThread(null);
@@ -3232,8 +3266,10 @@ function AtlasShell() {
         {boardsOpen && user?.id ? (
           <BoardsPage
             focusId={boardFocus}
+            tabbed={boardsTabbed && tabsOn}
             onClose={() => {
               setBoardsOpen(false);
+              setBoardsTabbed(false);
               setBoardFocus(null);
             }}
           />
@@ -3939,6 +3975,45 @@ function AtlasShell() {
           </>
         )}
       </aside>
+      {tabsOn ? (
+        <AppTabBar
+          active={activeTab}
+          unread={unreadTotal}
+          boardsDot={Boolean(carDue)}
+          icon={markerIcon}
+          color={markerColor}
+          onTab={pickTab}
+          onCamera={() => {
+            setGhostOpen(false);
+            setSnapOpen(true);
+          }}
+        />
+      ) : null}
+      {snapOpen ? (
+        <ChatCamera
+          icon={markerIcon}
+          color={markerColor}
+          canPlace={Boolean(tracker ?? you)}
+          sendLabel="Send to…"
+          onClose={() => setSnapOpen(false)}
+          onSend={async (file, withPlace) => {
+            const fix = tracker ?? you;
+            const picture = await chatPhotoData(file);
+            setSnap({ ...picture, lat: withPlace && fix ? fix.lat : null, lon: withPlace && fix ? fix.lon : null, takenAt: Date.now() });
+          }}
+        />
+      ) : null}
+      {snap ? (
+        <SendToSheet
+          label="Send the picture"
+          hint="Who gets it?"
+          onClose={() => setSnap(null)}
+          onSend={async (thread) => {
+            const id = `m-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+            await sendToThread({ data: { thread, id, kind: "photo", body: "", ...snap } });
+          }}
+        />
+      ) : null}
       {tourOpen ? <Tour step={tourStep} onStep={setTourStep} onDone={finishTour} /> : null}
     </main>
   );

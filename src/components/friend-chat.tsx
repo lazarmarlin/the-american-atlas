@@ -35,6 +35,7 @@ import { stickerText, type StickerInfo } from "@/lib/stickers";
 import { useChatPulse, usePulseFor } from "@/lib/chat-pulse-live";
 import { STREAK_HURRY_MS, STREAK_SHOWS, myStreaks, myZone, type Streak } from "@/lib/chat-pulse";
 import { Sticker } from "lucide-react";
+import { chatPhotoData } from "@/lib/chat-photo";
 
 const PHOTO_LINK = /^https?:\/\/(?:photos\.app\.goo\.gl|photos\.google\.com|goo\.gl\/photos)\/\S+$/i;
 
@@ -77,32 +78,6 @@ const MARKS: [ReactionMark, string][] = [
   ["been", "🏕️"],
   ["car", "🚗"],
 ];
-
-function shrinkChatPhoto(file: File, edge: number, quality: number) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Couldn't read that photo"));
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const scale = Math.min(1, edge / Math.max(img.width, img.height));
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, Math.round(img.width * scale));
-        canvas.height = Math.max(1, Math.round(img.height * scale));
-        const g = canvas.getContext("2d");
-        if (!g) {
-          reject(new Error("Couldn't read that photo"));
-          return;
-        }
-        g.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", quality));
-      };
-      img.onerror = () => reject(new Error("Couldn't read that photo"));
-      img.src = String(reader.result);
-    };
-    reader.readAsDataURL(file);
-  });
-}
 
 function linkParts(text: string) {
   return text.split(/(https?:\/\/\S+)/g).map((part, index) =>
@@ -450,12 +425,7 @@ export function ChatThread({
       // Where and when it was taken, so whoever adds it to the map gets the place suggested.
       // (A picture taken in the app has no GPS in it: then where you are, if you chose to send it.)
       const gps = at ? { ...at, takenAt: Date.now() } : readGps(await file.arrayBuffer());
-      // Big enough to look sharp on a phone screen (the old 640 px / 200 px ones were blurry).
-      let image = await shrinkChatPhoto(file, 1600, 0.82);
-      if (image.length > 690000) image = await shrinkChatPhoto(file, 1280, 0.75);
-      if (image.length > 690000) throw new Error("Use a smaller photo");
-      let thumb = await shrinkChatPhoto(file, 540, 0.75);
-      if (thumb.length > 115000) thumb = await shrinkChatPhoto(file, 400, 0.65);
+      const { image, thumb } = await chatPhotoData(file);
       const id = newId();
       const extra = { lat: gps?.lat ?? null, lon: gps?.lon ?? null, takenAt: gps?.takenAt ?? file.lastModified ?? null };
       const words = text.slice(0, 140);
@@ -2074,6 +2044,7 @@ export function MessageBoard({
   you = null,
   onClose,
   initial = null,
+  tabbed = false,
 }: {
   meId: string;
   places: ChatPlaceOption[];
@@ -2086,6 +2057,8 @@ export function MessageBoard({
   onClose: () => void;
   /** Open straight into this chat (back from a place it sent). */
   initial?: Thread | null;
+  /** Opened from the tab bar: stop above it, so it stays in view. */
+  tabbed?: boolean;
 }) {
   const [rows, setRows] = useState<BoardItem[] | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -2176,7 +2149,7 @@ export function MessageBoard({
     );
   }
   return createPortal(
-    <div role="dialog" aria-label="Messages" className="screen-top fixed inset-0 z-40 flex flex-col bg-bg">
+    <div role="dialog" aria-label="Messages" className={(tabbed ? "tab-screen " : "") + "screen-top fixed inset-0 z-40 flex flex-col bg-bg"}>
       <ScreenHeader title="Messages" onBack={onClose} />
       <form
         className="px-3 pt-3"

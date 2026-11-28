@@ -65,6 +65,7 @@ async function stateHere() {
 export function BoardsPage({
   focusId = null,
   thread = null,
+  tabbed = false,
   onClose,
   onSent,
 }: {
@@ -72,6 +73,8 @@ export function BoardsPage({
   focusId?: string | null;
   /** When set, Send puts the board in this chat instead of picking a friend. */
   thread?: Thread | null;
+  /** Opened from the tab bar: stop above it, so it stays in view. */
+  tabbed?: boolean;
   onClose: () => void;
   onSent?: () => void;
 }) {
@@ -135,7 +138,7 @@ export function BoardsPage({
   const shared = (rows ?? []).filter((row) => row.role !== "owner");
 
   return createPortal(
-    <div role="dialog" aria-label="Boards" className="screen-top fixed inset-0 z-50 flex flex-col bg-bg">
+    <div role="dialog" aria-label="Boards" className={(tabbed ? "tab-screen " : "") + "screen-top fixed inset-0 z-50 flex flex-col bg-bg"}>
       <ScreenHeader
         title="Boards"
         onBack={back}

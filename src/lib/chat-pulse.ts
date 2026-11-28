@@ -206,6 +206,40 @@ export const myStreaks = createServerFn({ method: "POST" })
     return out;
   });
 
+export type FriendFace = { id: string; name: string; icon: string; color: string; lastAt: number | null };
+
+/** Your friends' map avatars for the row of faces on the map: whoever you've talked to most recently first. */
+export const friendFaces = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<FriendFace[]> => {
+    const me = context.userId;
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    const rows = await sql<{ id: string; name: string; icon: string | null; color: string | null; last_at: number | null }>`
+      select f.friend_id as id,
+        coalesce(nullif(p.name, ''), nullif(u.name, ''), 'Friend') as name,
+        p.marker_icon as icon,
+        p.marker_color as color,
+        (
+          select (extract(epoch from max(m.created_at)) * 1000)::float8 from messages m
+          where (m.from_id = ${me} and m.to_id = f.friend_id) or (m.from_id = f.friend_id and m.to_id = ${me})
+        ) as last_at
+      from friendships f
+      left join profiles p on p.user_id = f.friend_id
+      left join "user" u on u.id = f.friend_id
+      where f.user_id = ${me}
+      order by last_at desc nulls last, 2
+      limit 40
+    `;
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name || "Friend",
+      icon: isMarkerIcon(row.icon) ? row.icon : DEFAULT_MARKER_ICON,
+      color: isMarkerColor(row.color) ? row.color.toLowerCase() : DEFAULT_MARKER_COLOR,
+      lastAt: row.last_at == null ? null : Number(row.last_at),
+    }));
+  });
+
 /** Your time zone, for counting days the way you live them. */
 export function myZone() {
   try {

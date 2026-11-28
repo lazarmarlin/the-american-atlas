@@ -46,6 +46,7 @@ export function ChatCamera({
   icon,
   color,
   canPlace,
+  sendLabel = "Send",
   onClose,
   onSend,
 }: {
@@ -54,6 +55,8 @@ export function ChatCamera({
   color: string;
   /** There's a location to send with it. */
   canPlace: boolean;
+  /** "Send to…" when who gets it is picked next. */
+  sendLabel?: string;
   onClose: () => void;
   onSend: (file: File, withPlace: boolean) => Promise<void> | void;
 }) {
@@ -468,7 +471,7 @@ export function ChatCamera({
             <p className="absolute left-5 max-w-[45%] text-xs text-white/60">{withPlace && canPlace ? "Sends where you are too" : "Tap the picture to write on it"}</p>
             <button type="button" disabled={busy} onClick={() => void send()} className="absolute right-5 flex h-12 items-center gap-2 rounded-full bg-white pr-5 pl-4 text-[15px] font-semibold text-black disabled:opacity-60">
               <Send className="size-4" />
-              {busy ? "Sending…" : "Send"}
+              {busy ? "One moment…" : sendLabel}
             </button>
           </>
         )}

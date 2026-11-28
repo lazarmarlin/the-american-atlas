@@ -225,11 +225,38 @@
   gap: 0.25rem;
 }
 
+/* The tab bar along the bottom (src/components/app-tab-bar.tsx). With it, the
+   menu tucks all the way away (the You tab brings it back), and Chats and
+   Boards stop above the bar so it stays in view. */
+.app-tabs {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.app-shell.drive-mode .app-tabs {
+  display: none;
+}
+.tab-screen {
+  bottom: var(--tabs-h, 0px);
+}
+
 /* Stacked (map over menu): upright phones. The second list is the exact
    opposite of the side-by-side one below. */
 @media (max-width: 899px) and (orientation: portrait), (max-width: 899px) and (min-height: 541px), (max-width: 639px) {
   .app-shell.sheet-card {
     grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .app-shell.has-tabs {
+    --sheet-peek: 0px;
+    grid-template-rows: minmax(0, 1fr) min(var(--sheet, 46dvh), calc(100dvh - var(--tabs-h, 4rem))) auto;
+  }
+
+  .app-shell.has-tabs.sheet-card {
+    grid-template-rows: minmax(0, 1fr) auto auto;
+  }
+
+  .app-shell.has-tabs .app-tabs {
+    grid-column: 1;
+    grid-row: 3;
   }
 
   .app-sheet .safe-top {
@@ -263,6 +290,15 @@
 
   .sheet-handle {
     display: none;
+  }
+
+  .app-shell.has-tabs {
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .app-shell.has-tabs .app-tabs {
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
 }
 
@@ -317,6 +353,12 @@
    above it, so the last button in the row (messages) never slides under the minus. */
 .app-map.with-tools .maplibregl-map .maplibregl-ctrl-bottom-right {
   bottom: calc(max(0.75rem, env(safe-area-inset-bottom)) + 2.75rem);
+}
+
+/* With friends' faces along the bottom: the zoom buttons sit above the faces
+   (beside the short Ghost trail and Drive row). */
+.app-map.with-tools.with-faces .maplibregl-map .maplibregl-ctrl-bottom-right {
+  bottom: calc(max(0.75rem, env(safe-area-inset-bottom)) + 4.25rem);
 }
 
 .app-map .maplibregl-map .maplibregl-ctrl-bottom-left {
@@ -468,3 +510,13 @@
 }
 .streak-flame { display: inline-block; animation: sticker-wobble 1.2s ease-in-out infinite; transform-origin: 50% 90%; }
 @media (prefers-reduced-motion: reduce) { .streak-flame { animation: none; } }
+
+/* A friend's face with new messages bounces now and then. */
+.face-bounce { animation: face-bounce 2.6s ease-in-out infinite; }
+@keyframes face-bounce {
+  0%, 70%, 100% { transform: translateY(0); }
+  78% { transform: translateY(-6px); }
+  86% { transform: translateY(0); }
+  92% { transform: translateY(-3px); }
+}
+@media (prefers-reduced-motion: reduce) { .face-bounce { animation: none; } }
