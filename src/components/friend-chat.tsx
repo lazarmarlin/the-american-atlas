@@ -36,6 +36,7 @@ import { useChatPulse, usePulseFor } from "@/lib/chat-pulse-live";
 import { STREAK_HURRY_MS, STREAK_SHOWS, myStreaks, myZone, type Streak } from "@/lib/chat-pulse";
 import { Sticker } from "lucide-react";
 import { chatPhotoData } from "@/lib/chat-photo";
+import { nativeApp } from "@/lib/native";
 import { arrangeChats, useChatPins } from "@/lib/chat-pins";
 import { PinOff } from "lucide-react";
 
@@ -476,7 +477,15 @@ export function ChatThread({
     event.currentTarget.setPointerCapture(event.pointerId);
     try {
       await allowMic();
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (first) {
+        if (first instanceof DOMException && (first.name === "NotAllowedError" || first.name === "SecurityError") && !nativeApp) throw first;
+        // Right after the phone allows the mic, the first try can still fail: once more.
+        await new Promise((resolve) => window.setTimeout(resolve, 400));
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
       if (recordToken.current !== token) {
         stream.getTracks().forEach((track) => track.stop());
         setNote("Hold the mic and keep holding while it starts.");
@@ -531,7 +540,8 @@ export function ChatThread({
       }, 30_000);
     } catch (err) {
       const denied = err instanceof DOMException ? err.name === "NotAllowedError" || err.name === "SecurityError" : err instanceof Error && /denied|permission/i.test(err.message);
-      setNote(denied ? "The mic needs permission. Allow the microphone for Atlas, then hold the button again." : "Couldn't start the microphone.");
+      const name = err instanceof DOMException || err instanceof Error ? err.name : "";
+      setNote(denied ? "The mic needs permission. Allow the microphone for this app, then hold the button again." : `Couldn't start the microphone${name && name !== "Error" ? ` (${name})` : ""}.`);
     }
   }
 
@@ -2035,6 +2045,10 @@ export function ChatScreen({
 }
 
 /** The mail button's page: every chat, newest first. Tap one to open it. */
+/** The chat you were last in, and when you left it: the Chats tab goes back into it within 5 minutes. */
+let lastChat: { thread: Thread; at: number } | null = null;
+const LAST_CHAT_MS = 5 * 60 * 1000;
+
 export function MessageBoard({
   meId,
   places,
@@ -2065,6 +2079,20 @@ export function MessageBoard({
   const [rows, setRows] = useState<BoardItem[] | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [open, setOpen] = useState<BoardItem | null>(null);
+  // Back to Chats soon after leaving a chat (another tab, the map): straight back into that chat.
+  const [start] = useState<Thread | null>(() => initial ?? (tabbed && lastChat && Date.now() - lastChat.at < LAST_CHAT_MS ? lastChat.thread : null));
+  const openRef = useRef(open);
+  openRef.current = open;
+  useEffect(() => {
+    if (open) lastChat = { thread: open.thread, at: Date.now() };
+  }, [open]);
+  useEffect(
+    () => () => {
+      // Leaving with a chat open: remember when.
+      if (openRef.current) lastChat = { thread: openRef.current.thread, at: Date.now() };
+    },
+    [],
+  );
   const [focusId, setFocusId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<ChatHit[] | null>(null);
@@ -2105,9 +2133,9 @@ export function MessageBoard({
         setRows(next);
         setNote(null);
         void cacheBoard(meId, next);
-        if (initial && !reopened.current) {
+        if (start && !reopened.current) {
           reopened.current = true;
-          const row = next.find((item) => item.thread.kind === initial.kind && item.thread.id === initial.id);
+          const row = next.find((item) => item.thread.kind === start.kind && item.thread.id === start.id);
           if (row) setOpen(row);
         }
       })
@@ -2118,9 +2146,9 @@ export function MessageBoard({
           if (saved?.length) {
             setRows((cur) => cur ?? saved);
             setNote("No connection. Showing saved messages.");
-            if (initial && !reopened.current) {
+            if (start && !reopened.current) {
               reopened.current = true;
-              const row = saved.find((item) => item.thread.kind === initial.kind && item.thread.id === initial.id);
+              const row = saved.find((item) => item.thread.kind === start.kind && item.thread.id === start.id);
               if (row) setOpen(row);
             }
           } else setNote(navigator.onLine === false || /fetch|network/i.test(String(err)) ? "No connection. Messages show here once they've loaded with a signal." : err instanceof Error ? err.message : "Couldn't open messages.");
@@ -2135,7 +2163,10 @@ export function MessageBoard({
     return (
       <ChatScreen
         title={nickOf(meId, open.thread.kind, open.thread.id, open.title)}
-        onClose={() => setOpen(null)}
+        onClose={() => {
+          if (open) lastChat = { thread: open.thread, at: Date.now() };
+          setOpen(null);
+        }}
         thread={open.thread}
         meId={meId}
         places={places}

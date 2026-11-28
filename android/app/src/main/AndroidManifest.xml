@@ -98,6 +98,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Voice notes in chat (the web view asks at runtime). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- The web view asks for this along with RECORD_AUDIO when a voice note starts;
+         without it Android turns the pair down and the microphone won't start. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Taking a picture in a chat. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
