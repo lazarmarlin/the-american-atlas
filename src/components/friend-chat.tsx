@@ -36,6 +36,8 @@ import { useChatPulse, usePulseFor } from "@/lib/chat-pulse-live";
 import { STREAK_HURRY_MS, STREAK_SHOWS, myStreaks, myZone, type Streak } from "@/lib/chat-pulse";
 import { Sticker } from "lucide-react";
 import { chatPhotoData } from "@/lib/chat-photo";
+import { arrangeChats, useChatPins } from "@/lib/chat-pins";
+import { PinOff } from "lucide-react";
 
 const PHOTO_LINK = /^https?:\/\/(?:photos\.app\.goo\.gl|photos\.google\.com|goo\.gl\/photos)\/\S+$/i;
 
@@ -2068,6 +2070,13 @@ export function MessageBoard({
   const [hits, setHits] = useState<ChatHit[] | null>(null);
   const unread = useChat((state) => state.summary);
   const [streaks, setStreaks] = useState<Record<string, Streak>>({});
+  const pins = useChatPins();
+  useEffect(() => pins.load(meId), [meId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [rowMenu, setRowMenu] = useState<BoardItem | null>(null);
+  const press = useRef<{ timer: number; fired: boolean } | null>(null);
+  const rowKey = (row: BoardItem) => `${row.thread.kind}:${row.thread.id}`;
+  const unreadOf = (row: BoardItem) => (row.thread.kind === "friend" ? unread.friends[row.thread.id] : unread.groups[row.thread.id]) ?? 0;
+  const arranged = rows ? arrangeChats(rows, rowKey, (row) => row.at, unreadOf, pins) : null;
   useLookVersion();
   useBackClose(onClose);
   useEffect(() => {
@@ -2203,13 +2212,33 @@ export function MessageBoard({
         {rows === null && !note ? <p className="text-sm text-muted">Loading…</p> : null}
         {rows && rows.length === 0 ? <p className="text-sm text-muted">No friends yet. A chat shows up here once you add one.</p> : null}
         <ul className="grid grid-cols-[minmax(0,1fr)] gap-1">
-          {rows?.map((row) => {
+          {arranged?.map((row) => {
             const n = row.thread.kind === "friend" ? unread.friends[row.thread.id] : unread.groups[row.thread.id];
+            const pinned = pins.pinned.includes(rowKey(row));
             return (
               <li key={`${row.thread.kind}:${row.thread.id}`}>
                 <button
                   type="button"
-                  onClick={() => setOpen(row)}
+                  // Hold for pin / remove.
+                  onPointerDown={() => {
+                    const timer = window.setTimeout(() => {
+                      if (press.current) press.current.fired = true;
+                      navigator.vibrate?.(12);
+                      setRowMenu(row);
+                    }, 480);
+                    press.current = { timer, fired: false };
+                  }}
+                  onPointerMove={(event) => {
+                    if (press.current && (Math.abs(event.movementX) > 4 || Math.abs(event.movementY) > 4)) window.clearTimeout(press.current.timer);
+                  }}
+                  onPointerUp={() => press.current && window.clearTimeout(press.current.timer)}
+                  onPointerCancel={() => press.current && window.clearTimeout(press.current.timer)}
+                  onContextMenu={(event) => event.preventDefault()}
+                  onClick={() => {
+                    const held = press.current?.fired;
+                    press.current = null;
+                    if (!held) setOpen(row);
+                  }}
                   className={
                     "flex w-full items-center gap-3 rounded-2xl px-2.5 py-2.5 text-left transition-colors active:bg-elevated " +
                     (n ? "bg-surface shadow-sm" : "")
@@ -2221,6 +2250,7 @@ export function MessageBoard({
                       <span className={"min-w-0 truncate text-[15px] " + (n ? "font-semibold" : "font-medium")}>{nickOf(meId, row.thread.kind, row.thread.id, row.title)}</span>
                       {row.thread.kind === "friend" && streaks[row.thread.id] ? <StreakChip streak={streaks[row.thread.id]} small /> : null}
                       <span className="flex-1" />
+                      {pinned ? <Pin className="size-3.5 shrink-0 text-faint" aria-label="Pinned" /> : null}
                       {row.at ? <span className={"shrink-0 text-[11px] " + (n ? "text-accent" : "text-faint")}>{agoText(row.at)}</span> : null}
                     </span>
                     <span className="mt-0.5 flex items-center gap-2">
@@ -2240,7 +2270,37 @@ export function MessageBoard({
             );
           })}
         </ul>
+        {rows?.length ? <p className="mt-4 text-center text-xs text-faint">Hold a chat to pin it to the top or remove it.</p> : null}
       </div>
+      {rowMenu ? (
+        <Sheet label={nickOf(meId, rowMenu.thread.kind, rowMenu.thread.id, rowMenu.title)} onClose={() => setRowMenu(null)}>
+          <div className="grid gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                pins.togglePin(rowKey(rowMenu));
+                setRowMenu(null);
+              }}
+              className="flex h-12 items-center gap-3 rounded-xl border border-line px-3 text-left active:bg-elevated"
+            >
+              {pins.pinned.includes(rowKey(rowMenu)) ? <PinOff className="size-5" /> : <Pin className="size-5" />}
+              {pins.pinned.includes(rowKey(rowMenu)) ? "Unpin" : "Pin to the top"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                pins.hide(rowKey(rowMenu));
+                setRowMenu(null);
+              }}
+              className="flex h-12 items-center gap-3 rounded-xl border border-line px-3 text-left active:bg-elevated"
+            >
+              <Trash2 className="size-5" />
+              Remove from your chats
+            </button>
+            <p className="px-1 text-xs text-faint">Removing only takes it off this list. It comes back when there's a new message, and nothing is deleted for them.</p>
+          </div>
+        </Sheet>
+      ) : null}
     </div>,
     document.body,
   );

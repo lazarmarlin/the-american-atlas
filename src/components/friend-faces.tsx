@@ -9,6 +9,7 @@ import { YouMarkerFace } from "@/components/you-marker-face";
 import { friendFaces, myStreaks, myZone, STREAK_HURRY_MS, type FriendFace, type Streak } from "@/lib/chat-pulse";
 import { useChat } from "@/lib/chat-store";
 import { nickOf } from "@/lib/chat-look";
+import { useChatPins } from "@/lib/chat-pins";
 
 const HOLD_MS = 480;
 
@@ -26,6 +27,9 @@ export function FriendFaces({
 }) {
   const [faces, setFaces] = useState<FriendFace[] | null>(null);
   const [streaks, setStreaks] = useState<Record<string, Streak>>({});
+  const pinned = useChatPins((state) => state.pinned);
+  const loadPins = useChatPins((state) => state.load);
+  useEffect(() => loadPins(meId), [loadPins, meId]);
   const unread = useChat((state) => state.summary.friends);
   const unreadKey = Object.entries(unread)
     .map(([id, n]) => `${id}:${n}`)
@@ -63,8 +67,10 @@ export function FriendFaces({
   // New messages first, then whoever you talked to last.
   const shown = useMemo(() => {
     if (!faces) return [];
-    return [...faces].sort((a, b) => (unread[b.id] ?? 0) - (unread[a.id] ?? 0) || (b.lastAt ?? 0) - (a.lastAt ?? 0));
-  }, [faces, unread]);
+    // New messages first, then pinned chats, then whoever you talked to last.
+    const pin = (id: string) => (pinned.includes(`friend:${id}`) ? 1 : 0);
+    return [...faces].sort((a, b) => Math.sign(unread[b.id] ?? 0) - Math.sign(unread[a.id] ?? 0) || pin(b.id) - pin(a.id) || (b.lastAt ?? 0) - (a.lastAt ?? 0));
+  }, [faces, unread, pinned]);
 
   useEffect(() => {
     onCount?.(shown.length);
