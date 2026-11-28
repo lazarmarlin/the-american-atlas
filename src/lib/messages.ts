@@ -9,6 +9,8 @@ import { authMiddleware } from "@/lib/auth/middleware";
 import type { TripCard } from "@/lib/trips";
 import { trailCard, type ChatTrail } from "@/lib/trail-card";
 import { ALL_KINDS, type BoardCard } from "@/lib/boards";
+import { isStickerId, stickerText } from "@/lib/stickers";
+import { DEFAULT_MARKER_COLOR, DEFAULT_MARKER_ICON, isMarkerColor, isMarkerIcon } from "@/lib/you-marker";
 
 export type ChatPlace = {
   id: string;
@@ -33,6 +35,20 @@ export type ChatReaction = {
   car: number;
   mine: ReactionMark[];
 };
+
+function readSticker(body: string): ChatSticker | null {
+  try {
+    const row = JSON.parse(body) as Partial<ChatSticker>;
+    if (!row || !isStickerId(row.id)) return null;
+    return {
+      id: row.id,
+      icon: isMarkerIcon(row.icon) ? row.icon : DEFAULT_MARKER_ICON,
+      color: isMarkerColor(row.color) ? row.color : DEFAULT_MARKER_COLOR,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export function emptyReactions(): ChatReaction {
   return { up: 0, heart: 0, pin: 0, wave: 0, been: 0, car: 0, mine: [] };
@@ -84,7 +100,7 @@ export type ChatMessage = {
   id: string;
   fromId: string;
   fromName: string;
-  kind: "text" | "link" | "photo" | "place" | "trip" | "trail" | "here" | "day" | "voice" | "board" | "poll" | "where";
+  kind: "text" | "link" | "photo" | "place" | "trip" | "trail" | "here" | "day" | "voice" | "board" | "poll" | "where" | "sticker";
   body: string;
   thumb: string;
   at: number;
@@ -99,6 +115,7 @@ export type ChatMessage = {
   board?: BoardCard | null;
   poll?: ChatPoll | null;
   where?: ChatWhere | null;
+  sticker?: ChatSticker | null;
   reply?: ChatReply | null;
   reactions?: ChatReaction;
   /** Stuck to the top of this chat. */
@@ -111,6 +128,9 @@ export type ChatMessage = {
 
 export type Thread = { kind: "friend" | "group"; id: string };
 
+/** A sticker; the "you" ones carry the sender's map avatar as it was when sent. */
+export type ChatSticker = { id: string; icon: string; color: string };
+
 type Sql = Awaited<ReturnType<typeof import("@/lib/db").getSql>>;
 
 const USER_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -121,7 +141,7 @@ const JPEG = /^data:image\/jpeg;base64,/;
 const AUDIO = /^data:audio\/[a-z0-9.+-]+(?:;[^,]*)?;base64,/i;
 const PHOTO_LINK = /^https?:\/\/(?:photos\.app\.goo\.gl|photos\.google\.com|goo\.gl\/photos)\/[^\s]+$/i;
 
-function parseThread(value: unknown): Thread {
+export function parseThread(value: unknown): Thread {
   const row = (value ?? {}) as Record<string, unknown>;
   const id = String(row.id ?? "");
   if (row.kind === "group") {
@@ -154,7 +174,7 @@ function toMs(value: unknown) {
   return Number.isFinite(t) ? t : Date.now();
 }
 
-const readKey = (thread: Thread) => (thread.kind === "group" ? `g:${thread.id}` : thread.id);
+export const readKey = (thread: Thread) => (thread.kind === "group" ? `g:${thread.id}` : thread.id);
 
 /** The time through which everyone else in the chat has opened it. 0 if someone hasn't. */
 async function readThroughAt(sql: Sql, me: string, thread: Thread) {
@@ -177,7 +197,7 @@ async function readThroughAt(sql: Sql, me: string, thread: Thread) {
 }
 
 /** Throws unless you may read and write this conversation. */
-async function openThread(userId: string, thread: Thread): Promise<Sql> {
+export async function openThread(userId: string, thread: Thread): Promise<Sql> {
   const { getSql } = await import("@/lib/db");
   const sql = await getSql();
   const rows =
@@ -198,7 +218,7 @@ export async function namesFor(sql: Sql, ids: string[]) {
   return new Map(rows.map((row) => [row.id, row.name]));
 }
 
-const KINDS = ["link", "photo", "place", "trip", "trail", "here", "day", "voice", "board", "poll", "where"] as const;
+const KINDS = ["link", "photo", "place", "trip", "trail", "here", "day", "voice", "board", "poll", "where", "sticker"] as const;
 function kindOf(value: unknown): ChatMessage["kind"] {
   return (KINDS as readonly unknown[]).includes(value) ? (value as ChatMessage["kind"]) : "text";
 }
@@ -308,6 +328,7 @@ function quoteOf(kind: ChatMessage["kind"], body: string) {
   if (kind === "board") return readBoard(body)?.title || "A board";
   if (kind === "poll") return readPollCard(body)?.q || "A poll";
   if (kind === "where") return "Where am I?";
+  if (kind === "sticker") return stickerText(readSticker(body)?.id ?? "");
   return (body || "").slice(0, 80);
 }
 
@@ -562,7 +583,7 @@ export const listThread = createServerFn({ method: "POST" })
         fromId: row.from_id,
         fromName: names.get(row.from_id) ?? "Friend",
         kind,
-        body: kind === "place" || kind === "trip" || kind === "trail" || kind === "here" || kind === "day" || kind === "board" || kind === "poll" || kind === "where" ? "" : row.body || "",
+        body: kind === "place" || kind === "trip" || kind === "trail" || kind === "here" || kind === "day" || kind === "board" || kind === "poll" || kind === "where" || kind === "sticker" ? "" : row.body || "",
         thumb: have.has(row.id) ? "" : row.thumb || "",
         at,
         lat: row.lat ?? null,
@@ -576,6 +597,7 @@ export const listThread = createServerFn({ method: "POST" })
         board: kind === "board" ? readBoard(row.body) : null,
         poll: kind === "poll" ? pollOf(row) : null,
         where: kind === "where" ? whereOf(row) : null,
+        sticker: kind === "sticker" ? readSticker(row.body) : null,
         reply,
         reactions,
         pinned: row.id === pinId,
@@ -645,6 +667,18 @@ function parseSend(input: unknown) {
   }
   if (kind === "poll") {
     return { ...base, body: JSON.stringify(cleanPoll(row.poll)) };
+  }
+  if (kind === "sticker") {
+    // The app sends the sticker as its own field, and a readable body ("🌮 Hangry")
+    // that a server from before stickers keeps as a plain text message.
+    const card = (row.sticker ?? {}) as Record<string, unknown>;
+    if (!isStickerId(card.id)) throw new Error("Unknown sticker");
+    const sticker: ChatSticker = {
+      id: card.id,
+      icon: isMarkerIcon(card.icon) ? card.icon : DEFAULT_MARKER_ICON,
+      color: isMarkerColor(card.color) ? String(card.color).toLowerCase() : DEFAULT_MARKER_COLOR,
+    };
+    return { ...base, body: JSON.stringify(sticker) };
   }
   if (kind === "where") {
     // Not on the message's own lat/lon, so it stays hidden until guessed.
@@ -958,6 +992,8 @@ const preview = (kind: string, body: string) =>
               ? `Poll: ${readPollCard(body)?.q ?? ""}`.trim()
             : kind === "where"
               ? "Where am I? Guess the state"
+            : kind === "sticker"
+              ? `Sent a sticker: ${stickerText(readSticker(body)?.id ?? "")}`
             : kind === "place"
               ? `Shared ${readPlace(body)?.name ?? "a place"}`
               : kind === "link"
