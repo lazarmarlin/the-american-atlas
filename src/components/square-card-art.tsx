@@ -4,10 +4,10 @@
  * two corners. Wild cards are black with a four-color oval.
  */
 import type { CSSProperties } from "react";
-import { Ban, Beer, Camera, Castle, Coffee, Ghost, Landmark, Library, MapPinned, Sparkles, Spline, Star, Store, TrainFront, Trees, UtensilsCrossed, Waves, type LucideIcon } from "lucide-react";
+import { Ban, Beer, BookOpen, Camera, Castle, Church, Coffee, Cross, Crosshair, Footprints, Frame, Fuel, Ghost, Landmark, Library, Mail, MapPinned, Milestone, Moon, MoveRight, MoveUpRight, Scan, School, ShoppingCart, Sparkles, Spline, SquareDashed, Star, Store, TrainFront, TrainTrack, Trees, Undo2, UtensilsCrossed, Volleyball, Waves, type LucideIcon } from "lucide-react";
 import { cardById, type CardColor } from "@/lib/square-cards";
 
-const ICONS: Record<string, LucideIcon> = { Ban, Beer, Camera, Castle, Coffee, Ghost, Landmark, Library, MapPinned, Sparkles, Spline, Star, Store, TrainFront, Trees, UtensilsCrossed, Waves };
+const ICONS: Record<string, LucideIcon> = { Ban, Beer, BookOpen, Camera, Castle, Church, Coffee, Cross, Crosshair, Footprints, Frame, Fuel, Ghost, Landmark, Library, Mail, MapPinned, Milestone, Moon, MoveRight, MoveUpRight, Scan, School, ShoppingCart, Sparkles, Spline, SquareDashed, Star, Store, TrainFront, TrainTrack, Trees, Undo2, UtensilsCrossed, Volleyball, Waves };
 
 export const CARD_COLORS: Record<CardColor, string> = {
   red: "#d64a3a",
