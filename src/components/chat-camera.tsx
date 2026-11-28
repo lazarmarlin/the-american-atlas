@@ -1,0 +1,501 @@
+/**
+ * Take a picture without leaving the chat: the camera fills the screen, the
+ * big button takes it, then you can put a caption bar across it and slap
+ * stickers on (drag them; two fingers to turn and resize), and send. What you
+ * see is what's sent: the photo is cropped to the screen, and the caption and
+ * stickers are drawn into it.
+ */
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
+import { ArrowLeft, Images, MapPin, MapPinOff, RefreshCw, Send, Smile, Type, X } from "lucide-react";
+import { StickerArt, StickerTray } from "@/components/chat-stickers";
+import { allowCamera } from "@/lib/mic";
+import { pushBack } from "@/lib/sheet-back";
+
+type Placed = { key: number; id: string; x: number; y: number; scale: number; turn: number };
+
+/** Where the photo sits on screen (contained, so all of it shows). */
+function fitRect(width: number, height: number, boxW: number, boxH: number) {
+  const scale = Math.min(boxW / width, boxH / height);
+  const w = width * scale;
+  const h = height * scale;
+  return { x: (boxW - w) / 2, y: (boxH - h) / 2, w, h };
+}
+
+function loadImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Couldn't read that picture"));
+    img.src = src;
+  });
+}
+
+/** A sticker on screen, as a picture for the canvas. */
+async function svgImage(svg: SVGSVGElement) {
+  const text = new XMLSerializer().serializeToString(svg);
+  const url = URL.createObjectURL(new Blob([text], { type: "image/svg+xml" }));
+  try {
+    return await loadImage(url);
+  } finally {
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+}
+
+export function ChatCamera({
+  icon,
+  color,
+  canPlace,
+  onClose,
+  onSend,
+}: {
+  /** Your map avatar, for the "you" stickers. */
+  icon: string;
+  color: string;
+  /** There's a location to send with it. */
+  canPlace: boolean;
+  onClose: () => void;
+  onSend: (file: File, withPlace: boolean) => Promise<void> | void;
+}) {
+  const video = useRef<HTMLVideoElement>(null);
+  const stream = useRef<MediaStream | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const pick = useRef<HTMLInputElement>(null);
+  const [facing, setFacing] = useState<"environment" | "user">("environment");
+  const [live, setLive] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [flash, setFlash] = useState(false);
+  /** The picture taken (or picked), as a data URL, and its size. */
+  const [shot, setShot] = useState<{ src: string; w: number; h: number } | null>(null);
+  const [caption, setCaption] = useState<{ text: string; y: number } | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [placed, setPlaced] = useState<Placed[]>([]);
+  const [chosen, setChosen] = useState<number | null>(null);
+  const [tray, setTray] = useState(false);
+  const [withPlace, setWithPlace] = useState(canPlace);
+  const [busy, setBusy] = useState(false);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  const nextKey = useRef(1);
+  const captionBox = useRef<HTMLInputElement>(null);
+  /** A tap that only puts a chosen sticker down doesn't start a caption too. */
+  const hadChosen = useRef(false);
+
+  useEffect(() => {
+    const node = box.current;
+    if (!node) return;
+    const measure = () => setSize({ w: node.clientWidth, h: node.clientHeight });
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(node);
+    return () => watch.disconnect();
+  }, []);
+
+  // Back: the sticker drawer, then the picture (retake), then the camera.
+  useEffect(
+    () =>
+      pushBack(() => {
+        if (tray) setTray(false);
+        else if (shot) retake();
+        else onClose();
+        return true;
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tray, shot],
+  );
+
+  // The camera runs only while there's no picture yet.
+  useEffect(() => {
+    if (shot) return;
+    let dead = false;
+    setLive(false);
+    setError(null);
+    void (async () => {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) throw new Error("none");
+        await allowCamera().catch((err) => {
+          if (String(err?.message ?? err).includes("denied")) throw new DOMException("denied", "NotAllowedError");
+        });
+        const media = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1920 } },
+          audio: false,
+        });
+        if (dead) {
+          media.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        stream.current = media;
+        const node = video.current;
+        if (node) {
+          node.srcObject = media;
+          await node.play().catch(() => undefined);
+        }
+        setLive(true);
+      } catch (err) {
+        if (dead) return;
+        const denied = err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "SecurityError");
+        setError(denied ? "The camera needs permission. Allow the camera for Atlas, or pick a photo instead." : "Couldn't start the camera. You can pick a photo instead.");
+      }
+    })();
+    return () => {
+      dead = true;
+      stream.current?.getTracks().forEach((track) => track.stop());
+      stream.current = null;
+    };
+  }, [facing, shot]);
+
+  function retake() {
+    setShot(null);
+    setCaption(null);
+    setPlaced([]);
+    setChosen(null);
+    setEditing(false);
+  }
+
+  function take() {
+    const node = video.current;
+    if (!node || !node.videoWidth || !size.w) return;
+    // Crop to what was on screen (the preview fills it).
+    const vw = node.videoWidth;
+    const vh = node.videoHeight;
+    const scale = Math.max(size.w / vw, size.h / vh);
+    const cw = size.w / scale;
+    const ch = size.h / scale;
+    const sx = (vw - cw) / 2;
+    const sy = (vh - ch) / 2;
+    const edge = Math.min(1600, Math.max(cw, ch));
+    const out = edge / Math.max(cw, ch);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(cw * out);
+    canvas.height = Math.round(ch * out);
+    const g = canvas.getContext("2d");
+    if (!g) return;
+    if (facing === "user") {
+      // The front camera shows a mirror; keep the picture the way it looked.
+      g.translate(canvas.width, 0);
+      g.scale(-1, 1);
+    }
+    g.drawImage(node, sx, sy, cw, ch, 0, 0, canvas.width, canvas.height);
+    setFlash(true);
+    window.setTimeout(() => setFlash(false), 180);
+    setShot({ src: canvas.toDataURL("image/jpeg", 0.9), w: canvas.width, h: canvas.height });
+  }
+
+  function picked(file: File) {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const img = await loadImage(String(reader.result));
+        const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d")?.drawImage(img, 0, 0, canvas.width, canvas.height);
+        setShot({ src: canvas.toDataURL("image/jpeg", 0.9), w: canvas.width, h: canvas.height });
+      } catch {
+        setError("Couldn't read that photo.");
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  const rect = shot && size.w ? fitRect(shot.w, shot.h, size.w, size.h) : null;
+
+  function addSticker(id: string) {
+    const key = nextKey.current++;
+    setPlaced((list) => [...list, { key, id, x: 0.5, y: 0.42, scale: 1, turn: (Math.random() - 0.5) * 16 }]);
+    setChosen(key);
+    setTray(false);
+  }
+
+  function startCaption() {
+    setCaption((cur) => cur ?? { text: "", y: 0.62 });
+    setEditing(true);
+    window.setTimeout(() => captionBox.current?.focus(), 30);
+  }
+
+  // Moving stickers: one finger drags, two fingers turn and resize.
+  const touches = useRef(new Map<number, { x: number; y: number }>());
+  const gesture = useRef<{ key: number; start: Placed; points: Map<number, { x: number; y: number }> } | null>(null);
+  function stickerDown(event: ReactPointerEvent, item: Placed) {
+    event.stopPropagation();
+    (event.currentTarget as Element).setPointerCapture(event.pointerId);
+    touches.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    gesture.current = { key: item.key, start: { ...item }, points: new Map(touches.current) };
+    setChosen(item.key);
+    // The newest sticker touched goes on top.
+    setPlaced((list) => [...list.filter((p) => p.key !== item.key), list.find((p) => p.key === item.key) ?? item]);
+  }
+  function stickerMove(event: ReactPointerEvent) {
+    const g = gesture.current;
+    if (!g || !rect || !touches.current.has(event.pointerId)) return;
+    touches.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const ids = [...g.points.keys()].filter((id) => touches.current.has(id));
+    if (!ids.length) return;
+    const now = ids.map((id) => touches.current.get(id) as { x: number; y: number });
+    const was = ids.map((id) => g.points.get(id) as { x: number; y: number });
+    const mid = (list: { x: number; y: number }[]) => ({ x: list.reduce((s, p) => s + p.x, 0) / list.length, y: list.reduce((s, p) => s + p.y, 0) / list.length });
+    const a = mid(now);
+    const b = mid(was);
+    let scale = g.start.scale;
+    let turn = g.start.turn;
+    if (now.length >= 2) {
+      const span = (p: { x: number; y: number }[]) => Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y);
+      const angle = (p: { x: number; y: number }[]) => (Math.atan2(p[1].y - p[0].y, p[1].x - p[0].x) * 180) / Math.PI;
+      scale = Math.max(0.4, Math.min(3.5, g.start.scale * (span(now) / Math.max(1, span(was)))));
+      turn = g.start.turn + angle(now) - angle(was);
+    }
+    const x = Math.max(0, Math.min(1, g.start.x + (a.x - b.x) / rect.w));
+    const y = Math.max(0, Math.min(1, g.start.y + (a.y - b.y) / rect.h));
+    setPlaced((list) => list.map((p) => (p.key === g.key ? { ...p, x, y, scale, turn } : p)));
+  }
+  function stickerUp(event: ReactPointerEvent) {
+    touches.current.delete(event.pointerId);
+    const g = gesture.current;
+    if (!g) return;
+    // A finger lifted: carry on from here with the ones still down.
+    const current = placedRef.current.find((p) => p.key === g.key);
+    gesture.current = touches.current.size && current ? { key: g.key, start: { ...current }, points: new Map(touches.current) } : null;
+  }
+  const placedRef = useRef(placed);
+  placedRef.current = placed;
+
+  // The caption bar drags up and down; a tap types in it.
+  const captionDrag = useRef<{ y0: number; start: number; moved: boolean } | null>(null);
+
+  async function send() {
+    if (!shot || !rect || busy) return;
+    setBusy(true);
+    setEditing(false);
+    try {
+      const img = await loadImage(shot.src);
+      const canvas = document.createElement("canvas");
+      canvas.width = shot.w;
+      canvas.height = shot.h;
+      const g = canvas.getContext("2d");
+      if (!g) throw new Error("Couldn't make the picture");
+      g.drawImage(img, 0, 0);
+      const k = shot.w / rect.w;
+      if (caption?.text.trim()) {
+        const barH = 40 * k;
+        const y = caption.y * shot.h;
+        g.fillStyle = "rgba(0,0,0,0.55)";
+        g.fillRect(0, y - barH / 2, shot.w, barH);
+        g.fillStyle = "#fff";
+        g.font = `600 ${17 * k}px Outfit, system-ui, sans-serif`;
+        g.textAlign = "center";
+        g.textBaseline = "middle";
+        g.fillText(caption.text.trim(), shot.w / 2, y, shot.w - 24 * k);
+      }
+      for (const item of placed) {
+        const svg = box.current?.querySelector<SVGSVGElement>(`[data-sticker="${item.key}"] svg`);
+        if (!svg) continue;
+        const picture = await svgImage(svg);
+        const side = STICKER_PX * item.scale * k;
+        g.save();
+        g.translate(item.x * shot.w, item.y * shot.h);
+        g.rotate((item.turn * Math.PI) / 180);
+        g.drawImage(picture, -side / 2, -side / 2, side, side);
+        g.restore();
+      }
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.88));
+      if (!blob) throw new Error("Couldn't make the picture");
+      await onSend(new File([blob], `atlas-${Date.now()}.jpg`, { type: "image/jpeg", lastModified: Date.now() }), withPlace && canPlace);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't send it.");
+      setBusy(false);
+    }
+  }
+
+  const round = "grid size-11 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm active:bg-black/65";
+  return createPortal(
+    <div role="dialog" aria-label="Camera" className="fixed inset-0 z-[70] flex flex-col bg-black text-white">
+      <div
+        ref={box}
+        className="relative min-h-0 flex-1 overflow-hidden"
+        onPointerDown={() => {
+          hadChosen.current = chosen != null;
+          setChosen(null);
+        }}
+      >
+        {!shot ? (
+          <video ref={video} playsInline muted className={"absolute inset-0 size-full object-cover " + (facing === "user" ? "-scale-x-100" : "")} />
+        ) : null}
+        {shot && rect ? (
+          <>
+            <img src={shot.src} alt="The picture you took" className="absolute" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }} />
+            {/* Tap the picture to write on it. */}
+            <button type="button" aria-label="Add a caption" className="absolute" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }} onClick={() => (hadChosen.current ? undefined : startCaption())} />
+            {caption ? (
+              <div
+                className="absolute flex h-10 items-center bg-black/55"
+                style={{ left: rect.x, width: rect.w, top: rect.y + caption.y * rect.h - 20 }}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                  if (editing) return;
+                  (event.currentTarget as Element).setPointerCapture(event.pointerId);
+                  captionDrag.current = { y0: event.clientY, start: caption.y, moved: false };
+                }}
+                onPointerMove={(event) => {
+                  const drag = captionDrag.current;
+                  if (!drag) return;
+                  const dy = event.clientY - drag.y0;
+                  if (Math.abs(dy) > 6) drag.moved = true;
+                  if (drag.moved) setCaption((cur) => (cur ? { ...cur, y: Math.max(0.06, Math.min(0.94, drag.start + dy / rect.h)) } : cur));
+                }}
+                onPointerUp={() => {
+                  const drag = captionDrag.current;
+                  captionDrag.current = null;
+                  if (drag && !drag.moved) startCaption();
+                }}
+              >
+                {editing ? (
+                  <input
+                    ref={captionBox}
+                    value={caption.text}
+                    maxLength={80}
+                    onChange={(event) => setCaption((cur) => (cur ? { ...cur, text: event.target.value } : cur))}
+                    onBlur={() => {
+                      setEditing(false);
+                      setCaption((cur) => (cur && cur.text.trim() ? cur : null));
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") (event.target as HTMLInputElement).blur();
+                    }}
+                    aria-label="Caption"
+                    enterKeyHint="done"
+                    className="h-full w-full bg-transparent px-3 text-center text-[17px] font-semibold text-white outline-none"
+                  />
+                ) : (
+                  <p className="w-full truncate px-3 text-center text-[17px] font-semibold">{caption.text}</p>
+                )}
+              </div>
+            ) : null}
+            {placed.map((item) => (
+              <div
+                key={item.key}
+                data-sticker={item.key}
+                className="absolute touch-none"
+                style={{
+                  left: rect.x + item.x * rect.w - STICKER_PX / 2,
+                  top: rect.y + item.y * rect.h - STICKER_PX / 2,
+                  width: STICKER_PX,
+                  height: STICKER_PX,
+                  transform: `rotate(${item.turn}deg) scale(${item.scale})`,
+                }}
+                onPointerDown={(event) => stickerDown(event, item)}
+                onPointerMove={stickerMove}
+                onPointerUp={stickerUp}
+                onPointerCancel={stickerUp}
+              >
+                <StickerArt id={item.id} icon={icon} color={color} size={STICKER_PX} still />
+                {chosen === item.key ? (
+                  <button
+                    type="button"
+                    aria-label="Take the sticker off"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={() => {
+                      setPlaced((list) => list.filter((p) => p.key !== item.key));
+                      setChosen(null);
+                    }}
+                    className="absolute -top-2 -right-2 grid size-8 place-items-center rounded-full bg-black/70 text-white"
+                    style={{ transform: `scale(${1 / item.scale})` }}
+                  >
+                    <X className="size-4" />
+                  </button>
+                ) : null}
+              </div>
+            ))}
+          </>
+        ) : null}
+        {flash ? <div className="pointer-events-none absolute inset-0 bg-white" /> : null}
+        {!shot && !live && !error ? <p className="absolute inset-x-0 top-1/2 text-center text-sm text-white/70">Starting the camera…</p> : null}
+        {error && !shot ? (
+          <div className="absolute inset-x-6 top-1/2 -translate-y-1/2 rounded-2xl bg-black/60 p-4 text-center text-sm">
+            <p>{error}</p>
+            <button type="button" onClick={() => pick.current?.click()} className="mt-3 h-11 w-full rounded-full bg-white text-sm font-medium text-black">
+              Pick a photo
+            </button>
+          </div>
+        ) : null}
+
+        {/* Top: close or retake on the left, the tools on the right. */}
+        <div className="safe-top absolute inset-x-0 top-0 flex items-start justify-between p-3">
+          {shot ? (
+            <button type="button" aria-label="Retake" onClick={retake} className={round}>
+              <ArrowLeft className="size-5" />
+            </button>
+          ) : (
+            <button type="button" aria-label="Close the camera" onClick={onClose} className={round}>
+              <X className="size-5" />
+            </button>
+          )}
+          {shot ? (
+            <div className="flex flex-col gap-2">
+              <button type="button" aria-label="Write on it" onClick={startCaption} className={round}>
+                <Type className="size-5" />
+              </button>
+              <button type="button" aria-label="Stickers" onClick={() => setTray(true)} className={round}>
+                <Smile className="size-5" />
+              </button>
+              {canPlace ? (
+                <button type="button" aria-label={withPlace ? "Sending where you are (tap to leave it off)" : "Not sending where you are (tap to add it)"} aria-pressed={withPlace} onClick={() => setWithPlace((v) => !v)} className={round}>
+                  {withPlace ? <MapPin className="size-5" /> : <MapPinOff className="size-5 opacity-70" />}
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <button type="button" aria-label="Flip the camera" onClick={() => setFacing((f) => (f === "user" ? "environment" : "user"))} className={round}>
+              <RefreshCw className="size-5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom: gallery, the big button, and (after) send. */}
+      <div className="safe-bottom relative flex h-28 shrink-0 items-center justify-center bg-black">
+        {!shot ? (
+          <>
+            <button type="button" aria-label="Pick a photo" onClick={() => pick.current?.click()} className="absolute left-6 grid size-12 place-items-center rounded-xl border border-white/30 text-white">
+              <Images className="size-5" />
+            </button>
+            <button type="button" aria-label="Take the picture" disabled={!live} onClick={take} className="grid size-[76px] place-items-center rounded-full border-[5px] border-white disabled:opacity-40 active:scale-95">
+              <span className="size-[58px] rounded-full bg-white" />
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="absolute left-5 max-w-[45%] text-xs text-white/60">{withPlace && canPlace ? "Sends where you are too" : "Tap the picture to write on it"}</p>
+            <button type="button" disabled={busy} onClick={() => void send()} className="absolute right-5 flex h-12 items-center gap-2 rounded-full bg-white pr-5 pl-4 text-[15px] font-semibold text-black disabled:opacity-60">
+              <Send className="size-4" />
+              {busy ? "Sending…" : "Send"}
+            </button>
+          </>
+        )}
+        {error && shot ? <p className="absolute inset-x-4 -top-8 text-center text-sm text-white">{error}</p> : null}
+      </div>
+      <input
+        ref={pick}
+        type="file"
+        accept="image/*"
+        className="sr-only"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) picked(file);
+        }}
+      />
+      {tray ? (
+        <div className="absolute inset-0 z-10 flex flex-col justify-end bg-black/40" onClick={() => setTray(false)}>
+          <div className="safe-bottom rounded-t-3xl bg-surface p-3 text-ink" onClick={(event) => event.stopPropagation()}>
+            <StickerTray icon={icon} color={color} onPick={(sticker) => addSticker(sticker.id)} />
+          </div>
+        </div>
+      ) : null}
+    </div>,
+    document.body,
+  );
+}
+
+/** A sticker's size on the picture before resizing, in screen pixels. */
+const STICKER_PX = 120;

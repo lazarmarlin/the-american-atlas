@@ -98,5 +98,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Voice notes in chat (the web view asks at runtime). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Taking a picture in a chat. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 </manifest>

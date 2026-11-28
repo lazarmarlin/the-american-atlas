@@ -28,6 +28,13 @@ import { ChatLookScreen, applyShared } from "@/components/chat-look";
 import { LOOK_DEFAULT, nickOf, readLook, useLookVersion, wallVeil, withAlpha, type ChatLook } from "@/lib/chat-look";
 import { loadTheme } from "@/lib/chat-theme";
 import { SharedInChat } from "@/components/chat-shared";
+import { ChatStickerView, StickerTray } from "@/components/chat-stickers";
+import { ChatCamera } from "@/components/chat-camera";
+import { YouMarkerFace } from "@/components/you-marker-face";
+import { stickerText, type StickerInfo } from "@/lib/stickers";
+import { useChatPulse, usePulseFor } from "@/lib/chat-pulse-live";
+import { STREAK_HURRY_MS, STREAK_SHOWS, myStreaks, myZone, type Streak } from "@/lib/chat-pulse";
+import { Sticker } from "lucide-react";
 
 const PHOTO_LINK = /^https?:\/\/(?:photos\.app\.goo\.gl|photos\.google\.com|goo\.gl\/photos)\/\S+$/i;
 
@@ -58,6 +65,7 @@ function blurb(row: ChatMessage) {
   if (row.kind === "board") return row.board?.title || "A board";
   if (row.kind === "poll") return row.poll ? `Poll: ${row.poll.q}` : "A poll";
   if (row.kind === "where") return "Where am I?";
+  if (row.kind === "sticker") return stickerText(row.sticker?.id ?? "");
   return row.body;
 }
 
@@ -179,6 +187,10 @@ export function ChatThread({
   const [trailsOpen, setTrailsOpen] = useState(false);
   const [boardsOpen, setBoardsOpen] = useState(false);
   const [pollOpen, setPollOpen] = useState(false);
+  const [stickersOpen, setStickersOpen] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const markerIcon = useSettings((state) => state.markerIcon);
+  const markerColor = useSettings((state) => state.markerColor);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [query, setQuery] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
@@ -190,6 +202,30 @@ export function ChatThread({
     box.style.height = "auto";
     box.style.height = `${Math.min(box.scrollHeight, 144)}px`;
   }, [draft]);
+  // Who else has this chat open (their avatar peeks in the corner), and the streak.
+  useChatPulse(thread, draft);
+  const pulse = usePulseFor(thread);
+  const here = pulse?.here ?? [];
+  const streakDays = pulse?.streak?.days ?? null;
+  const lastStreak = useRef<number | null>(null);
+  const [cheer, setCheer] = useState<number | null>(null);
+  useEffect(() => {
+    if (streakDays == null) return;
+    const before = lastStreak.current;
+    lastStreak.current = streakDays;
+    // The streak just went up while you're looking: make a fuss.
+    if (before != null && streakDays > before && streakDays >= STREAK_SHOWS) {
+      setCheer(streakDays);
+      const id = window.setTimeout(() => setCheer(null), 2800);
+      return () => window.clearTimeout(id);
+    }
+  }, [streakDays]);
+  useEffect(() => {
+    // Someone came in: keep the newest message clear of their avatar.
+    const node = scroller.current;
+    if (!node || !here.length) return;
+    if (node.scrollHeight - node.scrollTop - node.clientHeight < 140) node.scrollTop = node.scrollHeight;
+  }, [here.length]);
   const clips = useRef(new Map<string, string>());
   const recorder = useRef<MediaRecorder | null>(null);
   const recordToken = useRef(0);
@@ -311,9 +347,10 @@ export function ChatThread({
 
   // Back closes whatever is on top: the photo, a picker, the menu.
   useEffect(() => {
-    if (!viewing && !picking && !menu && !attach && !sharing && !trailsOpen && !captionFor && !boardsOpen && !pollOpen) return;
+    if (!viewing && !picking && !menu && !attach && !sharing && !trailsOpen && !captionFor && !boardsOpen && !pollOpen && !stickersOpen) return;
     return pushBack(() => {
       if (viewing) setViewing(null);
+      else if (stickersOpen) setStickersOpen(false);
       else if (picking) setPicking(null);
       else if (sharing) setSharing(false);
       else if (trailsOpen) setTrailsOpen(false);
@@ -324,7 +361,7 @@ export function ChatThread({
       else setMenu(null);
       return true;
     });
-  }, [viewing, picking, menu, attach, sharing, trailsOpen, captionFor, boardsOpen, pollOpen]);
+  }, [viewing, picking, menu, attach, sharing, trailsOpen, captionFor, boardsOpen, pollOpen, stickersOpen]);
 
   function optimistic(row: Omit<ChatMessage, "fromId" | "fromName" | "at">) {
     const full: ChatMessage = { ...row, fromId: meId, fromName: "You", at: Date.now() };
@@ -406,12 +443,13 @@ export function ChatThread({
     }
   }
 
-  async function sendPhoto(file: File) {
+  async function sendPhoto(file: File, at: { lat: number; lon: number } | null = null, text = caption.trim()) {
     setBusy(true);
     setNote(null);
     try {
       // Where and when it was taken, so whoever adds it to the map gets the place suggested.
-      const gps = readGps(await file.arrayBuffer());
+      // (A picture taken in the app has no GPS in it: then where you are, if you chose to send it.)
+      const gps = at ? { ...at, takenAt: Date.now() } : readGps(await file.arrayBuffer());
       // Big enough to look sharp on a phone screen (the old 640 px / 200 px ones were blurry).
       let image = await shrinkChatPhoto(file, 1600, 0.82);
       if (image.length > 690000) image = await shrinkChatPhoto(file, 1280, 0.75);
@@ -420,9 +458,9 @@ export function ChatThread({
       if (thumb.length > 115000) thumb = await shrinkChatPhoto(file, 400, 0.65);
       const id = newId();
       const extra = { lat: gps?.lat ?? null, lon: gps?.lon ?? null, takenAt: gps?.takenAt ?? file.lastModified ?? null };
-      const text = caption.trim().slice(0, 140);
-      const message = optimistic({ id, kind: "photo", body: text, thumb, place: null, ...extra });
-      await deliver(message, { thread, id, kind: "photo", body: text, thumb, image, ...extra }, setNote);
+      const words = text.slice(0, 140);
+      const message = optimistic({ id, kind: "photo", body: words, thumb, place: null, ...extra });
+      await deliver(message, { thread, id, kind: "photo", body: words, thumb, image, ...extra }, setNote);
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Couldn't send that photo.");
     } finally {
@@ -435,6 +473,28 @@ export function ChatThread({
     clips.current.set(id, audio);
     const message = optimistic({ id, kind: "voice", body: String(seconds), thumb: "", lat: null, lon: null, takenAt: null, place: null });
     await deliver(message, { thread, id, kind: "voice", body: String(seconds), image: audio }, setNote);
+  }
+
+  async function sendSticker(sticker: StickerInfo) {
+    setStickersOpen(false);
+    const id = newId();
+    const quoting = replyTo;
+    setReplyTo(null);
+    const card = { id: sticker.id, icon: markerIcon, color: markerColor };
+    const message = optimistic({
+      id,
+      kind: "sticker",
+      body: "",
+      thumb: "",
+      lat: null,
+      lon: null,
+      takenAt: null,
+      place: null,
+      sticker: card,
+      reply: quoting ? { id: quoting.id, name: quoting.fromId === meId ? "You" : quoting.fromName, text: blurb(quoting) } : null,
+    });
+    // The body is what a server from before stickers keeps instead: "🌮 Hangry".
+    await deliver(message, { thread, id, kind: "sticker", body: stickerText(sticker.id), sticker: card, replyTo: quoting?.id }, setNote);
   }
 
   async function beginVoice(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -809,7 +869,7 @@ export function ChatThread({
           </span>
         </button>
       ) : null}
-      <div ref={scroller} className={"flex flex-col gap-2 overflow-y-auto px-3 " + (fill ? "min-h-0 flex-1 py-3" : "mt-2 max-h-[46dvh]")}>
+      <div ref={scroller} className={"flex flex-col gap-2 overflow-y-auto px-3 " + (fill ? "min-h-0 flex-1 py-3" : "mt-2 max-h-[46dvh]") + (here.length ? " pb-16" : "")}>
         {rows === null ? <p className="text-sm text-muted">Loading…</p> : null}
         {rows && rows.length === 0 ? (
           <p className="m-auto max-w-xs text-center text-sm text-muted">
@@ -838,8 +898,12 @@ export function ChatThread({
                   holdEnd();
                   setMenu(row);
                 }}
-                className={"max-w-[78%] rounded-2xl px-3 py-1.5 leading-snug select-none " + textClass + (row.kind === "text" ? "" : " w-64") + (mine ? " rounded-br-md bg-elevated" : " rounded-bl-md border border-line")}
-                style={bubblePaint(mine, look)}
+                className={
+                  row.kind === "sticker"
+                    ? "max-w-[78%] select-none " + textClass
+                    : "max-w-[78%] rounded-2xl px-3 py-1.5 leading-snug select-none " + textClass + (row.kind === "text" ? "" : " w-64") + (mine ? " rounded-br-md bg-elevated" : " rounded-bl-md border border-line")
+                }
+                style={row.kind === "sticker" ? undefined : bubblePaint(mine, look)}
               >
                 {row.reply ? (
                   <p className="mb-1 truncate border-l-2 border-line pl-2 text-xs text-faint">
@@ -997,6 +1061,7 @@ export function ChatThread({
                 {row.kind === "where" && row.where ? <WhereCard where={row.where} mine={mine} from={row.fromName} onGuess={(state) => guess(row, state)} onOpen={onOpenHere} /> : null}
                 {row.kind === "poll" && row.poll ? <PollCard poll={row.poll} mine={mine} pending={sending.current.has(row.id)} onVote={(choice) => void vote(row, choice)} /> : null}
                 {row.kind === "text" ? <p className="break-words">{linkParts(row.body)}</p> : null}
+                {row.kind === "sticker" && row.sticker ? <ChatStickerView id={row.sticker.id} icon={row.sticker.icon} color={row.sticker.color} /> : null}
               </div>
               {row.reactions && MARKS.some(([mark]) => row.reactions?.[mark]) ? (
                 <div className="mt-0.5 flex gap-1 px-1">
@@ -1045,6 +1110,41 @@ export function ChatThread({
           );
         })}
       </div>
+      {here.length ? (
+        <div className="pointer-events-none relative h-0">
+          <div className="absolute bottom-2 left-3 flex items-end gap-1.5">
+            {here.map((who, index) => (
+              <div key={who.id} className="chat-peek relative" style={{ animationDelay: `${index * 120}ms` }}>
+                <div className="chat-bob" style={{ animationDelay: `${index * 400}ms` }}>
+                  <YouMarkerFace icon={who.icon} color={who.color} size={here.length > 2 ? 38 : 48} />
+                </div>
+                {who.typing ? (
+                  <span className="chat-typing absolute -top-2.5 left-[70%] flex h-6 items-center gap-1 rounded-full border border-line bg-surface px-2 shadow-sm">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                ) : (
+                  <span className="chat-hello absolute -top-2.5 left-[70%] rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] whitespace-nowrap text-ink shadow-sm">
+                    👀 {(nickOf(meId, "friend", who.id, who.name) || who.name).split(" ")[0]}
+                  </span>
+                )}
+                <span className="sr-only">
+                  {who.name} is in the chat{who.typing ? " and typing" : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {cheer ? (
+        <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 flex flex-col items-center" role="status">
+          <span className="streak-pop text-7xl leading-none">🔥</span>
+          <span className="streak-pop mt-2 rounded-full bg-surface/95 px-4 py-1.5 font-serif text-xl shadow-sm" style={{ animationDelay: "120ms" }}>
+            {cheer}-day streak!
+          </span>
+        </div>
+      ) : null}
       {note ? <p className="mt-2 px-3 text-sm text-muted">{note}</p> : null}
       {replyTo ? (
         <div className="mx-3 mt-2 flex items-center gap-2 rounded-lg border border-line px-3 py-2">
@@ -1091,6 +1191,7 @@ export function ChatThread({
             }
           }}
         />
+        <div className="relative min-w-0 flex-1">
         <textarea
           ref={draftBox}
           rows={1}
@@ -1106,8 +1207,19 @@ export function ChatThread({
           }}
           placeholder="Message"
           enterKeyHint="send"
-          className={"max-h-36 min-h-11 min-w-0 flex-1 resize-none overflow-y-auto rounded-[22px] border border-line bg-bg py-2.5 pl-4 pr-3 leading-snug text-ink outline-none placeholder:text-faint focus:border-muted/60 " + textClass}
+          className={"block max-h-36 min-h-11 w-full resize-none overflow-y-auto rounded-[22px] border border-line bg-bg py-2.5 pl-4 pr-11 leading-snug text-ink outline-none placeholder:text-faint focus:border-muted/60 " + textClass}
         />
+          {/* Stickers, inside the box on the right. */}
+          <button
+            type="button"
+            aria-label="Stickers"
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={() => setStickersOpen(true)}
+            className="absolute right-0.5 bottom-0 grid size-11 place-items-center rounded-full text-muted active:text-ink"
+          >
+            <Sticker className="size-5" strokeWidth={1.9} />
+          </button>
+        </div>
         {draft.trim() ? (
           <button
             type="submit"
@@ -1119,6 +1231,16 @@ export function ChatThread({
             <ArrowUp className="size-5" strokeWidth={2.25} />
           </button>
         ) : (
+          <>
+          <button
+            type="button"
+            aria-label="Take a picture"
+            disabled={busy || recording}
+            onClick={() => setCameraOpen(true)}
+            className="grid size-11 shrink-0 place-items-center rounded-full text-muted active:bg-elevated"
+          >
+            <Camera className="size-5" />
+          </button>
           <button
             type="button"
             aria-label={recording ? "Release to send the voice note" : "Hold to record a voice note"}
@@ -1130,8 +1252,23 @@ export function ChatThread({
           >
             <Mic className="size-5" />
           </button>
+          </>
         )}
       </form>
+      {stickersOpen ? (
+        <Sheet label="Stickers" onClose={() => setStickersOpen(false)} bare>
+          <StickerTray icon={markerIcon} color={markerColor} onPick={(sticker) => void sendSticker(sticker)} />
+        </Sheet>
+      ) : null}
+      {cameraOpen ? (
+        <ChatCamera
+          icon={markerIcon}
+          color={markerColor}
+          canPlace={Boolean(you)}
+          onClose={() => setCameraOpen(false)}
+          onSend={(file, withPlace) => sendPhoto(file, withPlace && you ? { lat: you.lat, lon: you.lon } : null, "")}
+        />
+      ) : null}
 
       {pollOpen ? (
         <Sheet label="Quick poll" onClose={() => setPollOpen(false)}>
@@ -1170,15 +1307,31 @@ export function ChatThread({
             </span>
             <Send className="size-4 shrink-0 text-muted" aria-hidden="true" />
           </button>
-          <div className="mt-2 grid grid-cols-3 gap-2">
+          <div className="mt-2 grid grid-cols-4 gap-2">
             {(
               [
                 [
-                  "Photo",
+                  "Camera",
                   <Camera key="i" className="size-5" />,
                   () => {
                     setAttach(false);
+                    setCameraOpen(true);
+                  },
+                ],
+                [
+                  "Gallery",
+                  <Images key="i" className="size-5" />,
+                  () => {
+                    setAttach(false);
                     photoInput.current?.click();
+                  },
+                ],
+                [
+                  "Stickers",
+                  <Sticker key="i" className="size-5" />,
+                  () => {
+                    setAttach(false);
+                    setStickersOpen(true);
                   },
                 ],
                 [
@@ -1221,7 +1374,7 @@ export function ChatThread({
                 key={label}
                 type="button"
                 onClick={onClick}
-                className="flex aspect-[5/4] flex-col items-center justify-center gap-2 rounded-xl border border-line text-sm active:bg-elevated"
+                className="flex aspect-square flex-col items-center justify-center gap-1.5 rounded-xl border border-line px-1 text-center text-xs leading-tight active:bg-elevated"
               >
                 <span className="grid size-10 place-items-center rounded-full bg-elevated text-ink">{icon}</span>
                 {label}
@@ -1292,7 +1445,7 @@ export function ChatThread({
                 {menu.fromId === meId ? "You" : menu.fromName} · {stampText(menu.at)}
               </p>
               <p className="truncate text-sm">
-                {menu.kind === "photo" ? (menu.body ? menu.body : "Photo") : menu.kind === "voice" ? "Voice note" : menu.kind === "place" ? menu.place?.name : menu.kind === "trip" ? menu.trip?.name : menu.kind === "trail" ? menu.trail?.name : menu.kind === "here" ? menu.here?.label : menu.kind === "day" ? "A day" : menu.kind === "board" ? menu.board?.title || "A board" : menu.kind === "poll" ? menu.poll?.q || "A poll" : menu.kind === "where" ? "Where am I?" : menu.body}
+                {menu.kind === "photo" ? (menu.body ? menu.body : "Photo") : menu.kind === "voice" ? "Voice note" : menu.kind === "place" ? menu.place?.name : menu.kind === "trip" ? menu.trip?.name : menu.kind === "trail" ? menu.trail?.name : menu.kind === "here" ? menu.here?.label : menu.kind === "day" ? "A day" : menu.kind === "board" ? menu.board?.title || "A board" : menu.kind === "poll" ? menu.poll?.q || "A poll" : menu.kind === "where" ? "Where am I?" : menu.kind === "sticker" ? stickerText(menu.sticker?.id ?? "") : menu.body}
               </p>
             </div>
           </div>
@@ -1761,6 +1914,8 @@ export function ChatScreen({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [wallpaper, setWallpaper] = useState<string | null>(null);
   const [look, setLook] = useState<ChatLook>(LOOK_DEFAULT);
+  const [streakOpen, setStreakOpen] = useState(false);
+  const streak = usePulseFor(chat.thread)?.streak ?? null;
   useBackClose(onClose);
   const threadKey = `${chat.thread.kind}:${chat.thread.id}`;
   useEffect(() => {
@@ -1803,7 +1958,16 @@ export function ChatScreen({
     >
       <ScreenHeader
         className="screen-top"
-        title={nickOf(chat.meId, chat.thread.kind, chat.thread.id, title)}
+        title={
+          streak && streak.days >= STREAK_SHOWS ? (
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="min-w-0 truncate">{nickOf(chat.meId, chat.thread.kind, chat.thread.id, title)}</span>
+              <StreakChip streak={streak} onClick={() => setStreakOpen(true)} />
+            </span>
+          ) : (
+            nickOf(chat.meId, chat.thread.kind, chat.thread.id, title)
+          )
+        }
         subtitle={subtitle || undefined}
         onBack={onClose}
         right={
@@ -1860,6 +2024,7 @@ export function ChatScreen({
           ) : null}
         </Sheet>
       ) : null}
+      {streakOpen && streak ? <StreakSheet streak={streak} name={nickOf(chat.meId, chat.thread.kind, chat.thread.id, title)} onClose={() => setStreakOpen(false)} /> : null}
       {settingsOpen ? (
         <ChatLookScreen
           meId={chat.meId}
@@ -1929,8 +2094,21 @@ export function MessageBoard({
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<ChatHit[] | null>(null);
   const unread = useChat((state) => state.summary);
+  const [streaks, setStreaks] = useState<Record<string, Streak>>({});
   useLookVersion();
   useBackClose(onClose);
+  useEffect(() => {
+    if (open) return;
+    let dead = false;
+    myStreaks({ data: { zone: myZone() } })
+      .then((next) => {
+        if (!dead) setStreaks(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      dead = true;
+    };
+  }, [open]);
   // Reload on the way back from a chat, so its preview and new-message count are current.
   const reopened = useRef(false);
   useEffect(() => {
@@ -2067,7 +2245,9 @@ export function MessageBoard({
                   <BoardAvatar row={row} />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline gap-2">
-                      <span className={"min-w-0 flex-1 truncate text-[15px] " + (n ? "font-semibold" : "font-medium")}>{nickOf(meId, row.thread.kind, row.thread.id, row.title)}</span>
+                      <span className={"min-w-0 truncate text-[15px] " + (n ? "font-semibold" : "font-medium")}>{nickOf(meId, row.thread.kind, row.thread.id, row.title)}</span>
+                      {row.thread.kind === "friend" && streaks[row.thread.id] ? <StreakChip streak={streaks[row.thread.id]} small /> : null}
+                      <span className="flex-1" />
                       {row.at ? <span className={"shrink-0 text-[11px] " + (n ? "text-accent" : "text-faint")}>{agoText(row.at)}</span> : null}
                     </span>
                     <span className="mt-0.5 flex items-center gap-2">
@@ -2435,5 +2615,69 @@ function PollMaker({ onSend }: { onSend: (q: string, options: string[]) => void 
         Send poll
       </button>
     </div>
+  );
+}
+
+/** "🔥 12": days in a row you've both sent something. An hourglass when it's about to run out. */
+function StreakChip({ streak, small = false, onClick }: { streak: Streak; small?: boolean; onClick?: () => void }) {
+  const hurry = streak.endsAt != null && streak.endsAt - Date.now() < STREAK_HURRY_MS;
+  const inner = (
+    <>
+      <span aria-hidden="true">{streak.days === 100 ? "💯" : "🔥"}</span>
+      <span className="tabular-nums">{streak.days}</span>
+      {hurry ? <span aria-hidden="true">⏳</span> : null}
+    </>
+  );
+  const label = `${streak.days}-day streak${hurry ? ", ends soon" : ""}`;
+  const look = "inline-flex shrink-0 items-center gap-0.5 rounded-full font-sans font-semibold text-ink " + (small ? "text-xs" : "bg-elevated px-2 py-0.5 text-sm");
+  return onClick ? (
+    <button type="button" onClick={onClick} aria-label={label} className={look + " active:scale-95"}>
+      {inner}
+    </button>
+  ) : (
+    <span aria-label={label} className={look}>
+      {inner}
+    </span>
+  );
+}
+
+const STREAK_GOALS = [3, 7, 14, 30, 50, 100, 150, 200, 365, 500, 1000];
+
+function StreakSheet({ streak, name, onClose }: { streak: Streak; name: string; onClose: () => void }) {
+  const first = name.split(" ")[0] || name;
+  const left = streak.endsAt != null ? Math.max(0, streak.endsAt - Date.now()) : null;
+  const hours = left != null ? Math.floor(left / 3_600_000) : 0;
+  const minutes = left != null ? Math.floor((left % 3_600_000) / 60_000) : 0;
+  const next = STREAK_GOALS.find((goal) => goal > streak.days);
+  const waiting = !streak.today.me && !streak.today.them ? "you both" : !streak.today.me ? "you" : !streak.today.them ? first : null;
+  return (
+    <Sheet label="Streak" onClose={onClose}>
+      <div className="flex flex-col items-center pt-1 pb-2 text-center">
+        <span className="streak-flame text-6xl leading-none">{streak.days === 100 ? "💯" : "🔥"}</span>
+        <p className="mt-2 font-serif text-3xl leading-tight">{streak.days} days</p>
+        <p className="mt-1 text-sm text-muted">
+          You and {first} have both sent something {streak.days} days in a row.
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {(
+          [
+            ["You", streak.today.me],
+            [first, streak.today.them],
+          ] as const
+        ).map(([who, done]) => (
+          <div key={who} className={"rounded-xl border p-3 text-center " + (done ? "border-ink bg-elevated" : "border-line")}>
+            <p className="truncate text-xs tracking-widest text-faint uppercase">{who} today</p>
+            <p className="mt-1 text-lg">{done ? "✓ Sent" : "Not yet"}</p>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-center text-sm text-muted">
+        {waiting && left != null
+          ? `Waiting on ${waiting}. Send something in the next ${hours ? `${hours} h ` : ""}${minutes} min to keep it going${left < STREAK_HURRY_MS ? " ⏳" : ""}.`
+          : "Today counts. Come back tomorrow to keep it going."}
+        {next ? ` Next up: 🔥 ${next}.` : ""}
+      </p>
+    </Sheet>
   );
 }
