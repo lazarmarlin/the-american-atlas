@@ -15,6 +15,9 @@ import { loadTowns } from "@/lib/towns-overlay";
 import { youMarkerImage } from "@/lib/you-marker";
 import { heading, speedMph, turnBetween, zoomForSpeed } from "@/lib/motion";
 import { makeCuller, type Box } from "@/lib/map-cull";
+
+/** Re-cut the big sets to the view as it moves (off: it made the map stutter; see the culler below). */
+const CULLING = false;
 import { seenAgo } from "@/lib/live-share";
 import type { Feature } from "geojson";
 
@@ -375,7 +378,9 @@ export function AtlasMap({
   const [ready, setReady] = useState(false);
   const overlaysLoaded = useRef(new Set<string>());
   // Places, roads, a state's catalog and town outlines: only what's in or near the view goes to the map (src/lib/map-cull.ts).
-  const culler = useRef(makeCuller());
+  // Culling is off: re-sending the sets as the view moved made the map stutter, and MapLibre
+  // already skips drawing what's off screen. (makeCuller with Infinity hands over every set whole.)
+  const culler = useRef(makeCuller(1, Infinity));
   const showCulled = (map: MlMap, id: string, features?: Feature[]) => {
     if (features) culler.current.set(id, features);
     if (!culler.current.area()) culler.current.view(viewBox(map));
@@ -1350,7 +1355,7 @@ export function AtlasMap({
   // that leaves the area altogether is it done on the way, and then at most twice a second.
   useEffect(() => {
     const map = mapRef.current;
-    if (!ready || !map) return;
+    if (!ready || !map || !CULLING) return;
     let settle = 0;
     let last = 0;
     const recull = () => {
