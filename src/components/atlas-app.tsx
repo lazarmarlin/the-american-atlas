@@ -2723,7 +2723,7 @@ function AtlasShell() {
           </button>
         </div>
       ) : null}
-      <section className={"app-map relative min-h-0" + (driving ? "" : " with-tools") + (tabsOn && facesCount && !toolsTucked ? " with-faces" : "")}>
+      <section className={"app-map relative min-h-0" + (driving ? "" : " with-tools") + (tabsOn ? " with-tabs" : "")}>
         {meta ? (
           <Suspense fallback={<div className="grid h-full place-items-center text-muted">Opening the map…</div>}>
             <AtlasMap
@@ -3071,7 +3071,7 @@ function AtlasShell() {
           </>
         ) : null}
           </div>
-          {!driving ? (
+          {!driving && !tabsOn ? (
             <div className="pointer-events-auto flex max-w-full items-center gap-1.5 overflow-x-auto [scrollbar-width:none]">
               <button
                 type="button"
@@ -3140,10 +3140,53 @@ function AtlasShell() {
               ) : null}
             </div>
           ) : null}
-          {tabsOn && !toolsTucked && user?.id ? (
+          {tabsOn && user?.id ? (
+            // One row along the bottom: Ghost trail and Drive, then friends' faces (the zoom buttons sit beside it).
+            <div className="pointer-events-auto max-w-[calc(100%-3.25rem)]">
             <FriendFaces
               meId={user.id}
               onCount={setFacesCount}
+              lead={
+                <>
+                  <button
+                    type="button"
+                    aria-expanded={ghostOpen}
+                    onClick={() => {
+                      if (!ghostOpen && sheet > 8) setSheet(8);
+                      setGhostOpen(!ghostOpen);
+                    }}
+                    aria-label={locating && liveViewers.length ? `Ghost trail. Sharing your location with ${liveViewers.length} ${liveViewers.length === 1 ? "friend" : "friends"}.` : "Ghost trail"}
+                    className="relative flex w-14 shrink-0 flex-col items-center select-none"
+                  >
+                    <span className={"grid size-11 place-items-center rounded-full border bg-surface/95 shadow-sm backdrop-blur-sm " + (locating && liveViewers.length ? "border-accent" : "border-line")}>
+                      {locating && liveViewers.length ? (
+                        <span className="size-3 animate-pulse rounded-full bg-accent" />
+                      ) : (
+                        <span className={"ghost-dot size-3 rounded-full " + (locating ? "is-live" : "opacity-60")} style={{ background: ghostColor }} />
+                      )}
+                    </span>
+                    <span className="mt-0.5 max-w-full truncate rounded-full bg-surface/90 px-1.5 text-[10px] leading-4 text-ink">{locating && liveViewers.length ? `Live ${liveViewers.length}` : "Ghost"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Drive"
+                    onClick={() => {
+                      setGhostOpen(false);
+                      setMailOpen(false);
+                      setSheet(8);
+                      setDriving(true);
+                      void ensureTracking();
+                    }}
+                    className="relative flex w-14 shrink-0 flex-col items-center select-none"
+                  >
+                    <span className="grid size-11 place-items-center rounded-full border border-line bg-surface/95 shadow-sm backdrop-blur-sm">
+                      <Car className="size-5" />
+                    </span>
+                    <span className="mt-0.5 max-w-full truncate rounded-full bg-surface/90 px-1.5 text-[10px] leading-4 text-ink">Drive</span>
+                  </button>
+                  {facesCount ? <span className="mx-0.5 mt-3 h-7 w-px shrink-0 self-start bg-line" aria-hidden="true" /> : null}
+                </>
+              }
               onOpen={(id) => {
                 setGhostOpen(false);
                 setMailThread({ kind: "friend", id });
@@ -3151,6 +3194,7 @@ function AtlasShell() {
               }}
               onHold={holdFace}
             />
+            </div>
           ) : null}
         </div>
         {recapTrip && trips.some((trip) => trip.id === recapTrip.id) ? (

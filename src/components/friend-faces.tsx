@@ -4,7 +4,7 @@
  * if they're sharing where they are). A face with new messages bounces and
  * carries the count; a streak shows as a little flame.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { YouMarkerFace } from "@/components/you-marker-face";
 import { friendFaces, myStreaks, myZone, STREAK_HURRY_MS, type FriendFace, type Streak } from "@/lib/chat-pulse";
 import { useChat } from "@/lib/chat-store";
@@ -18,8 +18,11 @@ export function FriendFaces({
   onOpen,
   onHold,
   onCount,
+  lead,
 }: {
   meId: string;
+  /** Round buttons before the faces (Ghost trail, Drive). */
+  lead?: ReactNode;
   onOpen: (id: string, name: string) => void;
   onHold: (id: string, name: string) => void;
   /** How many faces are showing (0 hides the row), so the map's buttons can make room. */
@@ -78,9 +81,10 @@ export function FriendFaces({
 
   const hold = useRef<{ timer: number; fired: boolean; x: number; y: number } | null>(null);
 
-  if (!shown.length) return null;
+  if (!shown.length && !lead) return null;
   return (
     <div className="pointer-events-auto -mx-1 flex h-16 max-w-[calc(100%+0.5rem)] items-start gap-1 overflow-x-auto px-1 pt-1.5 [scrollbar-width:none]" aria-label="Friends">
+      {lead}
       {shown.map((face) => {
         const n = unread[face.id] ?? 0;
         const streak = streaks[face.id];

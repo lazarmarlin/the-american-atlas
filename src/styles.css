@@ -355,10 +355,11 @@
   bottom: calc(max(0.75rem, env(safe-area-inset-bottom)) + 2.75rem);
 }
 
-/* With friends' faces along the bottom: the zoom buttons sit above the faces
-   (beside the short Ghost trail and Drive row). */
-.app-map.with-tools.with-faces .maplibregl-map .maplibregl-ctrl-bottom-right {
-  bottom: calc(max(0.75rem, env(safe-area-inset-bottom)) + 4.25rem);
+/* With the tab bar there's one row along the bottom of the map (Ghost trail,
+   Drive, friends' faces), which stops short of the right edge: the zoom and
+   locate buttons sit down in the corner beside it. */
+.app-map.with-tools.with-tabs .maplibregl-map .maplibregl-ctrl-bottom-right {
+  bottom: calc(max(0.75rem, env(safe-area-inset-bottom)) - 10px);
 }
 
 .app-map .maplibregl-map .maplibregl-ctrl-bottom-left {
