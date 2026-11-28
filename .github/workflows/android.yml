@@ -14,12 +14,18 @@
 #
 # The phone talks to https://traveltrack.grok.me unless a repository variable
 # API_ORIGIN is set (Settings → Secrets and variables → Actions → Variables).
+#
+# Test builds: a push to a test/… branch builds "Atlas Test", a separate app
+# (its own id, com.lazarmarlin.americanatlas.test) that installs next to the
+# real one. It's published as a pre-release named test-N, which the real app
+# never sees; the test app updates from those. It has no push notifications
+# (Firebase only knows the real app); it checks for messages on its own.
 name: Android APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, "test/**"]
 
 permissions:
   contents: write
@@ -33,6 +39,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ATLAS_VERSION_CODE: ${{ github.run_number }}
+      TEST_BUILD: ${{ startsWith(github.ref, 'refs/heads/test/') }}
+      APK_NAME: ${{ startsWith(github.ref, 'refs/heads/test/') && 'atlas-test' || 'american-atlas' }}-${{ github.run_number }}.apk
     steps:
       - uses: actions/checkout@v4
 
@@ -55,9 +63,11 @@ jobs:
       - name: Build app assets
         env:
           VITE_API_ORIGIN: ${{ vars.API_ORIGIN || 'https://traveltrack.grok.me' }}
+          VITE_UPDATE_CHANNEL: ${{ startsWith(github.ref, 'refs/heads/test/') && 'test' || '' }}
         run: npm run build:app
 
       - name: Firebase config (push)
+        if: env.TEST_BUILD != 'true'
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
@@ -89,6 +99,8 @@ jobs:
         working-directory: android
         env:
           ATLAS_KEY_PASSWORD: ${{ secrets.ATLAS_KEY_PASSWORD }}
+          ATLAS_APP_ID: ${{ startsWith(github.ref, 'refs/heads/test/') && 'com.lazarmarlin.americanatlas.test' || '' }}
+          ATLAS_APP_NAME: ${{ startsWith(github.ref, 'refs/heads/test/') && 'Atlas Test' || '' }}
         # Up to three tries: a "429 Too Many Requests" from a library server is
         # usually gone a minute later.
         run: |
@@ -100,7 +112,7 @@ jobs:
           done
 
       - name: Rename
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk american-atlas-${{ github.run_number }}.apk
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
 
       - name: Publish the update
         if: steps.key.outputs.signed == 'true' && github.ref == 'refs/heads/main'
@@ -108,7 +120,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="build-${{ github.run_number }}"
-          apk="american-atlas-${{ github.run_number }}.apk"
+          apk="$APK_NAME"
           # GitHub sometimes fails partway (a 502 during the upload leaves a draft
           # behind). Try a few times; anything left from a failed try (or from a
           # re-run of this build) is removed first so the release is made fresh.
@@ -132,7 +144,25 @@ jobs:
           gh release list --limit 100 --json tagName --jq '.[].tagName' | grep '^build-' | sort -t- -k2 -n -r | tail -n +11 |
             while read -r tag; do gh release delete "$tag" --yes --cleanup-tag || true; done || true
 
+      - name: Publish the test build
+        if: steps.key.outputs.signed == 'true' && env.TEST_BUILD == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="test-${{ github.run_number }}"
+          for id in $(gh api "repos/${{ github.repository }}/releases?per_page=30" --jq ".[] | select(.tag_name == \"$tag\") | .id"); do
+            gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
+          done
+          # A pre-release: never "latest", so the real app doesn't see it.
+          gh release create "$tag" "$APK_NAME" \
+            --target "${{ github.sha }}" --prerelease --latest=false \
+            --title "Atlas Test ${{ github.run_number }} (${GITHUB_REF_NAME})" \
+            --notes "Test build from ${GITHUB_REF_NAME}: $(git log -1 --format=%s). Installs next to the real app."
+          # Keep the 3 newest test builds.
+          gh release list --limit 100 --json tagName --jq '.[].tagName' | grep '^test-' | sort -t- -k2 -n -r | tail -n +4 |
+            while read -r old; do gh release delete "$old" --yes --cleanup-tag || true; done || true
+
       - uses: actions/upload-artifact@v4
         with:
-          name: american-atlas-debug-apk
-          path: american-atlas-${{ github.run_number }}.apk
+          name: ${{ env.TEST_BUILD == 'true' && 'atlas-test-apk' || 'american-atlas-debug-apk' }}
+          path: ${{ env.APK_NAME }}

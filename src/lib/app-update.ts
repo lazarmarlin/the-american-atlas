@@ -9,7 +9,13 @@ import { registerPlugin } from "@capacitor/core";
 import { create } from "zustand";
 import { nativeApp } from "@/lib/native";
 
-const RELEASES = "https://api.github.com/repos/lazarmarlin/the-american-atlas/releases/latest";
+const REPO = "https://api.github.com/repos/lazarmarlin/the-american-atlas/releases";
+/**
+ * "test": the test app (built from a test/… branch, installed alongside the
+ * real one) updates from its own builds, test-N, published as pre-releases.
+ * The real app only ever sees /latest, which never is a pre-release.
+ */
+const TEST_APP = import.meta.env.VITE_UPDATE_CHANNEL === "test";
 /** Looked for when the app comes to the front, at most this often (one small request). */
 const CHECK_EVERY_MS = 60 * 60 * 1000;
 /** A check that failed (no signal) is tried again after this long instead of the full wait. */
@@ -83,17 +89,24 @@ export async function checkForUpdate(force = false) {
   useUpdate.setState({ status: "checking", message: null, checkedAt: Date.now() });
   try {
     const build = await currentBuild();
-    const res = await fetch(RELEASES, { headers: { Accept: "application/vnd.github+json" } });
+    const res = await fetch(TEST_APP ? `${REPO}?per_page=30` : `${REPO}/latest`, { headers: { Accept: "application/vnd.github+json" } });
     if (!res.ok)
       throw new Error(
         res.status === 403 ? "GitHub is busy. Try again later." : "Couldn't check for updates.",
       );
-    const release = (await res.json()) as {
+    type Release = {
       tag_name?: string;
       body?: string;
+      draft?: boolean;
       assets?: { name: string; browser_download_url: string; size: number }[];
     };
-    const latest = Number.parseInt(String(release.tag_name ?? "").replace(/^build-/, ""), 10);
+    const found = (await res.json()) as Release | Release[];
+    const release: Release = Array.isArray(found)
+      ? found
+          .filter((item) => !item.draft && /^test-\d+$/.test(item.tag_name ?? ""))
+          .sort((a, b) => Number.parseInt(String(b.tag_name).slice(5), 10) - Number.parseInt(String(a.tag_name).slice(5), 10))[0] ?? {}
+      : found;
+    const latest = Number.parseInt(String(release.tag_name ?? "").replace(/^(build|test)-/, ""), 10);
     const asset = release.assets?.find((a) => a.name.endsWith(".apk"));
     const newer = Number.isFinite(latest) && asset && latest > build;
     if (newer) void downloadQuietly({ build: latest, url: asset.browser_download_url, notes: release.body ?? "", size: asset.size });

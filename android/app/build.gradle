@@ -4,7 +4,11 @@ android {
     namespace = "com.lazarmarlin.americanatlas"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.lazarmarlin.americanatlas"
+        // A test build (from a test/… branch) gets its own id and name, so it installs
+        // next to the real app instead of over it. See .github/workflows/android.yml.
+        applicationId(System.getenv("ATLAS_APP_ID") ?: "com.lazarmarlin.americanatlas")
+        resValue "string", "app_name", (System.getenv("ATLAS_APP_NAME") ?: "The American Atlas")
+        resValue "string", "title_activity_main", (System.getenv("ATLAS_APP_NAME") ?: "The American Atlas")
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // CI passes the build number, so each build is newer than the last and installs over it.
