@@ -13,6 +13,13 @@ import {
   TRAVEL_MODES,
   type TravelMode,
   biggestBlock,
+  biggestPatch,
+  CORNER_NAMES,
+  cornerSquares,
+  neighbors,
+  POCKET_MAX,
+  POCKET_MAX_HARD,
+  squareCenter,
   gridFor,
   inGrid,
   maskFromText,
@@ -24,7 +31,7 @@ import {
   unpackSquares,
   type Grid,
 } from "@/lib/city-grid";
-import { pauseSquares, playCard, setupSquares, skipSquare, squaresState, swapCard, type SquaresMode, type SquaresPlace, type SquaresState } from "@/lib/city-squares";
+import { loadSpots, pauseSquares, playCard, setupSquares, skipSquare, squaresState, swapCard, type SquaresMode, type SquaresPlace, type SquaresState } from "@/lib/city-squares";
 import { cardFinished, setSquaresOnMap, squaresChanged, useSquaresOnMap } from "@/lib/squares-map";
 import { refreshSquareGames } from "@/lib/squares-tracker";
 import { KIND_LOOK, Label } from "@/components/board-ui";
@@ -78,14 +85,16 @@ export function readSquares(state: SquaresState) {
   const skips = new Set(unpackSquares(state.skips).filter((n) => inGrid(grid, n) && !owner.has(n)));
   const walled = new Map<number, string>();
   const visited = new Set(owner.keys());
+  // Hard: only tiny pockets fill themselves.
+  const pocketMax = game.hard ? POCKET_MAX_HARD : POCKET_MAX;
   if (game.mode === "together") {
-    for (const n of pockets(grid, visited)) if (!skips.has(n)) walled.set(n, "");
+    for (const n of pockets(grid, visited, visited, pocketMax)) if (!skips.has(n)) walled.set(n, "");
   } else {
     // Each player's own walls close their own pockets.
     const order = [...state.players].sort((a, b) => (state.visits[b.id] ?? 0) - (state.visits[a.id] ?? 0));
     for (const player of order) {
       const walls = new Set([...owner].filter(([, id]) => id === player.id).map(([n]) => n));
-      for (const n of pockets(grid, walls, visited)) if (!walled.has(n)) walled.set(n, player.id);
+      for (const n of pockets(grid, walls, visited, pocketMax)) if (!walled.has(n)) walled.set(n, player.id);
     }
   }
   const filled = new Set<number>([...visited, ...walled.keys()]);
@@ -93,7 +102,23 @@ export function readSquares(state: SquaresState) {
   const score = new Map<string, number>();
   for (const [, id] of owner) score.set(id, (score.get(id) ?? 0) + 1);
   if (game.mode === "race") for (const [, id] of walled) score.set(id, (score.get(id) ?? 0) + 1);
+  // Today's squares count double.
+  for (const [id, n] of Object.entries(state.bonus ?? {})) score.set(id, (score.get(id) ?? 0) + n);
+  // Each player's biggest connected patch: the score in a Hard race.
+  const patch = new Map<string, number>();
+  for (const player of state.players) {
+    const theirs = new Set([...owner, ...walled].filter(([, id]) => id === player.id).map(([n]) => n));
+    patch.set(player.id, biggestPatch(grid, theirs));
+  }
+  const today = (state.today ?? []).filter((n) => inGrid(grid, n));
+  // Hard: the empty squares you're allowed to take next (touching yours; in Together, anyone's).
+  const ours = game.mode === "together" ? filled : new Set([...owner, ...walled].filter(([, id]) => id === state.me).map(([n]) => n));
+  const next = new Set<number>();
+  if (game.hard) for (const n of ours) for (const m of neighbors(grid, n)) if (!filled.has(m) && !skips.has(m)) next.add(m);
   return {
+    patch,
+    today,
+    next,
     game,
     grid,
     owner,
@@ -122,8 +147,18 @@ export function squareFeatures(state: SquaresState): GeoJSON.Feature[] | null {
     const wall = view.walled.get(i);
     const s = who != null ? "filled" : wall != null ? "walled" : view.skips.has(i) ? "skip" : "empty";
     const c = who != null ? colorFor(state, who) : wall != null ? colorFor(state, wall || state.me) : "#8a857a";
-    out.push({ type: "Feature", properties: { s, c }, geometry: { type: "Polygon", coordinates: [squareRing(grid, i)] } });
+    // t: one of today's squares (still to get); x: one you may take next (Hard).
+    const t = s === "empty" && view.today.includes(i) ? 1 : 0;
+    const x = s === "empty" && view.next.has(i) ? 1 : 0;
+    out.push({ type: "Feature", id: i, properties: { s, c, t, x, n: i }, geometry: { type: "Polygon", coordinates: [squareRing(grid, i)] } });
   }
+  // A grid card's square(s) (the corner, the far side…), as targets.
+  const held = state.holding[state.me]?.grid;
+  if (held && held.squares.length && held.squares.length <= 40)
+    for (const n of held.squares) {
+      const [lat, lon] = squareCenter(grid, n);
+      out.push({ type: "Feature", properties: { s: "target", c: MINE, name: cardById(state.holding[state.me].card)?.name ?? "" }, geometry: { type: "Point", coordinates: [lon, lat] } });
+    }
   // Where your card can send you.
   for (const [, name, lat, lon] of state.holding[state.me]?.targets ?? []) out.push({ type: "Feature", properties: { s: "target", c: MINE, name }, geometry: { type: "Point", coordinates: [lon, lat] } });
   return out;
@@ -165,6 +200,7 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
   const [mode, setMode] = useState<SquaresMode>("together");
   const [travel, setTravel] = useState<TravelMode>("car");
   const [cards, setCards] = useState(true);
+  const [hard, setHard] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const owner = api.board.role === "owner";
@@ -242,7 +278,9 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
     try {
       const g = chosen.grid;
       const d = cards ? (deck ?? (await buildDeck(town.st, g).catch(() => ({})))) : null;
-      await setupSquares({ data: { id: api.board.id, geoid: town.geoid, city: town.name, place: kind, travel, cards, deck: d, state: town.st, zoom: g.zoom, mode, x0: g.x0, y0: g.y0, w: g.w, h: g.h, mask: maskToText(g.mask) } });
+      await setupSquares({ data: { id: api.board.id, geoid: town.geoid, city: town.name, place: kind, travel, cards, hard, deck: d, state: town.st, zoom: g.zoom, mode, x0: g.x0, y0: g.y0, w: g.w, h: g.h, mask: maskToText(g.mask) } });
+      // Look up the everyday places (libraries, water towers…) for the game map and the cards.
+      void loadSpots({ data: { id: api.board.id } }).catch(() => undefined);
       onStarted();
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Couldn't start the game.");
@@ -375,6 +413,27 @@ function SquaresSetup({ api, onStarted }: { api: BoardApi; onStarted: () => void
                 <p className="mt-3 text-xs text-faint">Looking for places inside {town.name}…</p>
               )
             ) : null}
+          </Card>
+          <Card>
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <Label>Hard mode</Label>
+                <p className="mt-1 text-xs text-faint">
+                  A square only counts once you've been in it about 20 seconds (driving past doesn't), new squares have to touch ones you have, only tiny pockets fill themselves, and after half the area the easy cards drop out.
+                  {mode === "race" ? " The winner is whoever holds the biggest connected patch." : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={hard}
+                aria-label="Hard mode"
+                onClick={() => setHard(!hard)}
+                className={"relative mt-1 h-7 w-12 shrink-0 rounded-full transition-colors " + (hard ? "bg-ink" : "bg-line")}
+              >
+                <span className={"absolute top-1 size-5 rounded-full bg-bg transition-all " + (hard ? "left-6" : "left-1")} />
+              </button>
+            </div>
           </Card>
           <Card>
             <Label>With friends</Label>
@@ -537,7 +596,9 @@ export function SquaresBoard({ api }: { api: BoardApi }) {
   const { game } = view;
   const race = game.mode === "race";
   const skipsLeft = state.skipsAllowed - view.skips.size;
-  const ranked = [...state.players].map((p) => ({ ...p, score: view.score.get(p.id) ?? 0 })).sort((a, b) => b.score - a.score);
+  // A Hard race is won on the biggest connected patch; otherwise squares (today's count double).
+  const byPatch = race && game.hard;
+  const ranked = [...state.players].map((p) => ({ ...p, score: byPatch ? view.patch.get(p.id) ?? 0 : view.score.get(p.id) ?? 0, squares: view.score.get(p.id) ?? 0 })).sort((a, b) => b.score - a.score);
   const complete = view.done >= game.total;
   const pickedOwner = picked != null ? view.owner.get(picked) : undefined;
   const pickedWall = picked != null ? view.walled.get(picked) : undefined;
@@ -600,12 +661,21 @@ export function SquaresBoard({ api }: { api: BoardApi }) {
           <p className="font-serif text-3xl leading-tight tabular-nums">{view.percent < 10 && view.percent > 0 ? view.percent.toFixed(1) : Math.floor(view.percent)}%</p>
           <span className="text-xs text-faint">
             {game.city}, {game.state} · {TRAVEL_MODES.find((t) => t.id === game.travel)?.name.toLowerCase()} · {race ? "race" : "together"}
+            {game.hard ? " · hard" : ""}
           </span>
         </div>
         <p className="text-sm text-muted">
           {view.done.toLocaleString()} of {game.total.toLocaleString()} squares
           {view.block >= 2 ? ` · biggest block ${view.block}×${view.block}` : ""}
         </p>
+        {view.today.length ? (
+          <p className="mt-1 text-sm">
+            <span aria-hidden>✨ </span>
+            {view.today.filter((n) => !view.filled.has(n)).length
+              ? `${view.today.filter((n) => !view.filled.has(n)).length} of today's squares left: they glow on the map and count double until midnight.`
+              : "You got all of today's squares."}
+          </p>
+        ) : null}
         <SquaresCanvas state={state} view={view} picked={picked} onPick={setPicked} />
         {picked != null ? (
           <div className="mt-3 flex items-center gap-2 rounded-xl bg-bg/60 px-3 py-2 text-sm">
@@ -660,13 +730,15 @@ export function SquaresBoard({ api }: { api: BoardApi }) {
               <span className={"min-w-0 flex-1 truncate " + (p.id === state.me ? "font-medium" : "")}>{nameOf(p.id)}</span>
               {race && i === 0 && p.score > 0 ? <Trophy className="size-4" style={{ color: MINE }} aria-label="In the lead" /> : null}
               <span className="tabular-nums">
-                {p.score.toLocaleString()} <span className="text-xs text-faint">squares</span>
+                {p.score.toLocaleString()} <span className="text-xs text-faint">{byPatch ? "in the biggest patch" : "squares"}</span>
+                {state.bonus?.[p.id] ? <span className="ml-1 text-xs text-faint">(+{state.bonus[p.id]} today)</span> : null}
               </span>
             </li>
           ))}
         </ul>
         <p className="mt-3 text-xs text-faint">
-          Squares fill in when tracking takes you through them{game.travel === "foot" ? " on foot (up to 12 mph)" : game.travel === "bike" ? " by bike (up to 25 mph)" : ""}, from {new Date(game.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} on. Wall in a pocket of up to 4 squares (a big property, say) and it fills in too; circling a bigger area doesn't count.
+          Squares fill in when tracking takes you through them{game.travel === "foot" ? " on foot (up to 12 mph)" : game.travel === "bike" ? " by bike (up to 25 mph)" : ""}, from {new Date(game.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} on. Wall in a pocket of up to {game.hard ? POCKET_MAX_HARD : POCKET_MAX} squares (a big property, say) and it fills in too; circling a bigger area doesn't count.
+          {game.hard ? " Hard: stay about 20 seconds in a square for it to count, and new squares have to touch yours." : ""}
         </p>
       </Card>
     </>
@@ -688,6 +760,23 @@ function CardsSection({ board, state, nameOf, onSwap, onDone }: { board: string;
   const [msg, setMsg] = useState<string | null>(null);
   const [at, setAt] = useState<{ lat: number; lon: number } | null>(null);
   const targets = mine?.targets ?? [];
+  const gridCard = mine?.grid ?? null;
+  const view = useMemo(() => readSquares(state), [state]);
+  /** Where a grid card points, in words. */
+  const gridWhere = (() => {
+    if (!gridCard || !view) return null;
+    if (gridCard.rule === "corner" && gridCard.squares[0] != null) {
+      const k = cornerSquares(view.grid).indexOf(gridCard.squares[0]);
+      return `${k >= 0 ? CORNER_NAMES[k] : "The"} corner square: it's lit up on the map.`;
+    }
+    if (gridCard.rule === "middle" || gridCard.rule === "far" || gridCard.rule === "start") return gridCard.squares.length ? "It's lit up on the map." : null;
+    if (gridCard.rule === "edge") return `${gridCard.squares.length.toLocaleString()} squares on the outline. Any of them.`;
+    if (gridCard.rule === "hole") return `${gridCard.squares.length} ${gridCard.squares.length === 1 ? "square" : "squares"} like that right now. They're lit up on the map.`;
+    if (gridCard.rule === "ink") return `Any of ${gridCard.squares.length.toLocaleString()} squares a friend has.`;
+    if (gridCard.rule === "run") return "Go in a straight line through five squares you don't have.";
+    if (gridCard.rule === "dark") return "Any square you don't have yet, once the sun's down.";
+    return null;
+  })();
 
   /** "I'm here": a location read right now, and the card's nearest place has to be within 100 feet. */
   async function imHere() {
@@ -735,6 +824,7 @@ function CardsSection({ board, state, nameOf, onSwap, onDone }: { board: string;
             <p className="font-serif text-xl leading-tight">{card.name}</p>
             <p className="mt-1 text-[15px]">{card.task}</p>
             {targets.length ? <Nearest targets={targets} at={at} /> : null}
+            {gridWhere ? <p className="mt-2 text-sm text-muted">{gridWhere}</p> : null}
             {targets.length ? (
               <button type="button" disabled={checking} onClick={() => void imHere()} className="mt-3 h-10 w-full rounded-lg bg-ink text-sm text-bg disabled:opacity-60">
                 {checking ? "Checking where you are…" : "I'm here"}
@@ -743,7 +833,11 @@ function CardsSection({ board, state, nameOf, onSwap, onDone }: { board: string;
             {msg ? <p className="mt-2 text-sm text-muted">{msg}</p> : null}
             <p className="mt-2 text-xs text-faint">
               {left != null ? `${left} min to go. ` : ""}No squares count for you until it's done
-              {targets.length ? ". Stop at one of these, then tap the card: you need to be within 100 ft (somewhere you've been before counts)." : "; it checks itself off."}
+              {targets.length
+                ? ". Stop at one of these, then tap the card: you need to be within 100 ft (somewhere you've been before counts)."
+                : gridCard
+                  ? ". The app checks as you go: get there with tracking on."
+                  : "; it checks itself off."}
             </p>
             {state.swapsLeft > 0 ? (
               <button type="button" onClick={onSwap} className="mt-3 h-9 rounded-full border border-line px-3 text-xs">
@@ -835,5 +929,37 @@ function Nearest({ targets, at }: { targets: [string, string, number, number][];
         ))}
       </ul>
     </div>
+  );
+}
+
+/**
+ * The card at the top of the game map, instead of the atlas's: how far along
+ * the game is, today's squares, the card you're holding. Tap to open the board.
+ */
+export function GameHud({ state, spots, onOpen }: { state: SquaresState; spots: number; onOpen: () => void }) {
+  const view = useMemo(() => readSquares(state), [state]);
+  if (!view) return null;
+  const left = view.today.filter((n) => !view.filled.has(n)).length;
+  const held = state.holding[state.me];
+  const card = held ? cardById(held.card) : null;
+  return (
+    <button type="button" onClick={onOpen} aria-label="Open the game" className="pointer-events-auto flex w-[min(17rem,calc(100vw-5.5rem))] items-center gap-3 rounded-card border border-line bg-surface/95 px-3 py-2 text-left backdrop-blur-sm">
+      <span className="min-w-0 flex-1">
+        <span className="block text-[11px] tracking-[0.14em] text-faint uppercase">
+          {view.game.city} squares{view.game.hard ? " · hard" : ""}
+        </span>
+        <span className="mt-0.5 block font-serif text-2xl leading-none tabular-nums">{view.percent < 10 && view.percent > 0 ? view.percent.toFixed(1) : Math.floor(view.percent)}%</span>
+        <span className="mt-1 block truncate text-xs text-muted">
+          {left ? `✨ ${left} of today's left` : view.today.length ? "✨ Today's done" : `${view.done.toLocaleString()} of ${view.game.total.toLocaleString()}`}
+          {spots ? ` · ${spots} places` : ""}
+        </span>
+      </span>
+      {card ? (
+        <span className="flex shrink-0 flex-col items-center">
+          <SquareCardArt id={card.id} width={34} />
+          <span className="mt-1 max-w-16 truncate text-[10px] text-muted">{card.name}</span>
+        </span>
+      ) : null}
+    </button>
   );
 }

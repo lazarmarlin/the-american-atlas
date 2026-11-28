@@ -79,7 +79,9 @@ import { freshPoints, GHOST_KEEP_HOURS, loadGhost, mergeLiveCache, syncGhost, th
 import { feedSquares, flushSquares, refreshSquareGames } from "@/lib/squares-tracker";
 import { useSquaresOnMap } from "@/lib/squares-map";
 import { squaresState, type SquaresState } from "@/lib/city-squares";
-import { DealtCard, squareFeatures } from "@/components/city-squares";
+import { DealtCard, GameHud, squareFeatures } from "@/components/city-squares";
+import { latOf, lonOf } from "@/lib/city-grid";
+import { Grid3x3 } from "lucide-react";
 import { cardSeen } from "@/lib/squares-map";
 import { clearLiveTrail, incomingLive, pingLive, pullLiveTrail, pushLiveTrail, seenAgo, useLiveShare, type LiveFriend } from "@/lib/live-share";
 import { loadAccountSettings, saveAccountSettings, type AccountSettings } from "@/lib/account-settings";
@@ -347,6 +349,35 @@ function AtlasShell() {
     };
   }, [user?.id, squaresOnMap, squaresRev]);
   const squaresShapes = useMemo(() => (squaresView ? squareFeatures(squaresView) : null), [squaresView]);
+  // The game map (only while a game's on the map): its own look, the everyday places, a card at the top.
+  const [gameMap, setGameMap] = useState(false);
+  const gameOn = gameMap && Boolean(squaresView?.game);
+  const [spotFeatures, setSpotFeatures] = useState<{ board: string; features: GeoJSON.Feature[] } | null>(null);
+  useEffect(() => {
+    if (!squaresOnMap) setGameMap(false);
+  }, [squaresOnMap]);
+  useEffect(() => {
+    if (!gameOn || !squaresOnMap || spotFeatures?.board === squaresOnMap) return;
+    let live = true;
+    let tries = 0;
+    const ask = () =>
+      void import("@/lib/city-squares")
+        .then((mod) => mod.loadSpots({ data: { id: squaresOnMap } }))
+        .then((res) => {
+          if (!live) return;
+          if (res.spots) {
+            setSpotFeatures({
+              board: squaresOnMap,
+              features: res.spots.map(([id, kind, name, lat, lon]) => ({ type: "Feature", properties: { id, kind, name }, geometry: { type: "Point", coordinates: [lon, lat] } })),
+            });
+          } else if (++tries < 4) window.setTimeout(ask, 20_000);
+        })
+        .catch(() => undefined);
+    ask();
+    return () => {
+      live = false;
+    };
+  }, [gameOn, squaresOnMap, spotFeatures?.board]);
   /** Check friends' locations again now (after a friend's phone was woken for a fresh one). */
   const livePull = useRef<(() => void) | null>(null);
   /** The friend the map is zoomed in on, if any (AtlasMap onLook). */
@@ -2777,6 +2808,8 @@ function AtlasShell() {
               friendPins={shownPins}
               onLook={setLookAt}
               squares={squaresShapes}
+              gameMode={gameOn}
+              spots={gameOn && spotFeatures?.board === squaresOnMap ? spotFeatures.features : null}
               photoPins={photoPins}
               you={you}
               dot={locating ? (tracker ?? you) : you}
@@ -3201,6 +3234,33 @@ function AtlasShell() {
                     </span>
                     <span className="mt-0.5 max-w-full truncate rounded-full bg-surface/90 px-1.5 text-[10px] leading-4 text-ink">Drive</span>
                   </button>
+                  {squaresView?.game ? (
+                    <button
+                      type="button"
+                      aria-pressed={gameOn}
+                      aria-label={gameOn ? "Back to the atlas map" : "Game map"}
+                      onClick={() => {
+                        const next = !gameOn;
+                        setGameMap(next);
+                        const game = squaresView.game;
+                        if (next && game) {
+                          // Over to the game's area.
+                          const points: [number, number][] = [
+                            [lonOf(game.x0, game.zoom), latOf(game.y0, game.zoom)],
+                            [lonOf(game.x0 + game.w, game.zoom), latOf(game.y0 + game.h, game.zoom)],
+                          ];
+                          setSheet(8);
+                          setFitTo((cur) => ({ tick: (cur?.tick ?? 0) + 1, points, maxZoom: 15 }));
+                        }
+                      }}
+                      className="relative flex w-14 shrink-0 flex-col items-center select-none"
+                    >
+                      <span className={"grid size-11 place-items-center rounded-full border shadow-sm backdrop-blur-sm " + (gameOn ? "border-accent bg-accent text-accent-ink" : "border-line bg-surface/95")}>
+                        <Grid3x3 className="size-5" />
+                      </span>
+                      <span className="mt-0.5 max-w-full truncate rounded-full bg-surface/90 px-1.5 text-[10px] leading-4 text-ink">{gameOn ? "Atlas" : "Game"}</span>
+                    </button>
+                  ) : null}
                   {facesCount ? <span className="mx-0.5 mt-3 h-7 w-px shrink-0 self-start bg-line" aria-hidden="true" /> : null}
                 </>
               }
@@ -3457,7 +3517,18 @@ function AtlasShell() {
               ) : null}
             </div>
           ) : null}
-          <div className={"pointer-events-auto rounded-card border border-line bg-surface/95 px-3 py-2 backdrop-blur-sm " + (group || spot?.label ? "hidden" : "")}>
+          {gameOn && squaresView && !group && !spot?.label ? (
+            <GameHud
+              state={squaresView}
+              spots={spotFeatures?.board === squaresOnMap ? spotFeatures.features.length : 0}
+              onOpen={() => {
+                setBoardFocus(squaresOnMap);
+                setBoardsTabbed(true);
+                setBoardsOpen(true);
+              }}
+            />
+          ) : null}
+          <div className={"pointer-events-auto rounded-card border border-line bg-surface/95 px-3 py-2 backdrop-blur-sm " + (group || spot?.label || gameOn ? "hidden" : "")}>
             <div className="font-serif text-lg leading-none">{stats.places.toLocaleString()} on the map</div>
             <div className="mt-1 text-xs text-muted">
               {stateAbbr
@@ -3484,7 +3555,7 @@ function AtlasShell() {
               </div>
             </div>
           ) : null}
-          <div className="pointer-events-auto flex max-w-[14.5rem] flex-wrap gap-1">
+          <div className={"pointer-events-auto flex max-w-[14.5rem] flex-wrap gap-1" + (gameOn ? " hidden" : "")}>
             <div className="flex h-8 overflow-hidden rounded-full border border-line bg-surface text-[11px]">
               <button
                 type="button"

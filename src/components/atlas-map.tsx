@@ -16,6 +16,54 @@ import { youMarkerImage } from "@/lib/you-marker";
 import { heading, speedMph, turnBetween, zoomForSpeed } from "@/lib/motion";
 import { makeCuller, type Box } from "@/lib/map-cull";
 
+/** Layers only the game map shows. */
+const GAME_LAYERS = ["game-dim", "game-empty", "game-fill", "game-today", "game-grid", "game-next", "game-target-ring", "game-spots"];
+/** The atlas's layers the game map hides (the squares' own atlas look too: the game draws its own). */
+const ATLAS_LAYERS = [
+  "town-fill", "town-outline", "reservation-fill", "reservation-line", "park-fill", "park-line", "county-fill", "county-line",
+  "offer-halo", "offer-line", "offer-dots", "offer-icons", "squares-fill", "squares-line", "route-halo", "route-line", "trip-line",
+  "ghost-saved-haze", "ghost-saved-line", "place-dots", "place-icons", "photo-pins", "trip-route-casing", "trip-route-line", "trip-route-dots", "group-rings", "group-stops",
+];
+
+/** The everyday places on the game map: kind, picture, badge color. */
+const SPOT_LOOKS: [string, string, string][] = [
+  ["library", "📚", "#2f78c0"],
+  ["church", "⛪", "#e3ad35"],
+  ["school", "🏫", "#d64a3a"],
+  ["hall", "🏛️", "#2f78c0"],
+  ["post", "📮", "#d64a3a"],
+  ["grocery", "🛒", "#3f9a5c"],
+  ["fuel", "⛽", "#e3ad35"],
+  ["ball", "⚾", "#3f9a5c"],
+  ["tower", "🗼", "#2f78c0"],
+  ["graves", "🪦", "#6c6a64"],
+  ["bridge", "🌉", "#2f78c0"],
+  ["crossing", "🚂", "#e3ad35"],
+];
+
+/** A round badge with the place's picture, drawn once per kind. */
+function spotIcon(glyph: string, color: string) {
+  if (typeof document === "undefined") return null;
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const g = canvas.getContext("2d");
+  if (!g) return null;
+  g.beginPath();
+  g.arc(size / 2, size / 2, size / 2 - 3, 0, Math.PI * 2);
+  g.fillStyle = "#fbf8f0";
+  g.fill();
+  g.lineWidth = 5;
+  g.strokeStyle = color;
+  g.stroke();
+  g.font = `${Math.round(size * 0.5)}px "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.fillText(glyph, size / 2, size / 2 + 2);
+  return g.getImageData(0, 0, size, size);
+}
+
 /** Re-cut the big sets to the view as it moves (off: it made the map stutter; see the culler below). */
 const CULLING = false;
 import { seenAgo } from "@/lib/live-share";
@@ -135,6 +183,10 @@ type Props = {
   onLook?: (id: string | null) => void;
   /** A City squares game drawn on the map (src/components/city-squares.tsx squareFeatures), or null. */
   squares?: GeoJSON.Feature[] | null;
+  /** The game map: the atlas fades back and the game takes over (squares lit up, today's glowing, the everyday places). */
+  gameMode?: boolean;
+  /** The game's everyday places (libraries, water towers…), points with kind and name. */
+  spots?: GeoJSON.Feature[] | null;
   onView: (zoom: number, base: number | null) => void;
   /** Bumped to fly back out to the whole country (Android back). */
   homeTick?: number;
@@ -352,6 +404,8 @@ export function AtlasMap({
   onFriend,
   onLook,
   squares,
+  gameMode = false,
+  spots = null,
   onView,
   homeTick = 0,
   topInset = 0,
@@ -551,6 +605,7 @@ export function AtlasMap({
         map.addSource("photo-pins", { type: "geojson", data: empty });
         map.addSource("friend-people", { type: "geojson", data: empty });
         map.addSource("city-squares", { type: "geojson", data: empty });
+        map.addSource("game-spots", { type: "geojson", data: empty });
         for (const id of glyphKinds()) {
           const color = placeKinds.find((kind) => kind.id === id)?.color ?? "#e2b15a";
           map.addImage(`k-${id}`, glyphImage(id, color, false), { pixelRatio: 2 });
@@ -717,6 +772,8 @@ export function AtlasMap({
           paint: { "line-color": routeColor, "line-width": ["case", ["==", ["get", "sys"], "I"], 1.4, 0.7], "line-opacity": 0.7 },
           layout: { "line-cap": "round", "line-join": "round" },
         });
+        // The game map: everything below this fades back.
+        map.addLayer({ id: "game-dim", type: "background", layout: { visibility: "none" }, paint: { "background-color": "#06080b", "background-opacity": 0.55 } });
         // City squares (under the roads and places): filled ones tinted, the rest outlined faintly.
         map.addLayer({
           id: "squares-fill",
@@ -747,6 +804,83 @@ export function AtlasMap({
             "line-width": 0.7,
             "line-opacity": ["interpolate", ["linear"], ["zoom"], 10.5, 0, 12, 0.45],
           },
+        });
+        // Game map only: squares lit up (and flashing when they fill), today's glowing, the ones you can take next, the places.
+        const GAME = { visibility: "none" as const };
+        map.addLayer({
+          id: "game-empty",
+          type: "fill",
+          source: "city-squares",
+          layout: GAME,
+          filter: ["==", ["get", "s"], "empty"],
+          paint: { "fill-color": "#ffffff", "fill-opacity": 0.035 },
+        });
+        map.addLayer({
+          id: "game-fill",
+          type: "fill",
+          source: "city-squares",
+          layout: GAME,
+          filter: ["all", ["!=", ["get", "s"], "empty"], ["!=", ["get", "s"], "target"]],
+          paint: {
+            "fill-color": ["case", ["boolean", ["feature-state", "fresh"], false], "#fff4c2", ["get", "c"]],
+            "fill-opacity": ["case", ["boolean", ["feature-state", "fresh"], false], 0.95, ["match", ["get", "s"], "filled", 0.62, "walled", 0.4, 0.22]],
+            "fill-opacity-transition": { duration: 1600 },
+            "fill-color-transition": { duration: 1600 },
+          },
+        });
+        map.addLayer({
+          id: "game-today",
+          type: "fill",
+          source: "city-squares",
+          layout: GAME,
+          filter: ["==", ["get", "t"], 1],
+          paint: { "fill-color": "#f6c343", "fill-opacity": 0.35 },
+        });
+        map.addLayer({
+          id: "game-grid",
+          type: "line",
+          source: "city-squares",
+          layout: GAME,
+          filter: ["!=", ["get", "s"], "target"],
+          paint: {
+            "line-color": ["case", ["==", ["get", "t"], 1], "#f6c343", ["==", ["get", "s"], "empty"], "#c9c3b5", ["get", "c"]],
+            "line-width": ["case", ["==", ["get", "t"], 1], 2, ["==", ["get", "s"], "empty"], 0.6, 1.2],
+            "line-opacity": ["interpolate", ["linear"], ["zoom"], 9, 0.25, 13, 0.7],
+          },
+        });
+        map.addLayer({
+          id: "game-next",
+          type: "line",
+          source: "city-squares",
+          layout: GAME,
+          filter: ["==", ["get", "x"], 1],
+          paint: { "line-color": "#fbf8f0", "line-width": 1.4, "line-dasharray": [2, 2], "line-opacity": 0.8 },
+        });
+        map.addLayer({
+          id: "game-target-ring",
+          type: "circle",
+          source: "city-squares",
+          layout: GAME,
+          filter: ["==", ["get", "s"], "target"],
+          paint: { "circle-radius": 18, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": ["get", "c"], "circle-stroke-width": 3, "circle-stroke-opacity": 0.9 },
+        });
+        map.addLayer({
+          id: "game-spots",
+          type: "symbol",
+          source: "game-spots",
+          layout: {
+            ...GAME,
+            "icon-image": ["concat", "spot-", ["get", "kind"]],
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 10, 0.45, 14, 0.75, 17, 1],
+            "icon-allow-overlap": true,
+            "text-field": ["step", ["zoom"], "", 15, ["get", "name"]],
+            "text-size": 11,
+            "text-offset": [0, 1.6],
+            "text-anchor": "top",
+            "text-optional": true,
+            "text-font": ["Noto Sans Regular"],
+          },
+          paint: { "text-color": "#fbf8f0", "text-halo-color": "#06080b", "text-halo-width": 1.4 },
         });
         map.addLayer({
           id: "route-halo",
@@ -1386,11 +1520,58 @@ export function AtlasMap({
   }, [ready]);
 
   // A City squares game on the map (culled like the other big sets: a big city at the tiny size is thousands of squares).
+  const filledBefore = useRef<Set<number> | null>(null);
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
     showCulled(map, "city-squares", squares ?? []);
+    // Squares that just filled light up for a moment (on the game map).
+    const now = new Set<number>();
+    for (const f of squares ?? []) if (f.properties?.s === "filled" || f.properties?.s === "walled") now.add(Number(f.id));
+    const before = filledBefore.current;
+    filledBefore.current = squares ? now : null;
+    if (!before) return;
+    const fresh = [...now].filter((n) => !before.has(n));
+    if (!fresh.length || fresh.length > 400) return;
+    for (const id of fresh) map.setFeatureState({ source: "city-squares", id }, { fresh: true });
+    const timer = window.setTimeout(() => {
+      for (const id of fresh) if (map.getSource("city-squares")) map.setFeatureState({ source: "city-squares", id }, { fresh: false });
+    }, 1400);
+    return () => window.clearTimeout(timer);
   }, [ready, squares]);
+
+  // The game map's places.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    for (const [kind, glyph, color] of SPOT_LOOKS) {
+      const id = `spot-${kind}`;
+      if (!map.hasImage(id)) {
+        const image = spotIcon(glyph, color);
+        if (image) map.addImage(id, image, { pixelRatio: 2 });
+      }
+    }
+    (map.getSource("game-spots") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: spots ?? [] });
+  }, [ready, spots]);
+
+  // The game map on or off: the atlas's own layers step back, the game's come forward.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const set = (id: string, on: boolean) => map.getLayer(id) && map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+    for (const id of GAME_LAYERS) set(id, gameMode);
+    for (const id of ATLAS_LAYERS) set(id, !gameMode);
+    if (!gameMode) return;
+    // Today's squares and the card's target breathe.
+    let t = 0;
+    const timer = window.setInterval(() => {
+      t += 1;
+      const wave = (Math.sin(t / 3) + 1) / 2;
+      if (map.getLayer("game-today")) map.setPaintProperty("game-today", "fill-opacity", 0.18 + wave * 0.32);
+      if (map.getLayer("game-target-ring")) map.setPaintProperty("game-target-ring", "circle-radius", 12 + wave * 12);
+    }, 120);
+    return () => window.clearInterval(timer);
+  }, [ready, gameMode]);
 
   // Which friend the map is zoomed in on (atlas-app asks their phone for a fresh location).
   const onLookRef = useRef(onLook);

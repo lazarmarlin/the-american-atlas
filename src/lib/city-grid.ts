@@ -293,3 +293,187 @@ export function squareRing(grid: Grid, index: number): Position[] {
   const s = latOf(y + 1, grid.zoom);
   return [[w, n], [e, n], [e, s], [w, s], [w, n]];
 }
+
+/* ---------------------------------------------------------- Hard mode and grid cards */
+
+/** In a Hard game, walled-in pockets fill only up to this size. */
+export const POCKET_MAX_HARD = 2;
+/** In a Hard game, a square counts only after this long in it (passing through doesn't). */
+export const DWELL_MS = 20_000;
+
+/** The squares next to one (up, down, left, right) that are the area's. */
+export function neighbors(grid: Grid, index: number): number[] {
+  const x = index % grid.w;
+  const y = (index - x) / grid.w;
+  const out: number[] = [];
+  for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]] as const) {
+    if (nx < 0 || ny < 0 || nx >= grid.w || ny >= grid.h) continue;
+    const n = nx + ny * grid.w;
+    if (inGrid(grid, n)) out.push(n);
+  }
+  return out;
+}
+
+/** The biggest connected patch of squares (touching side to side), as a count: the score in a Hard race. */
+export function biggestPatch(grid: Grid, squares: Set<number>) {
+  const seen = new Set<number>();
+  let best = 0;
+  for (const start of squares) {
+    if (seen.has(start)) continue;
+    let size = 0;
+    const queue = [start];
+    seen.add(start);
+    while (queue.length) {
+      const at = queue.pop() as number;
+      size++;
+      for (const n of neighbors(grid, at)) {
+        if (!squares.has(n) || seen.has(n)) continue;
+        seen.add(n);
+        queue.push(n);
+      }
+    }
+    if (size > best) best = size;
+  }
+  return best;
+}
+
+/** Which of `fresh` may count when new squares have to touch ones you have (`have`). Grows outward, so a connected run in one go all counts. */
+export function touching(grid: Grid, have: Set<number>, fresh: number[]): number[] {
+  const kept: number[] = [];
+  const own = new Set(have);
+  let left = fresh.filter((n) => !own.has(n));
+  // Nothing yet: the first square is free.
+  if (!own.size && left.length) {
+    own.add(left[0]);
+    kept.push(left[0]);
+    left = left.slice(1);
+  }
+  let grew = true;
+  while (grew && left.length) {
+    grew = false;
+    const next: number[] = [];
+    for (const n of left) {
+      if (neighbors(grid, n).some((m) => own.has(m))) {
+        own.add(n);
+        kept.push(n);
+        grew = true;
+      } else next.push(n);
+    }
+    left = next;
+  }
+  return kept;
+}
+
+/** Every square of the area, for picking from. */
+function allSquares(grid: Grid) {
+  const out: number[] = [];
+  for (let i = 0; i < grid.w * grid.h; i++) if (inGrid(grid, i)) out.push(i);
+  return out;
+}
+
+const xy = (grid: Grid, i: number) => [i % grid.w, Math.floor(i / grid.w)] as const;
+
+/** The four corner squares (the area's square nearest each corner of its box): NE, NW, SE, SW. */
+export function cornerSquares(grid: Grid): number[] {
+  const all = allSquares(grid);
+  const corners: [number, number][] = [[grid.w - 1, 0], [0, 0], [grid.w - 1, grid.h - 1], [0, grid.h - 1]];
+  return corners.map(([cx, cy]) => {
+    let best = all[0];
+    let d = Infinity;
+    for (const i of all) {
+      const [x, y] = xy(grid, i);
+      const dd = (x - cx) ** 2 + (y - cy) ** 2;
+      if (dd < d) {
+        d = dd;
+        best = i;
+      }
+    }
+    return best;
+  });
+}
+
+export const CORNER_NAMES = ["Northeast", "Northwest", "Southeast", "Southwest"];
+
+/** The square nearest the middle of the area. */
+export function middleSquare(grid: Grid): number {
+  const all = allSquares(grid);
+  let sx = 0;
+  let sy = 0;
+  for (const i of all) {
+    const [x, y] = xy(grid, i);
+    sx += x;
+    sy += y;
+  }
+  const mx = sx / all.length;
+  const my = sy / all.length;
+  let best = all[0];
+  let d = Infinity;
+  for (const i of all) {
+    const [x, y] = xy(grid, i);
+    const dd = (x - mx) ** 2 + (y - my) ** 2;
+    if (dd < d) {
+      d = dd;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/** Squares on the area's outline (one side touches the outside). */
+export function edgeSquares(grid: Grid): number[] {
+  return allSquares(grid).filter((i) => neighbors(grid, i).length < 4);
+}
+
+/** The empty square farthest from `from`. */
+export function farSquare(grid: Grid, from: number, visited: Set<number>): number | null {
+  const [fx, fy] = xy(grid, from);
+  let best: number | null = null;
+  let d = -1;
+  for (const i of allSquares(grid)) {
+    if (visited.has(i)) continue;
+    const [x, y] = xy(grid, i);
+    const dd = (x - fx) ** 2 + (y - fy) ** 2;
+    if (dd > d) {
+      d = dd;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/** Empty squares with yours on at least three sides. */
+export function holeSquares(grid: Grid, mine: Set<number>, visited: Set<number>): number[] {
+  return allSquares(grid).filter((i) => !visited.has(i) && neighbors(grid, i).filter((n) => mine.has(n)).length >= 3);
+}
+
+/** Whether these squares, in order, are a straight run: each next to the one before, all in one row or column. */
+export function straightRun(grid: Grid, run: number[]) {
+  if (run.length < 2) return false;
+  const rows = new Set(run.map((i) => xy(grid, i)[1]));
+  const cols = new Set(run.map((i) => xy(grid, i)[0]));
+  if (rows.size !== 1 && cols.size !== 1) return false;
+  if (new Set(run).size !== run.length) return false;
+  for (let k = 1; k < run.length; k++) if (!neighbors(grid, run[k]).includes(run[k - 1])) return false;
+  return true;
+}
+
+/** A square's middle, [lat, lon]. */
+export function squareCenter(grid: Grid, index: number): [number, number] {
+  const [x, y] = xy(grid, index);
+  return [latOf(grid.y0 + y + 0.5, grid.zoom), lonOf(grid.x0 + x + 0.5, grid.zoom)];
+}
+
+/** Today's squares: a handful picked fresh each day (the same for everyone), from the ones nobody had by the start of the day. */
+export function todaysSquares(grid: Grid, seed: string, takenBefore: Set<number>, count = 5): number[] {
+  let h = 2166136261;
+  for (let k = 0; k < seed.length; k++) h = Math.imul(h ^ seed.charCodeAt(k), 16777619);
+  const rand = () => {
+    h = Math.imul(h ^ (h >>> 15), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    return ((h ^= h >>> 16) >>> 0) / 4294967296;
+  };
+  const pool = allSquares(grid).filter((i) => !takenBefore.has(i));
+  const out: number[] = [];
+  while (out.length < count && pool.length) out.push(pool.splice(Math.floor(rand() * pool.length), 1)[0]);
+  return out;
+}

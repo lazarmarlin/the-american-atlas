@@ -14,17 +14,42 @@
  * done (the server says so when it deals one, or when a send is turned away).
  * A pause this phone hasn't heard of yet comes back from the server when it
  * sends; those squares are dropped.
+ *
+ * Hard games: a square only counts once you've been in it for about 20
+ * seconds (two fixes in it that far apart; passing through doesn't), and the
+ * server only keeps new squares that touch yours.
+ *
+ * Holding a grid card (a corner, the far side, five in a row, after dark…):
+ * squares don't count, but each fix is checked against the card, and when it
+ * does what the card asks the phone tells the server, which checks again.
  */
 import type { Fix } from "@/lib/nearby";
-import { inGrid, maxMphFor, maskFromText, packSquares, squareAt, squaresAlong, unpackSquares, type Grid } from "@/lib/city-grid";
-import { cardDealt, squaresChanged } from "@/lib/squares-map";
+import { DWELL_MS, inGrid, maxMphFor, maskFromText, middleSquare, packSquares, squareAt, squareCenter, squaresAlong, straightRun, unpackSquares, type Grid } from "@/lib/city-grid";
+import { cardDealt, cardFinished, squaresChanged } from "@/lib/squares-map";
 import { cardById } from "@/lib/square-cards";
-import type { Pauses } from "@/lib/city-squares";
+import type { HeldGrid, Pauses } from "@/lib/city-squares";
+import { isDark } from "@/lib/sun";
 
 /** pending: squares found but not sent yet, with when. */
 type Target = [string, string, number, number];
 /** card: the "go to" card you're holding, and its places inside the area. */
-type Game = { id: string; grid: Grid; maxMph: number | null; startedAt: number; mine: Set<number>; pending: Map<number, number>; pauses: Pauses; blocks: Pauses; card: { id: string; targets: Target[] } | null; playing: boolean };
+type Game = {
+  id: string;
+  grid: Grid;
+  maxMph: number | null;
+  startedAt: number;
+  mine: Set<number>;
+  pending: Map<number, number>;
+  pauses: Pauses;
+  blocks: Pauses;
+  card: { id: string; targets: Target[]; grid?: HeldGrid } | null;
+  playing: boolean;
+  hard: boolean;
+  /** Hard: the square you're in and since when (it counts after DWELL_MS). */
+  here: { n: number; since: number } | null;
+  /** A straight-run card: the new squares you've gone through since, in order. */
+  run: number[];
+};
 
 const paused = (pauses: Pauses, t: number) => pauses.some(([s, e]) => t >= s && (e == null || t <= e));
 const pauseBetween = (pauses: Pauses, a: number, b: number) => pauses.some(([s, e]) => s <= b && (e == null || e >= a));
@@ -63,7 +88,7 @@ export function refreshSquareGames(force = false): Promise<void> {
         const pauses = row.pauses ?? [];
         const blocks = row.blocks ?? [];
         const pending = new Map([...(old?.pending ?? [])].filter(([n, t]) => !mine.has(n) && !paused(pauses, t) && !paused(blocks, t)));
-        return { id: row.id, grid, maxMph: maxMphFor(row.travel), startedAt: row.startedAt, mine, pending, pauses, blocks, card: row.card ?? null, playing: false };
+        return { id: row.id, grid, maxMph: maxMphFor(row.travel), startedAt: row.startedAt, mine, pending, pauses, blocks, card: row.card ?? null, playing: false, hard: Boolean(row.hard), here: old?.here ?? null, run: old?.run ?? [] };
       });
     })
     .catch(() => {
@@ -88,7 +113,11 @@ export function feedSquares(fixes: Fix[]) {
     const prev = last && t >= last.t && t - last.t <= GAP_MS && miles(last, fix) <= GAP_MILES ? last : null;
     for (const game of games) {
       if (t < game.startedAt || paused(game.pauses, t)) continue;
-      if (paused(game.blocks, t)) continue;
+      if (paused(game.blocks, t)) {
+        // Holding a card: nothing counts, but a grid card might be done by this.
+        if (game.card?.grid) checkGridCard(game, fix, t, prev);
+        continue;
+      }
       const joined = prev && prev.t >= game.startedAt && !pauseBetween(game.pauses, prev.t, t) && !pauseBetween(game.blocks, prev.t, t);
       if (game.maxMph != null) {
         // Too fast for this game (driving in an on-foot game): this stretch doesn't count.
@@ -96,7 +125,13 @@ export function feedSquares(fixes: Fix[]) {
         const hours = Math.max(1, t - prev.t) / 3_600_000;
         if (miles(prev, fix) / hours > game.maxMph) continue;
       }
-      const squares = joined && prev ? squaresAlong(game.grid, prev, fix) : [squareAt(game.grid, fix.lat, fix.lon)];
+      let squares = joined && prev ? squaresAlong(game.grid, prev, fix) : [squareAt(game.grid, fix.lat, fix.lon)];
+      if (game.hard) {
+        // Hard: only the square you've stayed in for a while (passing through doesn't count).
+        const n = squareAt(game.grid, fix.lat, fix.lon);
+        if (!game.here || game.here.n !== n) game.here = { n, since: t };
+        squares = n >= 0 && t - game.here.since >= DWELL_MS ? [n] : [];
+      }
       for (const n of squares) {
         if (n < 0 || !inGrid(game.grid, n) || game.mine.has(n) || game.pending.has(n)) continue;
         game.pending.set(n, t);
@@ -109,6 +144,52 @@ export function feedSquares(fixes: Fix[]) {
   const many = games.some((g) => g.pending.size >= 25);
   window.clearTimeout(flushTimer);
   flushTimer = window.setTimeout(() => void flushSquares(), many ? 500 : 15_000);
+}
+
+/** A fix while holding a grid card: has it done what the card asks? */
+function checkGridCard(game: Game, fix: Fix, t: number, prev: { lat: number; lon: number; t: number } | null) {
+  const card = game.card?.grid;
+  if (!card || game.playing) return;
+  const n = squareAt(game.grid, fix.lat, fix.lon);
+  if (n < 0) return;
+  if (card.rule === "run") {
+    // Every new square passed through, in order (squares between fixes too).
+    const path = prev && t - prev.t <= GAP_MS ? squaresAlong(game.grid, prev, fix) : [n];
+    for (const m of path) if (m >= 0 && !game.mine.has(m) && game.run.at(-1) !== m) game.run.push(m);
+    game.run = game.run.slice(-8);
+    const five = game.run.slice(-5);
+    if (five.length === 5 && five.at(-1) === n && straightRun(game.grid, five)) void playGrid(game, n, fix, five);
+    return;
+  }
+  if (card.rule === "dark") {
+    const [lat, lon] = squareCenter(game.grid, middleSquare(game.grid));
+    if (!game.mine.has(n) && isDark(lat, lon, t)) void playGrid(game, n, fix);
+    return;
+  }
+  if (card.squares.includes(n)) void playGrid(game, n, fix);
+}
+
+async function playGrid(game: Game, square: number, fix: Fix, run: number[] = []) {
+  if (game.playing || !game.card) return;
+  game.playing = true;
+  const held = game.card;
+  try {
+    const { playCard } = await import("@/lib/city-squares");
+    const res = await playCard({ data: { id: game.id, square, run, lat: fix.lat, lon: fix.lon } });
+    if (res.done) {
+      // Done: squares count again from now, and the card's square(s) are yours.
+      game.card = null;
+      game.run = [];
+      game.blocks = game.blocks.map(([s, e]) => [s, e ?? Date.now()] as [number, number | null]);
+      for (const n of unpackSquares(("squares" in res && res.squares) || "")) game.mine.add(n);
+      cardFinished(game.id, held.id, cardById(held.id)?.name ?? "");
+      squaresChanged();
+    }
+  } catch {
+    // No signal: the next fix tries again.
+  } finally {
+    game.playing = false;
+  }
 }
 
 /** The last fix seen (for "nearest" on a card). */
@@ -148,15 +229,18 @@ export async function flushSquares() {
             for (const [n, t] of run) if (paused(game.blocks, t)) game.pending.delete(n);
             continue;
           }
+          // Only the squares the server kept are yours (a Hard game turns away ones that don't touch yours).
+          const kept = "kept" in res && typeof res.kept === "string" ? new Set(unpackSquares(res.kept)) : null;
           for (const [n] of run) {
-            game.mine.add(n);
+            if (!kept || kept.has(n)) game.mine.add(n);
             game.pending.delete(n);
           }
           sent = true;
           if ("dealt" in res && res.dealt) {
             // A card: nothing more counts until it's done (wild ones are done already).
             game.blocks = [...game.blocks, [res.dealt.at, res.dealt.wild ? res.dealt.at : null]];
-            game.card = res.dealt.targets?.length ? { id: res.dealt.card, targets: res.dealt.targets } : null;
+            game.card = res.dealt.targets?.length || res.dealt.grid ? { id: res.dealt.card, targets: res.dealt.targets ?? [], ...(res.dealt.grid ? { grid: res.dealt.grid } : {}) } : null;
+            game.run = [];
             for (const [n, t] of game.pending) if (t >= res.dealt.at && !res.dealt.wild) game.pending.delete(n);
             cardDealt(game.id, res.dealt.card);
             const card = cardById(res.dealt.card);
