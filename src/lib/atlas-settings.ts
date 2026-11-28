@@ -53,6 +53,8 @@ type Saved = {
   ghostColor: string;
   /** Keep the fading trail on the account for 24 hours. Off until turned on. */
   keepGhost: boolean;
+  /** Pictures taken in the app get the good-camera treatment (src/lib/photo-enhance.ts). */
+  enhancePhotos: boolean;
 };
 
 type Settings = Saved & {
@@ -75,6 +77,7 @@ type Settings = Saved & {
   setGhostHours: (ghostHours: number) => void;
   setGhostColor: (ghostColor: string) => void;
   setKeepGhost: (keepGhost: boolean) => void;
+  setEnhancePhotos: (enhancePhotos: boolean) => void;
   apply: (saved: Partial<Saved>) => void;
 };
 
@@ -99,6 +102,7 @@ const DEFAULTS: Saved = {
   ghostHours: 6,
   ghostColor: "#d5e2ea",
   keepGhost: false,
+  enhancePhotos: true,
 };
 
 function clampHours(value: unknown) {
@@ -131,6 +135,7 @@ function readSaved(): Saved {
       ghostHours: clampHours(raw.ghostHours),
       ghostColor: isGhostColor(raw.ghostColor) ? raw.ghostColor.toLowerCase() : DEFAULTS.ghostColor,
       keepGhost: raw.keepGhost === true,
+      enhancePhotos: raw.enhancePhotos !== false,
     };
   } catch {
     return DEFAULTS;
@@ -246,6 +251,10 @@ export const useSettings = create<Settings>((set) => ({
     write({ keepGhost });
     set({ keepGhost });
   },
+  setEnhancePhotos: (enhancePhotos) => {
+    write({ enhancePhotos });
+    set({ enhancePhotos });
+  },
   apply: (saved) => {
     const next: Partial<Saved> = {};
     if (typeof saved.icons === "boolean") next.icons = saved.icons;
@@ -257,6 +266,7 @@ export const useSettings = create<Settings>((set) => ({
     if (typeof saved.showFriendPhotos === "boolean") next.showFriendPhotos = saved.showFriendPhotos;
     if (typeof saved.followState === "boolean") next.followState = saved.followState;
     if (typeof saved.keepGhost === "boolean") next.keepGhost = saved.keepGhost;
+    if (typeof saved.enhancePhotos === "boolean") next.enhancePhotos = saved.enhancePhotos;
     if (typeof saved.stateBorder === "string") next.stateBorder = saved.stateBorder;
     if (typeof saved.countyColor === "string") next.countyColor = saved.countyColor;
     if (typeof saved.townColor === "string") next.townColor = saved.townColor;

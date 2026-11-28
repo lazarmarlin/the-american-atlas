@@ -96,6 +96,8 @@ export function SettingsPage({
   const ghostColor = useSettings((s) => s.ghostColor);
   const setGhostColor = useSettings((s) => s.setGhostColor);
   const keepGhost = useSettings((s) => s.keepGhost);
+  const enhancePhotos = useSettings((s) => s.enhancePhotos);
+  const setEnhancePhotos = useSettings((s) => s.setEnhancePhotos);
   const setKeepGhost = useSettings((s) => s.setKeepGhost);
   const pack = useOfflinePack();
   const [remindOn, setRemindOn] = useState(memoryReminders);
@@ -173,7 +175,7 @@ export function SettingsPage({
               ["account", "Account", "Sync and profile"],
               ["tracking", "Tracking", "Travel tracking, notifications, ghost trail, your marker, and fast add"],
               ["map", "Map", "Markers, borders, and overlays"],
-              ["photos", "Photos", "Camera roll and the map"],
+              ["photos", "Photos", "The camera, camera roll and the map"],
               ["chats", "Chats", "Names, bubbles, wallpapers, and quiet"],
               ["atlas", "Atlas", nativeApp ? "Offline maps and the tour" : "Offline maps, offline atlas, and the tour"],
             ] as const
@@ -520,6 +522,17 @@ export function SettingsPage({
       ) : null}
 
       {page === "photos" ? (
+        <>
+        <section className="mt-8">
+          <h2 className="font-serif text-2xl">Camera</h2>
+          <p className="mt-1 text-sm text-muted">Pictures you take in the app, for chats.</p>
+          <SwitchRow
+            label="Make pictures look their best"
+            hint="Brighter, richer colours and sharper detail. Off: just as the camera took it."
+            on={enhancePhotos}
+            onToggle={() => setEnhancePhotos(!enhancePhotos)}
+          />
+        </section>
         <section className="mt-8">
           <h2 className="font-serif text-2xl">Camera roll</h2>
           <p className="mt-1 text-sm text-muted">
@@ -532,6 +545,7 @@ export function SettingsPage({
           <SwitchRow label="Your photos" on={showPhotos} onToggle={() => setShowPhotos(!showPhotos)} tight />
           <SwitchRow label="Friends' photos" on={showFriendPhotos} onToggle={() => setShowFriendPhotos(!showFriendPhotos)} tight />
         </section>
+        </>
       ) : null}
 
       {page === "map" ? (

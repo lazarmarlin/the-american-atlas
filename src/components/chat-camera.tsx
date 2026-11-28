@@ -7,9 +7,11 @@
  */
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, Images, MapPin, MapPinOff, RefreshCw, Send, Smile, Type, X } from "lucide-react";
+import { ArrowLeft, Images, MapPin, MapPinOff, RefreshCw, Send, Smile, Sparkles, Type, X } from "lucide-react";
 import { StickerArt, StickerTray } from "@/components/chat-stickers";
 import { allowCamera } from "@/lib/mic";
+import { useSettings } from "@/lib/atlas-settings";
+import { enhancePhoto } from "@/lib/photo-enhance";
 import { pushBack } from "@/lib/sheet-back";
 
 type Placed = { key: number; id: string; x: number; y: number; scale: number; turn: number };
@@ -71,8 +73,18 @@ export function ChatCamera({
   const [attempt, setAttempt] = useState(0);
   const snapInput = useRef<HTMLInputElement>(null);
   const [flash, setFlash] = useState(false);
-  /** The picture taken (or picked), as a data URL, and its size. */
-  const [shot, setShot] = useState<{ src: string; w: number; h: number } | null>(null);
+  /**
+   * The picture taken (or picked) and its size: as the camera took it, and
+   * (for one taken here) made to look its best, which is a moment behind.
+   */
+  const [shot, setShot] = useState<{ raw: string; fine: string | null; camera: boolean; w: number; h: number } | null>(null);
+  const enhance = useSettings((state) => state.enhancePhotos);
+  const setEnhance = useSettings((state) => state.setEnhancePhotos);
+  const shown = shot ? (enhance && shot.fine ? shot.fine : shot.raw) : "";
+  /** 1 to 3. The camera's own zoom where it has one, else the middle of the picture, cropped. */
+  const [zoom, setZoom] = useState(1);
+  const hwZoom = useRef<{ min: number; max: number } | null>(null);
+  const [hwOk, setHwOk] = useState(false);
   const [caption, setCaption] = useState<{ text: string; y: number } | null>(null);
   const [editing, setEditing] = useState(false);
   const [placed, setPlaced] = useState<Placed[]>([]);
@@ -166,11 +178,17 @@ export function ChatCamera({
           if (String(err?.message ?? err).includes("denied")) throw new DOMException("denied", "NotAllowedError");
         });
         // A sharp picture first; if this phone's camera won't start that way, plainer.
-        const tries: (MediaTrackConstraints | true)[] = [{ facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } }, { facingMode: { ideal: facing } }, true];
+        // (zoom: true asks for the camera's own zoom; a phone without it ignores that.)
+        const tries: (MediaTrackConstraints | true)[] = [
+          { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1080 }, zoom: true } as MediaTrackConstraints,
+          { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          { facingMode: { ideal: facing } },
+          true,
+        ];
         for (const wanted of tries) {
           if (dead) return;
           try {
-            const media = await ask(wanted, 8000);
+            const media = await ask(wanted, 6000);
             stream.current = media;
             const node = video.current;
             if (!node) return;
@@ -178,7 +196,14 @@ export function ChatCamera({
             node.srcObject = media;
             void node.play().catch(() => undefined);
             if (await showing(node, 4000)) {
-              if (!dead) setLive(true);
+              if (dead) return;
+              // The camera's own zoom, if it has one (sharper than cropping).
+              const track = media.getVideoTracks()[0];
+              const caps = (track?.getCapabilities?.() ?? {}) as { zoom?: { min: number; max: number } };
+              hwZoom.current = caps.zoom && caps.zoom.max > caps.zoom.min && caps.zoom.min > 0 ? { min: caps.zoom.min, max: caps.zoom.max } : null;
+              setHwOk(Boolean(hwZoom.current));
+              setZoom(1);
+              setLive(true);
               return;
             }
             stop();
@@ -204,6 +229,32 @@ export function ChatCamera({
     };
   }, [facing, shot, attempt]);
 
+  // How much of the zoom the camera does itself, and how much is a crop of the middle.
+  const hwRange = hwOk && hwZoom.current ? hwZoom.current.max / hwZoom.current.min : 1;
+  const hwPart = Math.min(zoom, hwRange);
+  const cropZoom = zoom / hwPart;
+  useEffect(() => {
+    const track = stream.current?.getVideoTracks()[0];
+    const hw = hwZoom.current;
+    if (!live || !track || !hw || !hwOk) return;
+    const id = window.requestAnimationFrame(() => {
+      track.applyConstraints({ advanced: [{ zoom: Math.min(hw.max, hw.min * hwPart) } as MediaTrackConstraintSet] }).catch(() => {
+        // It said it could zoom, then couldn't: crop instead.
+        hwZoom.current = null;
+        setHwOk(false);
+      });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [hwOk, hwPart, live]);
+
+  // Two fingers on the picture zoom (1 to 3).
+  const fingers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ d0: number; z0: number } | null>(null);
+  const spread = () => {
+    const [a, b] = [...fingers.current.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+
   function retake() {
     setShot(null);
     setCaption(null);
@@ -215,10 +266,10 @@ export function ChatCamera({
   function take() {
     const node = video.current;
     if (!node || !node.videoWidth || !size.w) return;
-    // Crop to what was on screen (the preview fills it).
+    // Crop to what was on screen (the preview fills it), and to the zoom if it's a crop.
     const vw = node.videoWidth;
     const vh = node.videoHeight;
-    const scale = Math.max(size.w / vw, size.h / vh);
+    const scale = Math.max(size.w / vw, size.h / vh) * cropZoom;
     const cw = size.w / scale;
     const ch = size.h / scale;
     const sx = (vw - cw) / 2;
@@ -238,10 +289,26 @@ export function ChatCamera({
     g.drawImage(node, sx, sy, cw, ch, 0, 0, canvas.width, canvas.height);
     setFlash(true);
     window.setTimeout(() => setFlash(false), 180);
-    setShot({ src: canvas.toDataURL("image/jpeg", 0.9), w: canvas.width, h: canvas.height });
+    landed(canvas, true);
   }
 
-  function picked(file: File) {
+  /** A picture is in: show it now, and work on the good-camera version just after. */
+  function landed(canvas: HTMLCanvasElement, camera: boolean) {
+    const raw = canvas.toDataURL("image/jpeg", 0.9);
+    setShot({ raw, fine: null, camera, w: canvas.width, h: canvas.height });
+    if (!camera) return;
+    window.setTimeout(() => {
+      try {
+        enhancePhoto(canvas);
+        const fine = canvas.toDataURL("image/jpeg", 0.9);
+        setShot((cur) => (cur && cur.raw === raw ? { ...cur, fine } : cur));
+      } catch {
+        // Then it's sent as the camera took it.
+      }
+    }, 30);
+  }
+
+  function picked(file: File, camera = false) {
     const reader = new FileReader();
     reader.onload = async () => {
       try {
@@ -251,7 +318,7 @@ export function ChatCamera({
         canvas.width = Math.round(img.width * scale);
         canvas.height = Math.round(img.height * scale);
         canvas.getContext("2d")?.drawImage(img, 0, 0, canvas.width, canvas.height);
-        setShot({ src: canvas.toDataURL("image/jpeg", 0.9), w: canvas.width, h: canvas.height });
+        landed(canvas, camera);
       } catch {
         setError("Couldn't read that photo.");
       }
@@ -328,7 +395,7 @@ export function ChatCamera({
     setBusy(true);
     setEditing(false);
     try {
-      const img = await loadImage(shot.src);
+      const img = await loadImage(shown);
       const canvas = document.createElement("canvas");
       canvas.width = shot.w;
       canvas.height = shot.h;
@@ -373,10 +440,27 @@ export function ChatCamera({
     <div role="dialog" aria-label="Camera" className="fixed inset-0 z-[70] flex flex-col bg-black text-white">
       <div
         ref={box}
-        className="relative min-h-0 flex-1 overflow-hidden"
-        onPointerDown={() => {
+        className={"relative min-h-0 flex-1 overflow-hidden" + (shot ? "" : " touch-none")}
+        onPointerDown={(event) => {
           hadChosen.current = chosen != null;
           setChosen(null);
+          if (shot || !live) return;
+          fingers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+          if (fingers.current.size === 2) pinch.current = { d0: Math.max(1, spread()), z0: zoom };
+        }}
+        onPointerMove={(event) => {
+          if (!fingers.current.has(event.pointerId)) return;
+          fingers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+          const p = pinch.current;
+          if (p && fingers.current.size >= 2) setZoom(Math.max(1, Math.min(3, Math.round(p.z0 * (spread() / p.d0) * 10) / 10)));
+        }}
+        onPointerUp={(event) => {
+          fingers.current.delete(event.pointerId);
+          if (fingers.current.size < 2) pinch.current = null;
+        }}
+        onPointerCancel={(event) => {
+          fingers.current.delete(event.pointerId);
+          if (fingers.current.size < 2) pinch.current = null;
         }}
       >
         {!shot ? (
@@ -387,12 +471,18 @@ export function ChatCamera({
             muted
             autoPlay
             poster={NO_POSTER}
-            className={"absolute inset-0 size-full bg-black object-cover transition-opacity duration-200 " + (live ? "opacity-100" : "opacity-0") + (facing === "user" ? " -scale-x-100" : "")}
+            className={"absolute inset-0 size-full bg-black object-cover transition-opacity duration-200 " + (live ? "opacity-100" : "opacity-0")}
+            style={{
+              // A crop zoom is the middle of the picture, larger; the front camera is a mirror.
+              transform: `scale(${(facing === "user" ? -1 : 1) * cropZoom}, ${cropZoom})`,
+              // Roughly how it'll look made its best.
+              filter: enhance ? "contrast(1.06) saturate(1.16) brightness(1.03)" : undefined,
+            }}
           />
         ) : null}
         {shot && rect ? (
           <>
-            <img src={shot.src} alt="The picture you took" className="absolute" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }} />
+            <img src={shown} alt="The picture you took" className="absolute" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }} />
             {/* Tap the picture to write on it. */}
             <button type="button" aria-label="Add a caption" className="absolute" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }} onClick={() => (hadChosen.current ? undefined : startCaption())} />
             {caption ? (
@@ -477,6 +567,25 @@ export function ChatCamera({
             ))}
           </>
         ) : null}
+        {!shot && live ? (
+          <div className="absolute inset-x-0 bottom-4 flex justify-center gap-2" onPointerDown={(event) => event.stopPropagation()}>
+            {[1, 2, 3].map((step) => {
+              const near = zoom >= step - 0.5 && (step === 3 || zoom < step + 0.5);
+              return (
+                <button
+                  key={step}
+                  type="button"
+                  aria-label={`Zoom ${step}×`}
+                  aria-pressed={zoom === step}
+                  onClick={() => setZoom(step)}
+                  className={"grid h-9 min-w-9 place-items-center rounded-full px-2 text-xs font-semibold tabular-nums backdrop-blur-sm " + (near ? "bg-white/90 text-black" : "bg-black/45 text-white")}
+                >
+                  {near && zoom !== step ? `${zoom.toFixed(1)}×` : `${step}×`}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
         {flash ? <div className="pointer-events-none absolute inset-0 bg-white" /> : null}
         {error && !shot ? (
           <div className="absolute inset-x-6 top-1/2 -translate-y-1/2 rounded-2xl bg-white/10 p-4 text-center text-sm">
@@ -514,6 +623,17 @@ export function ChatCamera({
               <button type="button" aria-label="Stickers" onClick={() => setTray(true)} className={round}>
                 <Smile className="size-5" />
               </button>
+              {shot.camera ? (
+                <button
+                  type="button"
+                  aria-label={enhance ? "Made to look its best (tap for as taken)" : "As taken (tap to make it look its best)"}
+                  aria-pressed={enhance}
+                  onClick={() => setEnhance(!enhance)}
+                  className={round + (enhance ? " text-yellow-300" : " opacity-80")}
+                >
+                  <Sparkles className="size-5" />
+                </button>
+              ) : null}
               {canPlace ? (
                 <button type="button" aria-label={withPlace ? "Sending where you are (tap to leave it off)" : "Not sending where you are (tap to add it)"} aria-pressed={withPlace} onClick={() => setWithPlace((v) => !v)} className={round}>
                   {withPlace ? <MapPin className="size-5" /> : <MapPinOff className="size-5 opacity-70" />}
@@ -521,9 +641,20 @@ export function ChatCamera({
               ) : null}
             </div>
           ) : (
-            <button type="button" aria-label="Flip the camera" onClick={() => setFacing((f) => (f === "user" ? "environment" : "user"))} className={round}>
-              <RefreshCw className="size-5" />
-            </button>
+            <div className="flex flex-col gap-2">
+              <button type="button" aria-label="Flip the camera" onClick={() => setFacing((f) => (f === "user" ? "environment" : "user"))} className={round}>
+                <RefreshCw className="size-5" />
+              </button>
+              <button
+                type="button"
+                aria-label={enhance ? "Making pictures look their best (tap to turn off)" : "Pictures as taken (tap to make them look their best)"}
+                aria-pressed={enhance}
+                onClick={() => setEnhance(!enhance)}
+                className={round + (enhance ? " text-yellow-300" : " opacity-80")}
+              >
+                <Sparkles className="size-5" />
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -560,7 +691,7 @@ export function ChatCamera({
         onChange={(event) => {
           const file = event.target.files?.[0];
           event.target.value = "";
-          if (file) picked(file);
+          if (file) picked(file, true);
         }}
       />
       <input
